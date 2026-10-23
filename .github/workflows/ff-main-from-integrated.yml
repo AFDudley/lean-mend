@@ -1,0 +1,46 @@
+name: Fast-forward main
+
+# exophial advances `integrated`. This workflow fast-forwards `main` onto it,
+# so `main` holds only commits that passed the exophial gate. It never merges
+# and never forces: a `main` that is not an ancestor of `integrated` fails the
+# run and names the problem. The pattern is exophial's own
+# .github/workflows/ff-main-from-integrated.yml. lean-mend's `main` has no
+# ruleset, so GITHUB_TOKEN can push it and no deploy key is needed.
+
+on:
+  push:
+    branches:
+      - integrated
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fast-forward:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ff-main
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fast-forward main onto integrated
+        run: |
+          set -euo pipefail
+          git fetch origin main integrated
+          INTEGRATED=$(git rev-parse origin/integrated)
+          MAIN=$(git rev-parse origin/main)
+          echo "integrated = ${INTEGRATED}"
+          echo "main       = ${MAIN}"
+          if [ "${INTEGRATED}" = "${MAIN}" ]; then
+            echo "Already equal; nothing to fast-forward."
+            exit 0
+          fi
+          if ! git merge-base --is-ancestor "${MAIN}" "${INTEGRATED}"; then
+            echo "::error::main (${MAIN}) is NOT an ancestor of integrated (${INTEGRATED}). Refusing to merge or force."
+            exit 1
+          fi
+          git push origin "${INTEGRATED}:refs/heads/main"

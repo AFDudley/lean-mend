@@ -1,2 +1,8 @@
 /.lake
 .scratch/
+
+# exophial runtime: keep only the committed per-repo config
+.exophial/*
+!.exophial/config.yaml
+.worktrees/
+.pebbles/reducer_ledger.jsonl
