@@ -71,13 +71,13 @@ shows the break and its repair.
 
 | Class | Typical diagnostic | Typical candidates |
 |---|---|---|
-| `unknownIdentifier` | `unknown identifier 'X'` / `unknown constant 'X'` | the alias target; a moved name from a rule |
-| `unknownNamespace` | `unknown namespace 'X'` in `open` | the moved namespace |
-| `missingDecidable` | `failed to synthesize Decidable` at a `match` on a literal | `match` on `p.val`; an `if` with `decide` |
-| `typeMismatch` | `type mismatch`, for example between the literal forms `UInt256.ofNat N` and `{ val := N }`, or between `↑i` and `i.val` for `Fin` | literal forms: `rfl` → `by decide`, `show` with the other form, `simp only` with the constructor lemma; `Fin`: `Fin.val_cast_of_lt`, explicit `.val` |
-| `simpNoProgress` | `simp made no progress` | `simp [Id.run]`; the named lemma that left the default set |
-| `unsolvedGoals` | `unsolved goals` after `simp`, `omega` or `decide` | the tactic with the lemma set from a rule; `first | … | …` chains |
-| `heartbeat` | `(deterministic) timeout … maxHeartbeats` | `set_option maxHeartbeats N in`, with N from the rule |
+| `unknownIdentifier` | kind `lean.unknownIdentifier._namedError`; text `Unknown identifier` / `unknown constant` | the alias target; a moved name from a rule |
+| `unknownNamespace` | text `unknown namespace` in `open` | the moved namespace |
+| `missingDecidable` | kind `lean.synthInstanceFailed._namedError` with `Decidable` in the text | `match` on `p.val`; an `if` with `decide` |
+| `typeMismatch` | text `Type mismatch`, for example between the literal forms `UInt256.ofNat N` and `{ val := N }`, or between `↑i` and `i.val` for `Fin` | literal forms: `rfl` → `by decide`, `show` with the other form, `simp only` with the constructor lemma; `Fin`: `Fin.val_cast_of_lt`, explicit `.val` |
+| `simpNoProgress` | text `` `simp` made no progress `` | `simp [Id.run]`; the named lemma that left the default set |
+| `unsolvedGoals` | kind `Tactic.unsolvedGoals` | the tactic with the lemma set from a rule; `first | … | …` chains |
+| `heartbeat` | kind `runtime.maxHeartbeats` | `set_option maxHeartbeats N in`, with N from the rule |
 | `wallclock` | a timeout without `deterministic` | no candidates; see [machine.md](machine.md) |
 | `unknown` | anything else | no candidates; residue |
 
@@ -85,8 +85,14 @@ shows the break and its repair.
 separate a literal-form mismatch from a `Fin` coercion mismatch. The rule
 patterns separate them, by the syntax node at the site (concept B9).
 
-`classify` is a pure function of the diagnostic and the syntax node. It does
-not use the rule set. A class with no rules is still a class.
+`classify` is a pure function of the diagnostic. Lean's message `kind`
+decides first, because it does not depend on wording. Where Lean names no kind
+(`[anonymous]`), the text decides, compared without case. The first version
+compared lowercase text only and put three classes into `unknown`, because Lean
+prints `Unknown identifier`, `Type mismatch` and `` `simp` made no progress ``.
+`tests/fixtures/diagnostics/` holds the real output of v4.29.0 and v4.35.0,
+and `tests/ClassifyTest.lean` checks every class against it. `classify` does not
+use the rule set. A class with no rules is still a class.
 
 ## Attribution by bisect
 

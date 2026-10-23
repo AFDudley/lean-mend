@@ -74,7 +74,12 @@ structure Diagnostic where
   module : String
   line : Nat
   column : Nat
+  endLine : Nat
+  endColumn : Nat
   severity : Severity
+  /-- Lean's message kind, for example `lean.unknownIdentifier._namedError`.
+  `[anonymous]` when Lean names none. -/
+  kind : String
   text : String
   deriving Repr
 

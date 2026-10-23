@@ -5,5 +5,6 @@ import LeanMend.Core.Classify
 import LeanMend.Core.Mend
 import LeanMend.Core.Compare
 import LeanMend.Core.Run
+import LeanMend.Shell.Parse
 
 /-! The root of the `LeanMend` library. See `docs/architecture.md` § Layout. -/

@@ -27,8 +27,9 @@ def declB : Decl :=
     bodyHash := "b2", axioms := [] }
 
 def site (m : String) : Site :=
-  { diagnostic := { module := m, line := 3, column := 2, severity := .error,
-                    text := "unknown identifier 'Old.f'" },
+  { diagnostic := { module := m, line := 3, column := 2, endLine := 3, endColumn := 7,
+                    severity := .error, kind := "lean.unknownIdentifier._namedError",
+                    text := "Unknown identifier `Old.f`" },
     decl := s!"{m}.f", start := 10, stop := 15 }
 
 def cand (tokens : List String) : Candidate :=
@@ -58,7 +59,9 @@ def tour : List (String × RunObs) :=
     ("done", .judgment { card := "c-1", kind := .behavior, subject := "A.f",
                          answer := .accept, author := "tour", at_ := "t0" }) ]
 
-def main : IO UInt32 := do
+namespace Tour
+
+def run : IO Nat := do
   let mut s := RunState.idle "target"
   let mut failed := 0
   for (want, o) in tour do
@@ -71,4 +74,6 @@ def main : IO UInt32 := do
     IO.println s!"residue: {residue}"
     unless residue == ["B"] do failed := failed + 1
   | _ => failed := failed + 1
-  return if failed == 0 then 0 else 1
+  return failed
+
+end Tour

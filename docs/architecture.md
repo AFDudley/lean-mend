@@ -26,7 +26,7 @@ LeanMend/
   * Compare.lean     baseline × after → findings; compare_nil
     Propose.lean     Site × rules × AliasMap → ordered candidates
   Shell/         IO. Parsing at the edge, Lake, git, files, the ledger.
-    Parse.lean       JSON → typed operands, once (concept B2)
+  * Parse.lean       JSON → typed operands, once (concept B2)
     Lake.lean        build, per-module diagnostics
     Probe.lean       runs the probe under the target toolchain
     Edit.lean        applies a candidate as a byte-range replacement
@@ -40,7 +40,10 @@ probe/
 rules/
   *.json         ratified rules; proposed rules in rules/proposed/
 tests/
-* Tour.lean      the tour of the pure machine; `lake test` runs it
+* Main.lean      the `lake test` driver
+* Tour.lean      the tour of the pure machine
+* ClassifyTest.lean  classify on recorded `lean --json` output
+* NoSorry.lean   no LeanMend constant depends on sorryAx (the gate runs it)
   fixtures/      small Lake projects, each with a known break
 ```
 

@@ -1,12 +1,17 @@
 name = "LeanMend"
 version = "0.1.0"
 defaultTargets = ["LeanMend"]
-testDriver = "tour"
+testDriver = "tests"
 
 [[lean_lib]]
 name = "LeanMend"
 
 [[lean_exe]]
-name = "tour"
+name = "tests"
 srcDir = "tests"
-root = "Tour"
+root = "Main"
+
+[[lean_lib]]
+name = "Tests"
+srcDir = "tests"
+roots = ["Tour", "ClassifyTest"]
