@@ -1,0 +1,90 @@
+# Decisions
+
+## D1. lean-mend is written in Lean, end to end
+
+**Decision.** Spec, core and shell are Lean 4 in one Lake package.
+
+**Reasons.**
+- The operator decided "use Lean to build the machine".
+- The Lean-first rulings (sessions `01a162aa` and `01a16286`, 2026-10-22) make
+  Lean the specification substrate. A gap becomes a definition that cannot be
+  written.
+- The domain is Lean. Its parser, its JSON and its process API are in core
+  Lean.
+- With one language, the boundary between spec and implementation is one
+  theorem per core function, not a translation.
+
+**Rejected.** Bend2 for the core with a Python shell, as in exophial4
+(`docs/labbook/bend2-for-the-core-and-lean-for-the-specs.md`). For lean-mend
+that adds a second language and a second toolchain pin, and Lean already
+reaches the shell.
+
+## D2. lean-mend pins Lean v4.35.0
+
+The newest stable release on 2026-10-23. lean-mend itself has no Mathlib
+dependency, so a bump of lean-mend is cheap, and lean-mend mends itself.
+
+## D3. A probe crosses the version boundary
+
+The machine never imports a target module. A small probe runs under the
+target's toolchain and writes JSON (see [architecture.md](architecture.md)).
+The `.olean` format and the internal API differ between releases, so no other
+design reads statements, axioms or syntax from a target at another version.
+
+## D4. Lake owns the target build
+
+lean-mend calls `lake build`, and `lake env lean --json` only for diagnostics
+of a failing module. It does not write `.olean` files itself. Lake's traces
+stay valid, and a person can run `lake build` on the mend branch with the same
+result.
+
+## D5. No statement edit, except an alias rename
+
+The edit type cannot address a statement region. The one exception is the
+replacement of a deprecated name by its alias target, which the probe proves
+from `@[deprecated]`. This makes part 1 of the invariant hold by construction.
+
+## D6. The scheduled form is a CI workflow in the target
+
+The workflow runs `lean-update` or `lean-bump`, then `lean-mend run --adopt`
+on a red build, and opens one pull request with the open cards. lean-mend does
+not move pins (out of scope). A person answers the cards on the pull request.
+
+## D7. The Goedel workbook scripts are not reused
+
+`mike1729/goedel-workbook-lean427` is regex over text in Python, with one
+commit and no tests. lean-mend takes its method (compile, classify, repair by
+class, compile again; `first | … | skip` chains) and none of its code.
+
+## D8. The name
+
+`lean-mend`. `lean-bump` (paulbutcher/lean-bump) and `lean-up` (Lean-zh) are
+taken. `leanmigrate` is an unrelated SQL tool.
+
+## D9. Human judgments are cards
+
+Definition changes, axiom differences and rule ratification go to cards (see
+[verification.md](verification.md)). No count of automated successes replaces
+a card.
+
+# Open questions
+
+**Q1. Which statement identity across toolchains?** The source statement hash
+is stable when lean-mend does not edit statements, but it does not detect a
+statement whose meaning changed because a notation or a coercion changed
+upstream. The elaborated type detects that, and also differs for harmless
+reasons. Choice to make: report only (the current design), or a card for
+every elaborated-type difference.
+
+**Q2. Deprecation warnings.** A deprecated name is a warning at the bump where
+it is deprecated, and an error when it is deleted, often several releases
+later. lean-mend could rename deprecated uses before they break. The current
+design repairs errors only.
+
+**Q3. How residue reaches an agent.** Options: a residue packet as an exophial
+intake in the lean-mend repository, or a direct agent call from the CLI. The
+fixed runner is the same in both.
+
+**Q4. Bisect cost on Mathlib.** Each step needs the Mathlib cache for that
+commit. Old commits can lose their cache. A step without a cache is "unknown"
+in the bisection, so attribution can stop at a range, not a commit.

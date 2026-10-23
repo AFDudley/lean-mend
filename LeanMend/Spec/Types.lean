@@ -1,0 +1,164 @@
+/-!
+# Operands
+
+The typed operands of the machine. See `docs/machine.md` § Operands and
+`docs/glossary.md`. The shell parses raw input into these types once, at the
+edge (concept B2). This module has no IO.
+-/
+
+namespace LeanMend
+
+/-- A Lean release, as written in `lean-toolchain`. -/
+structure Toolchain where
+  name : String
+  deriving DecidableEq, Repr
+
+/-- The kind of a declaration, as the probe reports it. -/
+inductive DeclKind where
+  | «theorem» | «def» | «instance» | «abbrev» | «axiom» | other
+  deriving DecidableEq, Repr
+
+/-- A definition change can change what the target computes (`docs/glossary.md`). -/
+def DeclKind.computes : DeclKind → Bool
+  | .def | .instance | .abbrev => true
+  | _ => false
+
+/-- One declaration in a certificate. -/
+structure Decl where
+  name : String
+  module : String
+  kind : DeclKind
+  /-- SHA-256 of the statement region, after the alias map. -/
+  statementHash : String
+  /-- SHA-256 of the body region. -/
+  bodyHash : String
+  axioms : List String
+  deriving DecidableEq, Repr
+
+/-- A record of a target at one toolchain (`docs/verification.md`). -/
+structure Certificate where
+  toolchain : Toolchain
+  built : List String
+  decls : List Decl
+  deriving Repr
+
+/-- Old name to final new name, from `@[deprecated]` under the new toolchain. -/
+structure AliasMap where
+  pairs : List (String × String)
+  deriving Repr
+
+/-- The name a baseline declaration has after the alias map. -/
+def AliasMap.rename (m : AliasMap) (n : String) : String :=
+  (m.pairs.lookup n).getD n
+
+/-- The error classes. The type is closed: a new class is a change here, and
+the type checker then finds every function that must handle it (concept B4). -/
+inductive ErrorClass where
+  | unknownIdentifier
+  | unknownNamespace
+  | missingDecidable
+  | typeMismatch
+  | simpNoProgress
+  | unsolvedGoals
+  | heartbeat
+  | wallclock
+  | unknown
+  deriving DecidableEq, Repr
+
+inductive Severity where
+  | error | warning | information
+  deriving DecidableEq, Repr
+
+/-- One message from `lean --json`. Raw input, parsed once. -/
+structure Diagnostic where
+  module : String
+  line : Nat
+  column : Nat
+  severity : Severity
+  text : String
+  deriving Repr
+
+/-- A failing position, with the syntax node the probe found for it. -/
+structure Site where
+  diagnostic : Diagnostic
+  /-- The declaration that contains the site. -/
+  decl : String
+  /-- Byte range of the smallest syntax node that contains the error. -/
+  start : Nat
+  stop : Nat
+  deriving Repr
+
+inductive Entrenchment where
+  | derived | ratified | proposed
+  deriving DecidableEq, Repr
+
+/-- Where an edit may go. There is no constructor for a statement region, so an
+edit to a statement cannot be built (decision D5, concept B1). -/
+inductive EditTarget where
+  /-- Inside the body region of the named declaration. -/
+  | body (decl : String)
+  /-- Replace a deprecated name by its alias target, anywhere. -/
+  | aliasRename (old new : String)
+  deriving Repr
+
+/-- One edit that a rule proposes for one site. -/
+structure Candidate where
+  rule : String
+  entrenchment : Entrenchment
+  target : EditTarget
+  start : Nat
+  stop : Nat
+  replacement : String
+  /-- The atoms and identifiers of the parsed replacement, from the probe. -/
+  tokens : List String
+  deriving Repr
+
+/-- Tokens a candidate may not add (`docs/verification.md`, structural checks). -/
+def forbiddenTokens : List String :=
+  ["sorry", "admit", "axiom", "native_decide", "implemented_by", "extern",
+   "unsafe", "opaque"]
+
+/-- The structural check on a candidate's syntax. -/
+def Candidate.clean (c : Candidate) : Bool :=
+  c.tokens.all (fun t => !forbiddenTokens.contains t)
+
+/-- An accepted patch. It cannot be built without its evidence (concept D4). -/
+structure Accepted where
+  candidate : Candidate
+  errorsBefore : Nat
+  errorsAfter : Nat
+  fell : errorsAfter < errorsBefore
+  clean : candidate.clean = true
+
+/-- Card kinds (`docs/verification.md`). -/
+inductive CardKind where
+  | behavior | violation | spec | decision | held
+  deriving DecidableEq, Repr
+
+inductive Answer where
+  | accept | reject
+  deriving DecidableEq, Repr
+
+/-- A judgment a person made on a card (concept C6). -/
+structure Judgment where
+  card : String
+  kind : CardKind
+  /-- The declaration or rule the card is about. -/
+  subject : String
+  answer : Answer
+  author : String
+  at_ : String
+  deriving DecidableEq, Repr
+
+/-- Why a transition cannot advance (concept B5). -/
+inductive Refusal where
+  | baselineRed (modules : List String)
+  | aliasCycle (name : String)
+  | dependencyRed (pkg : String)
+  | hostTimeout (module : String)
+  | observationMismatch (detail : String)
+  | invariantBroken (module : String)
+  | unknownCard (card : String)
+  deriving Repr
+
+end LeanMend
