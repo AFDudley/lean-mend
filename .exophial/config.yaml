@@ -8,9 +8,9 @@ dispatcher:
 
 # Commit-boundary acceptance gate the integrator re-runs in-worktree for pebbles
 # with NO linked spec (a linked spec is graded in-process by spec_oracle.run_spec).
-# gate:
-#   command: ["your-static-gate-command"]
-#   timeout: 1800
+gate:
+  command: ["scripts/gate.sh"]
+  timeout: 1800
 
 # Where `exophial spec generate` writes unified spec instances (repo-relative).
 spec_dir: "contracts/specs"

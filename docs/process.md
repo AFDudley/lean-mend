@@ -42,6 +42,14 @@ the lean-mend source.
 
 ## Repository gates
 
-The commit gate runs `lake build`, `lake test` and the boundary and
-vocabulary checks. exophial runs this gate for every change in this
-repository; `repo_parameters.json` declares it.
+`scripts/gate.sh` is the commit gate. `.exophial/config.yaml` names it as
+`gate.command`, and exophial runs it in the branch worktree before each
+merge. It runs, in order:
+
+1. the boundary check: no `Spec` or `Core` module imports a `Shell` module;
+2. `lake build`;
+3. `tests/NoSorry.lean`: no `LeanMend` constant depends on `sorryAx`;
+4. `lake test`: the tour;
+5. `tests/probe-matrix.sh`: the probe under every supported toolchain.
+
+The vocabulary check (stratum 0) is not in the gate yet.
