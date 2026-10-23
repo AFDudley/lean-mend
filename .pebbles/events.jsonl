@@ -20,3 +20,8 @@
 {"type":"comment","timestamp":"2026-10-23T21:13:57.959436Z","issue_id":"lea-6f7","payload":{"body":"exophial-integration-attempt-started: at ca855a7c2ec629ac30769549b9018f712b0ecd90"}}
 {"type":"comment","timestamp":"2026-10-23T21:13:59.772431Z","issue_id":"lea-6f7","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
 {"type":"close","timestamp":"2026-10-23T21:13:59.772763Z","issue_id":"lea-6f7","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
+{"type":"create","timestamp":"2026-10-23T21:18:16.025839Z","issue_id":"lea-ebd","payload":{"description":"Operator-authored branch `shell`, landed via `exophial integrate --branch` — no pebble id already tracked it.","priority":"2","title":"land: shell","type":"task"}}
+{"type":"comment","timestamp":"2026-10-23T21:18:16.026351Z","issue_id":"lea-ebd","payload":{"body":"branch-identity: shell"}}
+{"type":"comment","timestamp":"2026-10-23T21:19:17.806666Z","issue_id":"lea-ebd","payload":{"body":"exophial-integration-attempt-started: at 66a38041b10ca85eca5745b3aa930a2c9a41c764"}}
+{"type":"comment","timestamp":"2026-10-23T21:19:19.482730Z","issue_id":"lea-ebd","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
+{"type":"close","timestamp":"2026-10-23T21:19:19.483064Z","issue_id":"lea-ebd","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
