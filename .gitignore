@@ -4,5 +4,7 @@
 # exophial runtime: keep only the committed per-repo config
 .exophial/*
 !.exophial/config.yaml
+!.exophial/gate/
+!.exophial/gate/Dockerfile
 .worktrees/
 .pebbles/reducer_ledger.jsonl
