@@ -50,9 +50,15 @@ For one site, the candidates come from every matching rule, in this order
 (concept C3):
 
 1. **Derived** rules. The alias map makes one rule per deprecated name: replace
-   the old name with the final new name. The probe computes the map from the
-   new toolchain at each run (brief item 4). A chain `a → b → c` resolves to
-   `a → c`. A cycle is the refusal `AliasCycle`.
+   the old name with the final new name (brief item 4). A chain `a → b → c`
+   resolves to `a → c`. A cycle is the refusal `AliasCycle`.
+
+   The new toolchain alone is not a sufficient source. A deprecated alias
+   makes a warning, not an error, while it exists. Lean, Batteries and
+   Mathlib delete aliases some months later, and only then does the use fail.
+   A bump across several releases therefore meets errors whose aliases exist
+   only in the releases between the old and the new pin. The probe runs
+   `deprecated` at each of those releases, and the map is the union.
 2. **Ratified** rules, in file-name order inside one class.
 3. **Proposed** rules, only if the run sets `--with-proposed`. A patch from a
    proposed rule gets a card.

@@ -69,16 +69,20 @@ JSON to stdout. Its commands:
 
 | Command | Output |
 |---|---|
-| `imports <file>` | the module's imports, from its header |
-| `syntax <file>` | each command's syntax tree: node kinds and byte ranges, and the statement and body regions of each declaration |
-| `certificate <module>…` | for each declaration: name, kind, statement text, statement hash, axioms (the method of `#print axioms`) |
-| `deprecated` | every `@[deprecated]` declaration with its new name, from `Lean.Linter.deprecatedAttr` |
-| `goal <file> <pos>` | the goal state at a position, from the info tree, for a residue packet |
+| `imports <file>…` | each file's imports, from its parsed header |
+| `decls <module> <file>` | for each declaration of the built module: name, kind, statement text and byte range, body text and byte range, axioms (by `collectAxioms`, the method of `#print axioms`) |
+| `deprecated <module>…` | every `@[deprecated]` declaration in the environment of the modules, with its new name, from `Lean.Linter.deprecatedAttr` |
+| `goal <file> <pos>` | not built yet: the goal state at a position, from the info tree, for a residue packet |
 
-The probe uses only stable core API, so one source compiles under every
-supported toolchain. CI compiles and runs the probe under each supported
-toolchain, from v4.29.0 to the current release. A toolchain that breaks the
-probe is a red gate, and a release note names it.
+The probe names no position type. v4.35.0 removed `String.Range` and made
+`String.Pos` depend on its string, so the probe reads positions only through
+`Syntax.getPos?`, `Syntax.getTailPos?` and `.byteIdx`, and slices UTF-8 bytes.
+A declaration with an empty signature (`abbrev T := Nat`) gets an empty
+statement range at the start of its body.
+
+`tests/probe-matrix.sh` compiles and runs the probe under v4.29.0, v4.33.1 and
+v4.35.0 against `tests/fixtures/probe-basic`, and checks each command's
+output. A toolchain that breaks the probe is a red gate.
 
 ## Building the target
 
