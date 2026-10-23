@@ -3,3 +3,8 @@
 {"type":"comment","timestamp":"2026-10-23T20:54:37.284159Z","issue_id":"lea-7c5","payload":{"body":"exophial-integration-attempt-started: at 25bb867217df1c1daf7a33f1f93ddc865f12b79d"}}
 {"type":"comment","timestamp":"2026-10-23T20:54:39.161398Z","issue_id":"lea-7c5","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
 {"type":"close","timestamp":"2026-10-23T20:54:39.161638Z","issue_id":"lea-7c5","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
+{"type":"create","timestamp":"2026-10-23T20:56:34.573971Z","issue_id":"lea-491","payload":{"description":"Operator-authored branch `gate`, landed via `exophial integrate --branch` — no pebble id already tracked it.","priority":"2","title":"land: gate","type":"task"}}
+{"type":"comment","timestamp":"2026-10-23T20:56:34.574352Z","issue_id":"lea-491","payload":{"body":"branch-identity: gate"}}
+{"type":"comment","timestamp":"2026-10-23T20:56:34.592658Z","issue_id":"lea-491","payload":{"body":"exophial-integration-attempt-started: at a4639cf9c283e67e312031de9a16b2b170986261"}}
+{"type":"comment","timestamp":"2026-10-23T20:56:36.366355Z","issue_id":"lea-491","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
+{"type":"close","timestamp":"2026-10-23T20:56:36.366967Z","issue_id":"lea-491","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
