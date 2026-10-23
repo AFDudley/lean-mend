@@ -1,0 +1,5 @@
+{"type":"create","timestamp":"2026-10-23T20:54:37.274611Z","issue_id":"lea-7c5","payload":{"description":"Operator-authored branch `probe`, landed via `exophial integrate --branch` — no pebble id already tracked it.","priority":"2","title":"land: probe","type":"task"}}
+{"type":"comment","timestamp":"2026-10-23T20:54:37.274956Z","issue_id":"lea-7c5","payload":{"body":"branch-identity: probe"}}
+{"type":"comment","timestamp":"2026-10-23T20:54:37.284159Z","issue_id":"lea-7c5","payload":{"body":"exophial-integration-attempt-started: at 25bb867217df1c1daf7a33f1f93ddc865f12b79d"}}
+{"type":"comment","timestamp":"2026-10-23T20:54:39.161398Z","issue_id":"lea-7c5","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
+{"type":"close","timestamp":"2026-10-23T20:54:39.161638Z","issue_id":"lea-7c5","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
