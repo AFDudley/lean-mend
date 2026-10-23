@@ -142,4 +142,10 @@ def RunState.step : RunState → RunObs → RunState
     else .halted (.unknownCard j.card)
   | _, _ => .halted (.observationMismatch "observation does not fit the state")
 
+/-- The state's name, for reports and tests. -/
+def RunState.tag : RunState → String
+  | .idle .. => "idle" | .baselined .. => "baselined" | .built .. => "built"
+  | .mending .. => "mending" | .awaiting .. => "awaiting" | .done .. => "done"
+  | .halted r => s!"halted {repr r}"
+
 end LeanMend

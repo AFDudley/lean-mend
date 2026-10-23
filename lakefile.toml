@@ -9,9 +9,13 @@ name = "LeanMend"
 [[lean_exe]]
 name = "tests"
 srcDir = "tests"
-root = "Main"
+root = "TestMain"
 
 [[lean_lib]]
 name = "Tests"
 srcDir = "tests"
 roots = ["Tour", "ClassifyTest"]
+
+[[lean_exe]]
+name = "lean-mend"
+root = "Main"

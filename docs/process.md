@@ -29,6 +29,9 @@ the lean-mend source.
 
 ## Order of work
 
+Done: step 1; step 2; in step 3, the `baseline` transition against a real
+target (`lean-mend baseline`, `tests/baseline.sh`).
+
 1. Strata 0 to 2 for level 1. These documents are the start of stratum 0.
 2. The probe, compiled and run under v4.29.0, v4.33.1 and v4.35.0. Without the
    probe there is no certificate and no site.

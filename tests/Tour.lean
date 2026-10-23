@@ -11,11 +11,6 @@ imports `A`) then fails with no candidate and becomes residue.
 
 open LeanMend
 
-def LeanMend.RunState.tag : RunState → String
-  | .idle .. => "idle" | .baselined .. => "baselined" | .built .. => "built"
-  | .mending .. => "mending" | .awaiting .. => "awaiting" | .done .. => "done"
-  | .halted r => s!"halted {repr r}"
-
 def tc (n : String) : Toolchain := ⟨n⟩
 
 def declA (body : String) : Decl :=

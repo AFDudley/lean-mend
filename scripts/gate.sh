@@ -13,6 +13,7 @@ fi
 
 echo "== lake build"
 lake build
+lake build lean-mend
 
 echo "== no LeanMend constant depends on sorryAx (docs/verification.md)"
 lake env lean tests/NoSorry.lean
@@ -22,3 +23,6 @@ lake test
 
 echo "== probe matrix"
 tests/probe-matrix.sh
+
+echo "== lean-mend baseline on a real target"
+tests/baseline.sh

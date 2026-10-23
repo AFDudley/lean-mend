@@ -24,17 +24,17 @@ LeanMend/
   * Mend.lean        level 2: Mending, next, step, measure
   * Run.lean         level 1: RunState, frontier, Settled, alias resolve, step
   * Compare.lean     baseline × after → findings; compare_nil
+  * Graph.lean       module-graph order (topoOrder); a cycle is a refusal
     Propose.lean     Site × rules × AliasMap → ordered candidates
   Shell/         IO. Parsing at the edge, Lake, git, files, the ledger.
   * Parse.lean       JSON → typed operands, once (concept B2)
-    Lake.lean        build, per-module diagnostics
-    Probe.lean       runs the probe under the target toolchain
+  * Target.lean      processes, the probe (embedded by include_str), module graph, per-module lake build, certificate
     Edit.lean        applies a candidate as a byte-range replacement
     Git.lean         the mend branch and attempt worktrees
     Ledger.lean      append and replay
     Cards.lean       writes cards, reads judgments
     Driver.lean      the composition root (concept A3)
-  Main.lean      the `lean-mend` executable
+* Main.lean      the `lean-mend` executable; today only `lean-mend baseline <target>`
 probe/
   Probe.lean     runs under the TARGET toolchain; writes JSON
 rules/
@@ -44,6 +44,7 @@ tests/
 * Tour.lean      the tour of the pure machine
 * ClassifyTest.lean  classify on recorded `lean --json` output
 * NoSorry.lean   no LeanMend constant depends on sorryAx (the gate runs it)
+* baseline.sh    `lean-mend baseline` on the fixture under v4.33.1, intact and broken
   fixtures/      small Lake projects, each with a known break
 ```
 
@@ -92,8 +93,10 @@ output. A toolchain that breaks the probe is a red gate.
 Lake owns the target's build products and their traces. lean-mend does not
 replace Lake.
 
-1. `lake build` builds the dependency packages and the target. The shell reads
-   which target modules failed from Lake's exit and its job list.
+1. The shell runs `lake build <module>` for each target module, in graph
+   order. Lake builds the dependency packages on the first call. A module whose
+   target-internal import did not build is `blocked` and is not built. The
+   exit code of each call gives the status, so no Lake log text is parsed.
 2. For each failing frontier module, the shell runs
    `lake env lean --json <file>` and parses the diagnostics. This is the second
    compile of a failing module only.
