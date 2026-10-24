@@ -23,6 +23,8 @@ Commands:
   from one environment.
 * `regions <file>` — each declaration command of a file, parsed without
   elaboration: qualified name, command range, statement and body ranges.
+* `node <file> <offset>…` — for each offset, the syntax nodes that contain it,
+  innermost first, with kinds, ranges, and tokens for tactic nodes.
 * `deprecated <module>…` — `{"name", "newName"}` for every `@[deprecated]`
   declaration in the environment of the given modules.
 -/
@@ -126,6 +128,64 @@ partial def cmdRegions (file : String) : IO Unit := do
     loop st' msgs' scopes
   loop st0 msgs0 []
 
+/-- The nodes of `stx` that contain byte offset `pos`, outermost first. -/
+partial def pathTo (stx : Syntax) (pos : Nat) : List Syntax :=
+  let here := match byteRange stx with
+    | some (a, b) => a ≤ pos && pos < b
+    | none => false
+  if !here then []
+  else
+    match stx.getArgs.toList.findSome? fun c =>
+        let p := pathTo c pos
+        if p.isEmpty then none else some p with
+    | some p => stx :: p
+    | none => [stx]
+
+/-- The atoms and identifiers of `stx`, in source order, with byte ranges. -/
+partial def tokens (src : ByteArray) (stx : Syntax) : Array Json :=
+  match stx with
+  | .atom _ _ | .ident .. =>
+    match byteRange stx with
+    | some r => #[Json.mkObj [("text", toJson (textOf src r)), ("range", rangeJson r)]]
+    | none => #[]
+  | _ => stx.getArgs.foldl (fun acc c => acc ++ tokens src c) #[]
+
+/-- `node <file> <offset>`: the syntax nodes that contain a byte offset,
+innermost first: kind and byte range; tactic nodes (kind under
+`Lean.Parser.Tactic`) also carry their tokens. The file is parsed, not
+elaborated, with the environment of its imports plus `Init`. -/
+partial def cmdNode (file : String) (offsets : List Nat) : IO Unit := do
+  let src ← IO.FS.readFile file
+  let bytes := src.toUTF8
+  let ictx := Parser.mkInputContext src file
+  let (hdr, st0, msgs0) ← Parser.parseHeader ictx
+  let explicit := (nodesOfKind ``Parser.Module.import hdr.raw).filterMap fun imp =>
+    (imp.getArgs.find? (·.isIdent)).map (·.getId)
+  let isPrelude := !(nodesOfKind ``Parser.Module.prelude hdr.raw).isEmpty
+  let imports := if isPrelude then explicit else #[`Init] ++ explicit
+  let env ← importModules (imports.map fun n => { module := n }) {} (loadExts := true)
+  let pmctx : Parser.ParserModuleContext := { env, options := {} }
+  for offset in offsets do
+   let rec loop (st : Parser.ModuleParserState) (msgs : MessageLog) : IO Unit := do
+    let (stx, st', msgs') := Parser.parseCommand ictx pmctx st msgs
+    if Parser.isTerminalCommand stx then
+      throw <| IO.userError s!"no command contains byte {offset} of {file}"
+    match byteRange stx with
+    | some (a, b) =>
+      if a ≤ offset && offset < b then
+        let nodes := (pathTo stx offset).reverse.filterMap fun n =>
+          (byteRange n).map fun r =>
+            let k := n.getKind
+            let base := [("kind", toJson k.toString), ("range", rangeJson r)]
+            if (`Lean.Parser.Tactic).isPrefixOf k then
+              Json.mkObj (base ++ [("tokens", Json.arr (tokens bytes n))])
+            else Json.mkObj base
+        emit <| Json.mkObj [("file", toJson file), ("offset", toJson offset),
+                            ("nodes", Json.arr nodes.toArray)]
+      else loop st' msgs'
+    | none => loop st' msgs'
+   loop st0 msgs0
+
 /-- Declarations of many modules, from one environment: the modules are
 imported once, so a large target does not pay the import cost per module.
 `pairs` are (module, file). -/
@@ -187,8 +247,9 @@ unsafe def main (args : List String) : IO UInt32 := do
   | ["decls", m, f] => cmdDecls [(m, f)]
   | ["decls-batch", l] => cmdDeclsBatch l
   | ["regions", f] => cmdRegions f
+  | "node" :: f :: os => cmdNode f (os.map String.toNat!)
   | "deprecated" :: ms => cmdDeprecated ms
   | _ =>
-    IO.eprintln "usage: imports <file>… | decls <module> <file> | decls-batch <list> | regions <file> | deprecated <module>…"
+    IO.eprintln "usage: imports <file>… | decls <module> <file> | decls-batch <list> | regions <file> | node <file> <offset>… | deprecated <module>…"
     return 2
   return 0

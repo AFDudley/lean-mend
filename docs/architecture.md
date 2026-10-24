@@ -26,6 +26,7 @@ LeanMend/
   * Compare.lean     baseline × after → findings; compare_nil
   * Graph.lean       module-graph order (topoOrder); a cycle is a refusal
   * Propose.lean     Site × AliasMap → ordered candidates (derived alias rules only); AliasMap.normalize
+  * Ops.lean         EditOp on a tactic node → replacement; ruleCandidates; proposeAll (derived, then ratified, then proposed)
   Shell/         IO. Parsing at the edge, Lake, git, files, the ledger.
   * Parse.lean       JSON → typed operands, once (concept B2)
   * Target.lean      processes, the probe (embedded by include_str), module graph, per-module lake build, certificate
@@ -46,6 +47,8 @@ tests/
 * NoSorry.lean   no LeanMend constant depends on sorryAx (the gate runs it)
 * baseline.sh    `lean-mend baseline` on the fixture under v4.33.1, intact and broken
 * rename.sh      `lean-mend run --adopt` on tests/fixtures/rename, with and without the alias source
+* simpset.sh     `lean-mend run --adopt --rules` on tests/fixtures/simpset: three classes, three operations, one Violation card
+* OpsTest.lean   edit operations at their edges, and the rule loader's refusals
   fixtures/      small Lake projects, each with a known break
 ```
 
@@ -78,6 +81,7 @@ JSON to stdout. Its commands:
 | `decls-batch <list>` | `decls` for every `module<TAB>file` line of the list, from one environment; the shell sends 200 modules per probe process |
 | `decls <module> <file>` | for each declaration of the built module: name, kind, statement text and byte range, body text and byte range, axioms (by `collectAxioms`, the method of `#print axioms`) |
 | `regions <file>` | each declaration command of a file, parsed without elaboration (so it works on a module that fails): qualified name, command range, statement and body ranges. The environment is the file's imports plus the implicit `Init`; notation defined in the same file does not parse |
+| `node <file> <offset>…` | for each offset, the syntax nodes that contain it, innermost first: kind and byte range; tactic nodes also carry their tokens with ranges. The shell asks at a site's start and its end, because an error such as `unsolved goals` is reported at `by` with a range over the whole block |
 | `deprecated <module>…` | every `@[deprecated]` declaration in the environment of the modules, with its new name, from `Lean.Linter.deprecatedAttr` |
 | `goal <file> <pos>` | not built yet: the goal state at a position, from the info tree, for a residue packet |
 
@@ -147,7 +151,7 @@ from an agent runs only through the fixed runner (concept C7).
 | Command | Effect |
 |---|---|
 | `lean-mend run <target> --to <toolchain>` | runs the machine from `Idle` to `Done` or `Halted` |
-| `lean-mend run <target> --adopt [--aliases-from <project>]…` | built: accepts a target that another tool already bumped; the baseline is `HEAD~1` in a detached worktree; each `--aliases-from` project adds its `@[deprecated]` aliases to the map; `--prepare <cmd>` runs in both trees before the build (for example `lake exe cache get`); `--targets` limits the Lake targets |
+| `lean-mend run <target> --adopt [--aliases-from <project>]…` | built: accepts a target that another tool already bumped; the baseline is `HEAD~1` in a detached worktree; each `--aliases-from` project adds its `@[deprecated]` aliases to the map; `--prepare <cmd>` runs in both trees before the build (for example `lake exe cache get`); `--targets` limits the Lake targets; `--rules <dir>` loads the rule files |
 | `lean-mend status <target>` | prints the state from the ledger |
 | `lean-mend cards <target>` | lists open cards |
 | `lean-mend judge <target> <card> accept\|reject --by <name>` | records a judgment |

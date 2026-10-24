@@ -1,0 +1,3 @@
+{ "name": "unsolved-simp-foo", "class": "unsolvedGoals", "entrenchment": "ratified",
+  "provenance": { "evidence": "fixture simpset: dep v2 drops @[simp] from foo_eq" },
+  "node": "simp", "candidates": [ { "op": "simpArgAdd", "lemma": "Dep.foo_eq" } ] }

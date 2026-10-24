@@ -29,3 +29,6 @@ tests/baseline.sh
 
 echo "== lean-mend run --adopt on the rename fixture"
 tests/rename.sh
+
+echo "== lean-mend run --adopt --rules on the simp-set fixture"
+tests/simpset.sh

@@ -48,27 +48,51 @@ def summary (s : RunState) : Json :=
     Json.mkObj [("state", toJson s.tag), ("residue", toJson residue), ("findings", findings fs)]
   | _ => Json.mkObj [("state", toJson s.tag)]
 
+structure RunOpts where
+  targets : List String := []
+  aliasesFrom : List System.FilePath := []
+  prepare : List String := []
+  rules : Option System.FilePath := none
+
+def usage : String :=
+  "usage: lean-mend baseline <target>\n" ++
+  "       lean-mend run <target> --adopt [--targets <t,…>] [--prepare <cmd>]\n" ++
+  "                 [--rules <dir>] [--aliases-from <project>]…"
+
+def parseOpts : List String → Option RunOpts
+  | [] => some {}
+  | "--aliases-from" :: p :: more => (parseOpts more).map fun o => { o with aliasesFrom := p :: o.aliasesFrom }
+  | "--targets" :: ts :: more => (parseOpts more).map fun o => { o with targets := ts.splitOn "," ++ o.targets }
+  | "--prepare" :: cmd :: more => (parseOpts more).map fun o => { o with prepare := (cmd.splitOn " ").filter (· ≠ "") }
+  | "--rules" :: d :: more => (parseOpts more).map fun o => { o with rules := some d }
+  | _ => none
+
+/-- Every `*.json` file of a rules directory, in file-name order, parsed. A file
+that does not parse stops the run (`docs/rules.md`). -/
+def loadRules (dir : System.FilePath) : IO (List Rule) := do
+  let files := ((← dir.readDir).map (·.path)).filter (·.extension == some "json")
+  let sorted := files.qsort (·.toString < ·.toString)
+  sorted.toList.mapM fun f => do
+    let txt ← IO.FS.readFile f
+    match Json.parse txt >>= Parse.rule with
+    | .ok r => pure r
+    | .error e => throw <| IO.userError s!"rule file {f}: {e}"
+
 def runCmd (t : String) (rest : List String) : IO UInt32 := do
-  -- (targets, alias sources, prepare command)
-  let rec opts : List String → Option (List String × List System.FilePath × List String)
-    | [] => some ([], [], [])
-    | "--aliases-from" :: p :: more => (opts more).map fun (t, ps, c) => (t, System.FilePath.mk p :: ps, c)
-    | "--targets" :: ts :: more => (opts more).map fun (t, ps, c) => (t ++ ts.splitOn ",", ps, c)
-    | "--prepare" :: cmd :: more => (opts more).map fun (t, ps, _) => (t, ps, (cmd.splitOn " ").filter (· ≠ ""))
-    | _ => none
   match rest with
   | "--adopt" :: more =>
-    match opts more with
-    | some (ts, ps, prep) =>
-      let s ← runAdopt t ts ps prep
+    match parseOpts more with
+    | some o =>
+      let rules ← match o.rules with
+        | some d => loadRules d
+        | none => pure []
+      let s ← runAdopt t o.targets o.aliasesFrom o.prepare rules
       IO.println (summary s).compress
       return match s with | .halted _ => 1 | _ => 0
-    | none => IO.eprintln "usage: lean-mend run <target> --adopt [--targets <t,…>] [--prepare <cmd>] [--aliases-from <project>]…"; return 2
-  | _ => IO.eprintln "usage: lean-mend run <target> --adopt [--targets <t,…>] [--prepare <cmd>] [--aliases-from <project>]…"; return 2
+    | none => IO.eprintln usage; return 2
+  | _ => IO.eprintln usage; return 2
 
 def main : List String → IO UInt32
   | ["baseline", t] => baseline t
   | "run" :: t :: rest => runCmd t rest
-  | _ => do
-    IO.eprintln "usage: lean-mend baseline <target> | lean-mend run <target> --adopt [--targets <t,…>] [--prepare <cmd>] [--aliases-from <project>]…"
-    return 2
+  | _ => do IO.eprintln usage; return 2

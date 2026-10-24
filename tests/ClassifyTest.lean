@@ -16,7 +16,7 @@ namespace ClassifyTest
 def expected : List (Nat × ErrorClass) :=
   [(1, .unknownNamespace), (2, .unknownIdentifier), (3, .typeMismatch),
    (4, .simpNoProgress), (5, .unsolvedGoals), (9, .missingDecidable),
-   (11, .heartbeat)]
+   (11, .heartbeat), (14, .noGoals)]
 
 def run : IO Nat := do
   let mut failed := 0

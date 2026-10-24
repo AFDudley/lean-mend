@@ -38,6 +38,7 @@ private def classOfText (t : String) : ErrorClass :=
   else if has t "type mismatch" then .typeMismatch
   else if has t "made no progress" then .simpNoProgress
   else if has t "unsolved goals" then .unsolvedGoals
+  else if has t "no goals to be solved" then .noGoals
   else .unknown
 
 /-- The error class of a diagnostic. -/

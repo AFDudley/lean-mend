@@ -9,3 +9,6 @@ instance : OfNat W n := ⟨⟨n⟩⟩
 def e (w : W) : Bool := if w = 1 then true else false
 set_option maxHeartbeats 1 in
 theorem h : (List.range 200).length = 200 := by simp
+example : True := by
+  trivial
+  decide

@@ -91,4 +91,70 @@ def lines {α} (p : Json → Except String α) (out : String) : Except String (L
     | .ok v => .ok v
     | .error e => .error s!"line {i + 1}: {e}"
 
+private def pair (j : Json) (k : String) : Except String (Nat × Nat) := do
+  match ← field (α := List Nat) j k with
+  | [a, b] => pure (a, b)
+  | _ => throw s!"field '{k}' is not a byte range"
+
+/-- One line of the probe's `node` output: the nodes that contain one offset,
+innermost first. `src` is the file's text, for each node's own text. -/
+def nodes (src : String) (j : Json) : Except String (Nat × List Node) := do
+  let offset : Nat ← field j "offset"
+  let ns : List Json ← field j "nodes"
+  let bytes := src.toUTF8
+  let ns ← ns.mapM fun n => do
+    let (a, b) ← pair n "range"
+    let toks : List Json := (n.getObjValAs? (List Json) "tokens").toOption.getD []
+    let toks ← toks.mapM fun t => do
+      let (ta, tb) ← pair t "range"
+      pure ({ text := ← field t "text", start := ta, stop := tb } : Token)
+    pure { kind := ← field n "kind", start := a, stop := b,
+           text := String.fromUTF8! (bytes.extract a b), tokens := toks }
+  pure (offset, ns)
+
+def errorClass : String → Except String ErrorClass
+  | "unknownIdentifier" => .ok .unknownIdentifier
+  | "unknownNamespace" => .ok .unknownNamespace
+  | "missingDecidable" => .ok .missingDecidable
+  | "typeMismatch" => .ok .typeMismatch
+  | "simpNoProgress" => .ok .simpNoProgress
+  | "unsolvedGoals" => .ok .unsolvedGoals
+  | "noGoals" => .ok .noGoals
+  | "heartbeat" => .ok .heartbeat
+  | "wallclock" => .ok .wallclock
+  | "unknown" => .ok .unknown
+  | s => .error s!"unknown error class '{s}'"
+
+def family : String → Except String TacticFamily
+  | "simp" => .ok .simp | "rw" => .ok .rw | "exact" => .ok .exact
+  | "decide" => .ok .decide | "any" => .ok .any
+  | s => .error s!"unknown tactic family '{s}'"
+
+def editOp (j : Json) : Except String EditOp := do
+  match ← field (α := String) j "op" with
+  | "rename" => pure (.rename (← field j "old") (← field j "new"))
+  | "simpArgAdd" => pure (.simpArgAdd (← field j "lemma"))
+  | "simpaToExact" => pure .simpaToExact
+  | "keywordSwap" => pure (.keywordSwap (← field j "from") (← field j "to"))
+  | "deleteTactic" => pure .deleteTactic
+  | "heartbeats" => pure (.heartbeats (← field j "n"))
+  | o => throw s!"unknown op '{o}'"
+
+/-- A rule file (`docs/rules.md` § The rule format), with the loader's
+vacuity refusals (concept C9). -/
+def rule (j : Json) : Except String Rule := do
+  let name : String ← field j "name"
+  let cls ← errorClass (← field j "class")
+  let entrenchment ← match ← field (α := String) j "entrenchment" with
+    | "ratified" => pure Entrenchment.ratified
+    | "proposed" => pure .proposed
+    | e => throw s!"rule {name}: entrenchment '{e}' (derived rules are never files)"
+  let fam ← family (← field j "node")
+  let ops ← (← field (α := List Json) j "candidates").mapM editOp
+  if ops.isEmpty then throw s!"rule {name}: no candidates (vacuous)"
+  if fam == .any && cls == .unknown then throw s!"rule {name}: node any on class unknown (vacuous)"
+  if ops.contains .deleteTactic && cls != .simpNoProgress && cls != .noGoals then
+    throw s!"rule {name}: deleteTactic is allowed only for simpNoProgress and noGoals"
+  pure { name, cls, entrenchment, family := fam, ops }
+
 end LeanMend.Parse

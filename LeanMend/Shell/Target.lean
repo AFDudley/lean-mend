@@ -1,4 +1,5 @@
 import LeanMend.Core.Graph
+import LeanMend.Core.Ops
 import LeanMend.Shell.Parse
 
 /-!
@@ -153,20 +154,30 @@ def readRegions (target : FilePath) (file : FilePath) : IO (List DeclRegion) := 
            statement := ← pair j "statementRange", body := ← pair j "bodyRange" }) out
 
 /-- The declaration and region that hold byte offset `pos`. -/
-def locate (rs : List DeclRegion) (pos : Nat) : Option String × Option SiteRegion :=
+def locate (rs : List DeclRegion) (pos : Nat) :
+    Option String × Option SiteRegion × Option Nat :=
   let inside (r : Nat × Nat) := r.1 ≤ pos && pos < r.2
   match rs.find? (inside ·.range) with
-  | none => (none, none)
+  | none => (none, none, none)
   | some d =>
     let name := if d.name.isEmpty then none else some d.name
-    (name, if inside d.body then some .body
-           else if inside d.statement then some .statement else none)
+    (name, (if inside d.body then some .body
+            else if inside d.statement then some .statement else none), some d.range.1)
+
+/-- The probe's `node` output for some offsets of one file, in one process. -/
+def readNodes (target : FilePath) (file : FilePath) (offsets : List Nat) :
+    IO (List (Nat × List Node)) := do
+  if offsets.isEmpty then return []
+  let src ← IO.FS.readFile (target / file)
+  let out ← probe target (#["node", file.toString] ++ offsets.toArray.map toString)
+  parseOrThrow s!"probe node {file}" (Parse.lines (Parse.nodes src) out)
 
 /-- Compile one module with `lake env lean --json` and read its errors as
-sites, each with its declaration, region and candidates. Returns the error
+sites, each with its declaration, region and candidates. The probe reads the
+syntax nodes only at sites whose class some rule answers. Returns the error
 count and the open sites. -/
 def diagnose (target : FilePath) (module : String) (file : FilePath)
-    (cands : Site → List Candidate) : IO (Nat × List Open) := do
+    (aliases : AliasMap) (rules : List Rule) : IO (Nat × List Open) := do
   let (_, out, _) ← run target "lake" #["env", "lean", "--json", file.toString]
   let ds ← parseOrThrow s!"lean --json {file}" (Parse.lines (Parse.diagnostic module) out)
   let errs := ds.filter (·.severity == .error)
@@ -174,10 +185,17 @@ def diagnose (target : FilePath) (module : String) (file : FilePath)
   let rs ← if errs.isEmpty then pure [] else readRegions target file
   let sites := errs.map fun d =>
     let start := byteOffset src d.line d.column
-    let (decl, region) := locate rs start
-    { diagnostic := d, decl, region, start,
+    let (decl, region, declStart) := locate rs start
+    { diagnostic := d, decl, region, declStart, start,
       stop := byteOffset src d.endLine d.endColumn : Site }
-  pure (errs.length, sites.map fun s => ⟨s, cands s⟩)
+  -- An error range can cover a whole tactic block (`unsolved goals` is reported
+  -- at `by`), so the probe reads the nodes at the range's start and its end.
+  let last (s : Site) := if s.stop > s.start then s.stop - 1 else s.start
+  let wanted := sites.filter fun s => rules.any (·.cls == classify s.diagnostic)
+  let nodes ← readNodes target file (wanted.flatMap fun s => [s.start, last s]).eraseDups
+  let at_ (o : Nat) := (nodes.lookup o).getD []
+  pure (errs.length, sites.map fun s =>
+    ⟨s, proposeAll aliases rules (at_ s.start ++ at_ (last s)) s⟩)
 
 /-- Replace bytes `[c.start, c.stop)` of `file` with `c.replacement`. Returns
 the previous content, for a revert. -/

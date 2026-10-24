@@ -1,0 +1,3 @@
+{ "name": "simpa-mismatch", "class": "typeMismatch", "entrenchment": "ratified",
+  "provenance": { "evidence": "EquiVM report §14.3 (pc-sum defeq)" },
+  "node": "simp", "candidates": [ { "op": "simpaToExact" }, { "op": "simpArgAdd", "lemma": "Dep.foo_eq" } ] }

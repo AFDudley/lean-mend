@@ -14,7 +14,7 @@ root = "TestMain"
 [[lean_lib]]
 name = "Tests"
 srcDir = "tests"
-roots = ["Tour", "ClassifyTest", "ParseTest"]
+roots = ["Tour", "ClassifyTest", "ParseTest", "OpsTest"]
 
 [[lean_exe]]
 name = "lean-mend"

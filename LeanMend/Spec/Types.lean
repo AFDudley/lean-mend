@@ -60,6 +60,8 @@ inductive ErrorClass where
   | typeMismatch
   | simpNoProgress
   | unsolvedGoals
+  /-- A tactic ran after its goal was closed ("No goals to be solved"). -/
+  | noGoals
   | heartbeat
   | wallclock
   | unknown
@@ -96,6 +98,8 @@ structure Site where
   decl : Option String
   /-- The region of `decl` that holds the site's start, when known. -/
   region : Option SiteRegion
+  /-- Byte offset where `decl`'s command starts, when known. -/
+  declStart : Option Nat
   /-- Byte range of the smallest syntax node that contains the error. -/
   start : Nat
   stop : Nat
@@ -112,6 +116,9 @@ inductive EditTarget where
   | body (decl : String)
   /-- Replace a deprecated name by its alias target, anywhere. -/
   | aliasRename (old new : String)
+  /-- Insert text before the named declaration's command, for example
+  `set_option maxHeartbeats N in`. Outside the statement region. -/
+  | beforeDecl (decl : String)
   deriving Repr
 
 /-- One edit that a rule proposes for one site. -/
@@ -172,6 +179,49 @@ inductive Refusal where
   | observationMismatch (detail : String)
   | invariantBroken (module : String)
   | unknownCard (card : String)
+  deriving Repr
+
+/-- The tactic families a rule can name (`docs/rules.md`, `node`). Membership
+is by the node's first token, which is stable across toolchains. -/
+inductive TacticFamily where
+  | simp | rw | exact | decide | any
+  deriving DecidableEq, Repr
+
+/-- The edit operations (`docs/rules.md` § Edit operations). Closed: a new
+operation is a change here, and every function over candidates must handle it. -/
+inductive EditOp where
+  | rename (old new : String)
+  | simpArgAdd (lemma : String)
+  | simpaToExact
+  | keywordSwap (from_ to : String)
+  | deleteTactic
+  | heartbeats (n : Nat)
+  deriving DecidableEq, Repr
+
+/-- A ratified or proposed rule, parsed from `rules/*.json`. -/
+structure Rule where
+  name : String
+  cls : ErrorClass
+  entrenchment : Entrenchment
+  family : TacticFamily
+  ops : List EditOp
+  deriving Repr
+
+/-- One token of a syntax node, from the probe's `node`. -/
+structure Token where
+  text : String
+  start : Nat
+  stop : Nat
+  deriving Repr
+
+/-- One syntax node that contains a site, from the probe's `node`. -/
+structure Node where
+  kind : String
+  start : Nat
+  stop : Nat
+  /-- The node's source text. -/
+  text : String
+  tokens : List Token
   deriving Repr
 
 end LeanMend

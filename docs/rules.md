@@ -12,17 +12,19 @@ One JSON file per rule, in `rules/` for ratified rules and in
 
 ```json
 {
-  "name": "batteries-rbmap-moved",
-  "class": "unknownIdentifier",
+  "name": "simp-set-pure",
+  "class": "typeMismatch",
   "entrenchment": "ratified",
   "provenance": {
     "judgment": { "by": "afd", "card": "c-0007", "at": "2026-10-23T12:00:00Z" },
-    "introduced_by": { "package": "batteries", "commit": "<sha>" }
+    "evidence": "EquiVM lean-v4.33.1 report §13.3, §14.1 (ExternalCall 530, 543)",
+    "introduced_by": { "package": "lean4", "commit": "<sha>" }
   },
   "applies": { "after": "v4.29.0", "through": "v4.33.1" },
-  "pattern": { "node": "ident", "name": "Batteries.RBMap" },
+  "node": "simp",
   "candidates": [
-    { "replace": "Batteries.RBTree.RBMap" }
+    { "op": "simpArgAdd", "lemma": "pure" },
+    { "op": "simpArgAdd", "lemma": "Option.bind" }
   ]
 }
 ```
@@ -31,18 +33,46 @@ One JSON file per rule, in `rules/` for ratified rules and in
 |---|---|
 | `class` | the `ErrorClass` constructor the rule answers |
 | `entrenchment` | `ratified` or `proposed`; `derived` rules are never files |
-| `provenance` | the judgment that ratified the rule, and the upstream change that caused the class |
+| `provenance` | the judgment that ratified the rule, the evidence, and the upstream change that caused the class |
 | `applies` | the toolchain window in which the rule is valid, from the attribution |
-| `pattern` | the syntax node kind and the fields to match; antiquotations bind parts of the node |
-| `candidates` | replacements, in the order to try; each is Lean syntax with antiquotations |
+| `node` | the tactic family the site's node must belong to: `simp` (`simp`, `simp only`, `simpa`, `dsimp`, `simp_all`), `rw` (`rw`, `rewrite`, `erw`), `exact`, `decide`, or `any` |
+| `candidates` | edit operations, in the order to try |
 
-A candidate is syntax, not text (brief item 5). Before an attempt, the probe
-parses the candidate at the node's syntax category under the target toolchain.
-A candidate that does not parse is rejected without a build.
+### Edit operations
 
-The rule loader refuses a vacuous rule (concept C9): a pattern that matches
-every node of its kind with no field constraint, a candidate list that is
-empty, or a candidate that only deletes the node.
+A candidate is not free text and not a regular expression. It is one
+constructor of a closed Lean inductive type, `EditOp`. The type checker then
+forces every function over candidates to handle every operation (concept B4).
+Each operation reads the syntax node that the probe's `node` command returns
+for the site, and writes a replacement for that node's byte range only
+(brief item 5). The EquiVM v4.29.0 → v4.33.1 hand repairs (report §13.3,
+§14.1, §14.3) are all of these forms:
+
+| `op` | Effect on the node | EquiVM evidence |
+|---|---|---|
+| `rename` | replace a name with another (the derived alias rules) | the Batteries `RBMap` move |
+| `simpArgAdd` `lemma` | add `lemma` to the `[…]` list of a `simp`-family tactic, or add `[lemma]` if it has none | `pure` (530, 543), `Bool.and_self` (294, 365), `Option.option` (six sites), `Fin.getElem_fin`, the `U256_TONAT` set |
+| `simpaToExact` | `simpa […] using T` becomes `exact T` | the pc-sum defeq class (§14.3), `default : UInt256` |
+| `keywordSwap` `from` `to` | replace the tactic keyword | `rw` → `erw` (§13.3) |
+| `deleteTactic` | remove the tactic | the no-op `dsimp only at h`; a trailing `decide +kernel` after the goal is closed |
+| `heartbeats` `n` | put `set_option maxHeartbeats n in` before the declaration | the deep pc reaches (§14.3 limit) |
+
+An operation that does not apply to the node (for example `simpaToExact` on a
+node that is not `simpa … using`) gives no candidate. It is not an error.
+
+Before an attempt, the probe parses the replacement at the node's syntax
+category under the target toolchain. A replacement that does not parse is
+rejected without a build.
+
+The rule loader refuses a vacuous rule (concept C9): an empty candidate list,
+or `node` `any` with no `class` other than `unknown`. `deleteTactic` is allowed
+only in a rule whose class is `simpNoProgress` or `noGoals` (text
+`No goals to be solved`). Deleting a tactic that does nothing cannot weaken
+a proof: the kernel still checks the result, and `sorry` stays forbidden
+(structural check 2 in [machine.md](machine.md)).
+
+The `split_ifs <;> rfl` case (§13.1, two branches with different `Decidable`
+instances) has no operation. It stays residue for an agent.
 
 ## Entrenchment and order
 
@@ -77,6 +107,7 @@ shows the break and its repair.
 | `typeMismatch` | text `Type mismatch`, for example between the literal forms `UInt256.ofNat N` and `{ val := N }`, or between `↑i` and `i.val` for `Fin` | literal forms: `rfl` → `by decide`, `show` with the other form, `simp only` with the constructor lemma; `Fin`: `Fin.val_cast_of_lt`, explicit `.val` |
 | `simpNoProgress` | text `` `simp` made no progress `` | `simp [Id.run]`; the named lemma that left the default set |
 | `unsolvedGoals` | kind `Tactic.unsolvedGoals` | the tactic with the lemma set from a rule; `first | … | …` chains |
+| `noGoals` | text `No goals to be solved`: a tactic after the goal is closed | `deleteTactic` (EquiVM: a trailing `decide +kernel`) |
 | `heartbeat` | kind `runtime.maxHeartbeats` | `set_option maxHeartbeats N in`, with N from the rule |
 | `wallclock` | a timeout without `deterministic` | no candidates; see [machine.md](machine.md) |
 | `unknown` | anything else | no candidates; residue |

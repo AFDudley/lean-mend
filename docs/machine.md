@@ -134,7 +134,9 @@ makes an observation.
 The structural checks on an attempt (concept C2, structural):
 
 1. The edit is inside the body region of its declaration, or it is an alias
-   rename. The edit type cannot address any other region (by construction).
+   rename, or it is an insertion before the declaration's command
+   (`set_option maxHeartbeats N in`). The edit type cannot address a statement
+   region (by construction).
 2. The candidate adds none of the tokens in `forbiddenTokens`: `sorry`,
    `admit`, `axiom`, `native_decide`, `implemented_by`, `extern`, `unsafe`,
    `opaque`. The probe supplies the tokens of the parsed candidate, so the

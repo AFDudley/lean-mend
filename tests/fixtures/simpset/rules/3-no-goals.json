@@ -1,0 +1,3 @@
+{ "name": "no-goals-delete", "class": "noGoals", "entrenchment": "ratified",
+  "provenance": { "evidence": "EquiVM report §14.1 (trailing decide +kernel)" },
+  "node": "any", "candidates": [ { "op": "deleteTactic" } ] }

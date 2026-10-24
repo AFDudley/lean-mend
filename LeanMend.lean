@@ -9,6 +9,7 @@ import LeanMend.Shell.Parse
 import LeanMend.Core.Graph
 import LeanMend.Shell.Target
 import LeanMend.Core.Propose
+import LeanMend.Core.Ops
 import LeanMend.Shell.Driver
 
 /-! The root of the `LeanMend` library. See `docs/architecture.md` § Layout. -/

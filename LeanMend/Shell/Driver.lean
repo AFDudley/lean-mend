@@ -1,4 +1,4 @@
-import LeanMend.Core.Propose
+import LeanMend.Core.Ops
 import LeanMend.Shell.Target
 
 /-!
@@ -33,6 +33,8 @@ structure Ctx where
   /-- Lake targets to build; empty means the default targets. -/
   targets : List String
   aliases : AliasMap
+  /-- Ratified and proposed rules, from `--rules` (the lean-mend source). -/
+  rules : List Rule
   ledger : FilePath
 
 def Ctx.fileOf (c : Ctx) (module : String) : FilePath :=
@@ -89,7 +91,7 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
       stepL c s (.certificate cert) "certificate"
         (Json.mkObj [("built", toJson cert.built), ("decls", toJson cert.decls.length)])
     | m :: _ =>
-      let (_, opens) ← diagnose c.target m (c.fileOf m) (propose c.aliases)
+      let (_, opens) ← diagnose c.target m (c.fileOf m) c.aliases c.rules
       let siteJson := opens.map fun o => Json.mkObj
         [("line", toJson o.site.diagnostic.line),
          ("class", toJson (toString (repr (classify o.site.diagnostic)))),
@@ -116,7 +118,7 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
     | .attempt cand =>
       let file := c.fileOf mm.module
       let saved ← applyEdit c.target file cand
-      let (e, opens) ← diagnose c.target mm.module file (propose c.aliases)
+      let (e, opens) ← diagnose c.target mm.module file c.aliases c.rules
       let s' ← stepL c s (.mend (.rebuilt e opens)) "rebuilt"
         (Json.mkObj [("rule", toJson cand.rule), ("errors", toJson e)])
       let acceptedNow := match s' with
@@ -139,7 +141,7 @@ def prepareTree (tree : FilePath) : List String → IO Unit
 
 /-- `lean-mend run <target> --adopt [--targets <t,…>] [--prepare <cmd>] [--aliases-from <project>]…` -/
 def runAdopt (target : FilePath) (targets : List String) (aliasesFrom : List FilePath)
-    (prepare : List String := []) : IO RunState := do
+    (prepare : List String := []) (rules : List Rule := []) : IO RunState := do
   -- Absolute paths: git and lake run with the target as their working
   -- directory, so a relative path would resolve one level too deep.
   let target ← IO.FS.realPath target
@@ -180,7 +182,7 @@ def runAdopt (target : FilePath) (targets : List String) (aliasesFrom : List Fil
   let baseToolchain := (← IO.FS.readFile (base / "lean-toolchain")).trimAscii.toString
   let baseCert ← certificate base baseToolchain resolved.normalize baseFiles baseBuilt
   let baseFailing := baseBuilt.filterMap fun (n, s) => if s == .built then none else some n
-  let c : Ctx := { target, toolchain, files, order, targets, aliases := resolved, ledger }
+  let c : Ctx := { target, toolchain, files, order, targets, aliases := resolved, rules, ledger }
   -- The machine, in its own order.
   let s ← stepL c (.idle target.toString) (.baseline baseCert baseFailing) "baseline"
     (Json.mkObj [("decls", toJson baseCert.decls.length), ("failing", toJson baseFailing)])
