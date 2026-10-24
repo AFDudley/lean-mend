@@ -127,7 +127,11 @@ def run : IO Nat := do
     IO.println s!"{if ok then "ok  " else "FAIL"} D10: {what}"
     unless ok do failed := failed + 1
   for (t, want) in [("| unchanged {σ σ'}:", some "| unchanged {σ σ' : _}:"),
-                    ("| f (a b) {c}", some "| f (a b : _) {c : _}"),
+                    ("| f (a b) {c} : T", some "| f (a b : _) {c : _} : T"),
+                    -- EVMLean: the application in the constructor's type stays
+                    ("| call_prelude {σ r s v z}:\n    acc σ (sendEth r s v z σ)",
+                      some "| call_prelude {σ r s v z : _}:\n    acc σ (sendEth r s v z σ)"),
+                    ("| c (x : Nat) {y}: R (f x y)", some "| c (x : Nat) {y : _}: R (f x y)"),
                     ("{σ : AccountMap}", none), ("{ x := 1 }", none), ("{x | p x}", none),
                     ("σ", none), ("{}", none)] do
     let got := annotateBinders t

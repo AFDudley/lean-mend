@@ -173,6 +173,10 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
         | .mending _ _ mm' => decide (mm'.accepted.length > mm.accepted.length)
         | _ => false
       if acceptedNow then
+        -- Decision D11: an applied type narrowing is always reported, even if
+        -- the module does not build and the certificate never compares it.
+        if let .typeAnnotation d := cand.target then
+          appendWarning c.ledger s!"narrowed binders of type {d} in {mm.module}: {cand.rule}"
         discard <| git c.target #["add", file.toString]
         discard <| git c.target #["commit", "-q", "-m",
           s!"lean-mend: {cand.rule} in {mm.module}\n\nRule: {cand.rule}\nEntrenchment: {repr cand.entrenchment}"]

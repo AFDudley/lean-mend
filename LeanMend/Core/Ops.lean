@@ -176,31 +176,44 @@ def ruleCandidates (r : Rule) (nodes : List Node) (s : Site) : List Candidate :=
 private def namesOnly (c : String) : Bool :=
   c.any (· != ' ') && c.all fun ch => ch == ' ' || identChar ch
 
-/-- Every binder group `{a b}`, `(a b)` or `⦃a b⦄` whose content is names and
-spaces only becomes `{a b : _}`, Lean's own hint for `binderOverride`. Groups
-with a type, a `:=`, a `|` or any other symbol are kept. `none` if nothing
-changes. Lean reports only the first offending group, and the type fails until
-every group is fixed, so all groups change in one edit. -/
+/-- Every binder group `{a b}`, `(a b)` or `⦃a b⦄` in a constructor's binder
+position whose content is names and spaces only becomes `{a b : _}`, Lean's own
+hint for `binderOverride`. A binder position is between `| name` and the first
+`:` outside brackets, which starts the constructor's type: a group in the type,
+such as the application `(f a b)`, is never changed. `none` if nothing changes.
+Lean reports only the first offending group, and the type fails until every
+group is fixed, so all groups change in one edit. -/
 def annotateBinders (t : String) : Option String :=
   let pairs := [('{', '}'), ('(', ')'), ('⦃', '⦄')]
-  -- one pass: copy text; at an opening bracket, look for its close on the
-  -- same group with only names and spaces between
-  let rec go (cs : List Char) (acc : List Char) (changed : Bool) : List Char × Bool :=
+  let closes := ['}', ')', '⦄', ']']
+  let opens := ['{', '(', '⦃', '[']
+  -- mode 0: outside binders; 1: after `|`, reading the name; 2: in binders
+  let rec go (cs : List Char) (acc : List Char) (mode depth : Nat) (changed : Bool) :
+      List Char × Bool :=
     match cs with
     | [] => (acc.reverse, changed)
     | c :: rest =>
-      match pairs.lookup c with
-      | some close =>
-        let inner := rest.takeWhile (· != close)
-        let after := rest.drop inner.length
-        if after.head? == some close && namesOnly (String.ofList inner) then
-          let grp := [c] ++ inner ++ " : _".toList ++ [close]
-          go (after.drop 1) (grp.reverse ++ acc) true
-        else go rest (c :: acc) changed
-      | none => go rest (c :: acc) changed
+      if c == '|' && depth == 0 then go rest (c :: acc) 1 0 changed
+      else if mode == 1 then
+        -- the name ends at the first space after it
+        if c == ' ' && acc.head? != some '|' && acc.head? != some ' ' then go rest (c :: acc) 2 0 changed
+        else go rest (c :: acc) 1 0 changed
+      else if mode == 2 && c == ':' && depth == 0 then go rest (c :: acc) 0 0 changed
+      else if mode == 2 && depth == 0 then
+        match pairs.lookup c with
+        | some close =>
+          let inner := rest.takeWhile (· != close)
+          let after := rest.drop inner.length
+          if after.head? == some close && namesOnly (String.ofList inner) then
+            go (after.drop 1) (([c] ++ inner ++ " : _".toList ++ [close]).reverse ++ acc) 2 0 true
+          else go rest (c :: acc) 2 1 changed
+        | none => go rest (c :: acc) 2 0 changed
+      else if opens.contains c then go rest (c :: acc) mode (depth + 1) changed
+      else if closes.contains c then go rest (c :: acc) mode (depth - 1) changed
+      else go rest (c :: acc) mode depth changed
   termination_by cs.length
   decreasing_by all_goals simp_wf; all_goals omega
-  match go t.toList [] false with
+  match go t.toList [] 0 0 false with
   | (out, true) => some (String.ofList out)
   | (_, false) => none
 

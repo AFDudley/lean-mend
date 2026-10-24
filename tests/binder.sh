@@ -31,8 +31,10 @@ n=$(g rev-list --count main..lean-mend/mend)
 
 rm -rf "$app/.lean-mend" && g switch -q main && g branch -q -D lean-mend/mend
 out=$("$bin" run "$app" --adopt --annotate-binders)
-check "--annotate-binders: done, no residue, and the type change is a warning" \
-  '.state == "done" and .residue == [] and (.warnings | any(test("type App.R") and test("changed")))' "$out"
+check "--annotate-binders: done, no residue; the narrowing and the type change are warnings" \
+  '.state == "done" and .residue == [] and (.warnings | any(test("narrowed binders of type App.R"))) and (.warnings | any(test("type App.R") and test("changed")))' "$out"
+grep -q '| up {s t : _} : R a s (Nat.succ t) → R a s t$' "$app/App/Rel.lean" \
+  && echo "ok   --annotate-binders: the application (Nat.succ t) in a constructor's type is not touched" || { echo "FAIL type touched"; fail=1; }
 grep -q '| mk {s t : _} : R a s t' "$app/App/Rel.lean" && grep -q '| step {s t : _} :' "$app/App/Rel.lean" \
   && echo "ok   --annotate-binders: both constructors narrowed in one edit" || { echo "FAIL source"; cat "$app/App/Rel.lean"; fail=1; }
 (cd "$app" && lake build -q >/dev/null) && echo "ok   the mended app builds at v4.33.1" || { echo "FAIL build"; fail=1; }
