@@ -55,7 +55,7 @@ theorem Mending.step_measure (m m' : Mending) (o : MendObs)
       rename_i hne
       exact Mending.reject_measure m o₀ rest hs (by simpa using hne)
   · -- rebuilt
-    rename_i o₀ rest e sites hs
+    rename_i o₀ rest e lint sites hs
     split at h
     · cases h
     · rename_i c cs hc

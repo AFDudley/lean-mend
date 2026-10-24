@@ -99,7 +99,14 @@ Card kinds in lean-mend:
 | Held | the run report: every invariant part held, for the record |
 
 A judgment records the person, the time and the answer in the ledger. A
-rejected Behavior card reverts the patch and marks its site residue.
+rejected Behavior card reverts the patch and marks its site residue (not built
+yet: today the judgment is recorded and the finding stays open).
+
+At `certificate` the shell saves `.lean-mend/session.json` (the context, both
+certificates, the residue, the cards) and writes `.lean-mend/cards/<id>.md`.
+`lean-mend judge` loads the session, replays the ledger's judgments through
+`RunState.close`, and steps the machine with the new judgment. Counterexample
+is not computed yet; the card says so.
 
 ## 2. lean-mend is correct
 

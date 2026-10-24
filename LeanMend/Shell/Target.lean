@@ -175,13 +175,16 @@ def readNodes (target : FilePath) (file : FilePath) (offsets : List Nat) :
 /-- Compile one module with `lake env lean --json` and read its errors as
 sites, each with its declaration, region and candidates. The probe reads the
 syntax nodes only at sites whose class some rule answers. Returns the error
-count and the open sites. -/
+count, the byte offsets of linter warnings (kind `linter.*`), and the open
+sites. -/
 def diagnose (target : FilePath) (module : String) (file : FilePath)
-    (aliases : AliasMap) (rules : List Rule) : IO (Nat × List Open) := do
+    (aliases : AliasMap) (rules : List Rule) : IO (Nat × List Nat × List Open) := do
   let (_, out, _) ← run target "lake" #["env", "lean", "--json", file.toString]
   let ds ← parseOrThrow s!"lean --json {file}" (Parse.lines (Parse.diagnostic module) out)
   let errs := ds.filter (·.severity == .error)
   let src ← IO.FS.readFile (target / file)
+  let lints := (ds.filter fun d => d.severity == .warning && d.kind.startsWith "linter.").map
+    fun d => byteOffset src d.line d.column
   let rs ← if errs.isEmpty then pure [] else readRegions target file
   let sites := errs.map fun d =>
     let start := byteOffset src d.line d.column
@@ -194,7 +197,7 @@ def diagnose (target : FilePath) (module : String) (file : FilePath)
   let wanted := sites.filter fun s => rules.any (·.cls == classify s.diagnostic)
   let nodes ← readNodes target file (wanted.flatMap fun s => [s.start, last s]).eraseDups
   let at_ (o : Nat) := (nodes.lookup o).getD []
-  pure (errs.length, sites.map fun s =>
+  pure (errs.length, lints, sites.map fun s =>
     ⟨s, proposeAll aliases rules (at_ s.start ++ at_ (last s)) s⟩)
 
 /-- Replace bytes `[c.start, c.stop)` of `file` with `c.replacement`. Returns

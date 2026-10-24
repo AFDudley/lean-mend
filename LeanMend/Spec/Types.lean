@@ -149,6 +149,9 @@ structure Accepted where
   errorsAfter : Nat
   fell : errorsAfter < errorsBefore
   clean : candidate.clean = true
+  /-- Linter warnings inside the replaced bytes, after the edit. -/
+  lintAtEdit : Nat
+  lintFree : lintAtEdit = 0
 
 /-- Card kinds (`docs/verification.md`). -/
 inductive CardKind where

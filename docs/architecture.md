@@ -33,7 +33,7 @@ LeanMend/
     Edit.lean        applies a candidate as a byte-range replacement
     Git.lean         the mend branch and attempt worktrees
     Ledger.lean      append and replay
-    Cards.lean       writes cards, reads judgments
+  * Session.lean     the saved session (.lean-mend/session.json), card files, judgments from the ledger
   * Driver.lean      the composition root (concept A3): `run --adopt`, the level-1 loop, the ledger
 * Main.lean      the `lean-mend` executable: `baseline` and `run --adopt`
 probe/
@@ -47,7 +47,7 @@ tests/
 * NoSorry.lean   no LeanMend constant depends on sorryAx (the gate runs it)
 * baseline.sh    `lean-mend baseline` on the fixture under v4.33.1, intact and broken
 * rename.sh      `lean-mend run --adopt` on tests/fixtures/rename, with and without the alias source
-* simpset.sh     `lean-mend run --adopt --rules` on tests/fixtures/simpset: three classes, three operations, one Violation card
+* simpset.sh     `lean-mend run --adopt --rules` on tests/fixtures/simpset: three classes repaired, one candidate rejected by the linter condition, one Violation card judged with `lean-mend judge`
 * OpsTest.lean   edit operations at their edges, and the rule loader's refusals
   fixtures/      small Lake projects, each with a known break
 ```
@@ -153,8 +153,8 @@ from an agent runs only through the fixed runner (concept C7).
 | `lean-mend run <target> --to <toolchain>` | runs the machine from `Idle` to `Done` or `Halted` |
 | `lean-mend run <target> --adopt [--aliases-from <project>]…` | built: accepts a target that another tool already bumped; the baseline is `HEAD~1` in a detached worktree; each `--aliases-from` project adds its `@[deprecated]` aliases to the map; `--prepare <cmd>` runs in both trees before the build (for example `lake exe cache get`); `--targets` limits the Lake targets; `--rules <dir>` loads the rule files |
 | `lean-mend status <target>` | prints the state from the ledger |
-| `lean-mend cards <target>` | lists open cards |
-| `lean-mend judge <target> <card> accept\|reject --by <name>` | records a judgment |
+| `lean-mend cards <target>` | built: lists the cards no judgment has answered, with the path of each card file |
+| `lean-mend judge <target> <card> accept\|reject --by <name>` | built: records the judgment in the ledger and steps the machine on the saved session; a rejected Behavior card does not yet revert its patch |
 | `lean-mend residue <target>` | writes one residue packet per residue site |
 | `lean-mend propose <target> <packet> <rule-file>` | runs a proposed rule through the fixed runner |
 

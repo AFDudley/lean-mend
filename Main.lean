@@ -57,7 +57,9 @@ structure RunOpts where
 def usage : String :=
   "usage: lean-mend baseline <target>\n" ++
   "       lean-mend run <target> --adopt [--targets <t,…>] [--prepare <cmd>]\n" ++
-  "                 [--rules <dir>] [--aliases-from <project>]…"
+  "                 [--rules <dir>] [--aliases-from <project>]…\n" ++
+  "       lean-mend cards <target>\n" ++
+  "       lean-mend judge <target> <card> accept|reject --by <name>"
 
 def parseOpts : List String → Option RunOpts
   | [] => some {}
@@ -95,4 +97,16 @@ def runCmd (t : String) (rest : List String) : IO UInt32 := do
 def main : List String → IO UInt32
   | ["baseline", t] => baseline t
   | "run" :: t :: rest => runCmd t rest
+  | ["cards", t] => do
+    for c in ← openCards t do
+      IO.println s!"{c.id} {cardKindName c.kind} {c.subject}  ({t}/.lean-mend/cards/{c.id}.md)"
+    return 0
+  | ["judge", t, card, ans, "--by", who] => do
+    let answer ← match ans with
+      | "accept" => pure Answer.accept
+      | "reject" => pure Answer.reject
+      | _ => do IO.eprintln usage; return 2
+    let s ← judge t card answer who
+    IO.println (summary s).compress
+    return match s with | .halted _ => 1 | _ => 0
   | _ => do IO.eprintln usage; return 2

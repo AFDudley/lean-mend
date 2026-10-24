@@ -1,5 +1,6 @@
 import LeanMend.Core.Ops
 import LeanMend.Shell.Target
+import LeanMend.Shell.Session
 
 /-!
 # The driver
@@ -36,15 +37,21 @@ structure Ctx where
   /-- Ratified and proposed rules, from `--rules` (the lean-mend source). -/
   rules : List Rule
   ledger : FilePath
+  /-- The commit where `lean-mend/mend` starts. -/
+  start : String
 
 def Ctx.fileOf (c : Ctx) (module : String) : FilePath :=
   ((c.files.find? (·.1.name == module)).map (·.2)).getD module
 
 /-- Append one ledger line (concept D1): the observation and the next state. -/
-def record (c : Ctx) (obs : String) (detail : Json) (next : RunState) : IO Unit := do
-  let h ← IO.FS.Handle.mk c.ledger .append
+def appendLedger (ledger : FilePath) (obs : String) (detail : Json) (next : RunState) :
+    IO Unit := do
+  let h ← IO.FS.Handle.mk ledger .append
   h.putStrLn <| Json.compress <| Json.mkObj
     [("obs", toJson obs), ("detail", detail), ("state", toJson next.tag)]
+
+def record (c : Ctx) (obs : String) (detail : Json) (next : RunState) : IO Unit :=
+  appendLedger c.ledger obs detail next
 
 def stepL (c : Ctx) (s : RunState) (obs : RunObs) (name : String) (detail : Json := Json.null) :
     IO RunState := do
@@ -88,10 +95,21 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
     match frontier ctx.mods st with
     | [] =>
       let cert ← certificate c.target c.toolchain (c.aliases.normalize) c.files (statusList c st)
-      stepL c s (.certificate cert) "certificate"
+      let next ← stepL c s (.certificate cert) "certificate"
         (Json.mkObj [("built", toJson cert.built), ("decls", toJson cert.decls.length)])
+      let (residue, fs) := match next with
+        | .awaiting _ _ r _ fs => (r, fs)
+        | .done _ _ r _ => (r, [])
+        | _ => ([], [])
+      let cards := fs.zipIdx.filterMap fun (f, i) =>
+        f.reason.card.map fun k => ({ id := s!"c-{i + 1}", kind := k,
+                                      subject := ctx.aliases.rename f.decl.name } : Card)
+      writeCards c.target
+        { target := c.target.toString, start := c.start, base := ctx.base, after := cert,
+          mods := ctx.mods, aliases := ctx.aliases, residue, cards } fs c.fileOf
+      pure next
     | m :: _ =>
-      let (_, opens) ← diagnose c.target m (c.fileOf m) c.aliases c.rules
+      let (_, _, opens) ← diagnose c.target m (c.fileOf m) c.aliases c.rules
       let siteJson := opens.map fun o => Json.mkObj
         [("line", toJson o.site.diagnostic.line),
          ("class", toJson (toString (repr (classify o.site.diagnostic)))),
@@ -118,9 +136,12 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
     | .attempt cand =>
       let file := c.fileOf mm.module
       let saved ← applyEdit c.target file cand
-      let (e, opens) ← diagnose c.target mm.module file c.aliases c.rules
-      let s' ← stepL c s (.mend (.rebuilt e opens)) "rebuilt"
-        (Json.mkObj [("rule", toJson cand.rule), ("errors", toJson e)])
+      let (e, lints, opens) ← diagnose c.target mm.module file c.aliases c.rules
+      -- Linter warnings inside the replaced bytes: the candidate caused them.
+      let editEnd := cand.start + cand.replacement.utf8ByteSize
+      let lint := (lints.filter fun o => cand.start ≤ o && o < editEnd).length
+      let s' ← stepL c s (.mend (.rebuilt e lint opens)) "rebuilt"
+        (Json.mkObj [("rule", toJson cand.rule), ("errors", toJson e), ("lint", toJson lint)])
       let acceptedNow := match s' with
         | .mending _ _ mm' => decide (mm'.accepted.length > mm.accepted.length)
         | _ => false
@@ -182,7 +203,8 @@ def runAdopt (target : FilePath) (targets : List String) (aliasesFrom : List Fil
   let baseToolchain := (← IO.FS.readFile (base / "lean-toolchain")).trimAscii.toString
   let baseCert ← certificate base baseToolchain resolved.normalize baseFiles baseBuilt
   let baseFailing := baseBuilt.filterMap fun (n, s) => if s == .built then none else some n
-  let c : Ctx := { target, toolchain, files, order, targets, aliases := resolved, rules, ledger }
+  let c : Ctx := { target, toolchain, files, order, targets, aliases := resolved, rules, ledger,
+                   start := "" }
   -- The machine, in its own order.
   let s ← stepL c (.idle target.toString) (.baseline baseCert baseFailing) "baseline"
     (Json.mkObj [("decls", toJson baseCert.decls.length), ("failing", toJson baseFailing)])
@@ -191,8 +213,53 @@ def runAdopt (target : FilePath) (targets : List String) (aliasesFrom : List Fil
   let s ← stepL c s (.build (overlay (fun _ => .blocked) built)) "build"
     (toJson (built.map fun (n, x) => s!"{n}: {repr x}"))
   discard <| git target #["switch", "-q", "-c", "lean-mend/mend"]
-  let final ← loop c s
+  let start := ((← git target #["rev-parse", "HEAD"]).splitOn "\n").head!
+  let final ← loop { c with start } s
   discard <| git target #["worktree", "remove", "--force", base.toString]
   pure final
+
+/-- The judgments recorded in a ledger, in order. -/
+def ledgerJudgments (ledger : FilePath) : IO (List Judgment) := do
+  let lines := ((← IO.FS.readFile ledger).splitOn "\n").filter (· ≠ "")
+  lines.filterMapM fun l => do
+    let some j := (Json.parse l).toOption | return none
+    unless (j.getObjValAs? String "obs").toOption == some "judgment" do return none
+    let some d := (j.getObjVal? "detail").toOption | return none
+    let field (k : String) := ((d.getObjValAs? String k).toOption).getD ""
+    let kind ← match cardKindOf (field "kind") with
+      | .ok k => pure k
+      | .error e => throw <| IO.userError s!"ledger judgment: {e}"
+    return some { card := field "card", kind, subject := field "subject",
+                  answer := if field "answer" == "accept" then .accept else .reject,
+                  author := field "author", at_ := field "at" }
+
+/-- `lean-mend judge <target> <card> accept|reject --by <name>`: record a
+person's judgment on a card and step the machine (`RunState.step`, `judgment`). -/
+def judge (target : FilePath) (cardId : String) (answer : Answer) (author : String) :
+    IO RunState := do
+  let target ← IO.FS.realPath target
+  let ledger := target / ".lean-mend" / "ledger.jsonl"
+  let s ← parseOrThrow "session" ((Json.parse (← IO.FS.readFile (sessionPath target))) >>= sessionOf)
+  let some card := s.cards.find? (·.id == cardId)
+    | throw <| IO.userError s!"no card {cardId} in this session"
+  let prior ← ledgerJudgments ledger
+  let state := RunState.close s.context s.after s.residue prior
+  let at_ := ((← runOk target "date" #["-u", "+%FT%TZ"]).splitOn "\n").head!
+  let j : Judgment := { card := card.id, kind := card.kind, subject := card.subject,
+                        answer, author, at_ }
+  let next := state.step (.judgment j)
+  appendLedger ledger "judgment"
+    (Json.mkObj [("card", toJson j.card), ("kind", toJson (cardKindName j.kind)),
+                 ("subject", toJson j.subject),
+                 ("answer", toJson (if answer == .accept then "accept" else "reject")),
+                 ("author", toJson author), ("at", toJson at_)]) next
+  pure next
+
+/-- The cards of a session that no judgment has answered. -/
+def openCards (target : FilePath) : IO (List Card) := do
+  let target ← IO.FS.realPath target
+  let s ← parseOrThrow "session" ((Json.parse (← IO.FS.readFile (sessionPath target))) >>= sessionOf)
+  let js ← ledgerJudgments (target / ".lean-mend" / "ledger.jsonl")
+  pure (s.cards.filter fun c => !js.any (·.card == c.id))
 
 end LeanMend.Shell

@@ -120,7 +120,7 @@ ledger before the transition runs.
 | `bumped mods aliases` | `baselined` | the alias map resolves | `built`; else `aliasCycle` |
 | `build st` | `built` | `Settled`: no closed module changed status | `built`; else `observationMismatch` |
 | `diagnosed module sites` | `built` | the module is in the frontier | `mending` |
-| `mend (rebuilt e sites)` | `mending` | the head site has a candidate | accept if `e` is below the error count, the candidate is clean, and `sites` fit `e`; else reject |
+| `mend (rebuilt e lint sites)` | `mending` | the head site has a candidate | accept if `e` is below the error count, the candidate is clean, `lint` is 0, and `sites` fit `e`; else reject |
 | `mend unparsable` | `mending` | the head site has a candidate | reject |
 | `mend gaveUp` | `mending` | the head site has no candidate | the head site becomes residue |
 | `mended` | `mending` | `Mending.next = finish` | `built`, with the module `built` or `residual` |
@@ -143,6 +143,15 @@ The structural checks on an attempt (concept C2, structural):
    check reads syntax, not text (`Candidate.clean`).
 3. The candidate's rule passed the vacuity check when it was loaded
    (concept C9).
+4. Lean reports no linter warning (message kind `linter.*`) inside the
+   replaced bytes. `lint` in the observation is that count. The kind is the
+   same in v4.29.0, v4.33.1 and v4.35.0, and the warnings come from the same
+   `lean --json` run that counts the errors. Only warnings inside the edit
+   count: a declaration that had an error was not linted, so its older
+   warnings can appear after any repair. The replaced bytes are the whole
+   tactic node, so an argument that was already unused in that tactic also
+   blocks the candidate. That is deliberate: the repaired tactic must be clean
+   as a whole. `Accepted` carries `lintFree`, and `branchSound` states it.
 
 ## The invariant
 

@@ -41,9 +41,11 @@ inductive MendAction where
 inductive MendObs where
   /-- The probe could not parse the candidate at its node kind. -/
   | unparsable
-  /-- The module rebuilt with the candidate applied. `sites` are the open
-  sites the shell read from the new diagnostics, with their candidates. -/
-  | rebuilt (errors : Nat) (sites : List Open)
+  /-- The module rebuilt with the candidate applied. `lint` counts the linter
+  warnings (kind `linter.*`) inside the replaced bytes: warnings the candidate
+  itself caused. `sites` are the open sites the shell read from the new
+  diagnostics, with their candidates. -/
+  | rebuilt (errors : Nat) (lint : Nat) (sites : List Open)
   /-- The shell recorded the head site as residue. -/
   | gaveUp
 
@@ -66,8 +68,11 @@ def Mending.reject (m : Mending) : Mending :=
 
 /-- The transition function (`docs/machine.md` § Transitions).
 
-* `attempt` then `rebuilt`: accept if the error count fell and the candidate is
-  clean; otherwise reject.
+* `attempt` then `rebuilt`: accept if the error count fell, the candidate is
+  clean, and it caused no linter warning; otherwise reject. Candidate order is
+  the rule author's preference among valid repairs; the linter condition
+  rejects a candidate that Lean itself flags, for example an unused simp
+  argument (`docs/rules.md` § Entrenchment and order).
 * `attempt` then `unparsable`: reject.
 * `giveUp` then `gaveUp`: the head site becomes residue.
 
@@ -85,19 +90,20 @@ def Mending.step (m : Mending) (o : MendObs) : Except Refusal Mending :=
   | o₀ :: _, .unparsable =>
     if o₀.candidates.isEmpty then .error (.observationMismatch "no candidate was attempted")
     else .ok m.reject
-  | o₀ :: _, .rebuilt e sites =>
+  | o₀ :: _, .rebuilt e lint sites =>
     match o₀.candidates with
     | [] => .error (.observationMismatch "no candidate was attempted")
     | c :: _ =>
       if hfell : e < m.errors then
-        if hclean : c.clean = true then
+        if hclean : c.clean = true ∧ lint = 0 then
           if hwf : sites.length ≤ e then
             .ok { m with
               errors := e
               sites := sites
               accepted :=
                 { candidate := c, errorsBefore := m.errors, errorsAfter := e,
-                  fell := hfell, clean := hclean } :: m.accepted
+                  fell := hfell, clean := hclean.1, lintAtEdit := lint,
+                  lintFree := hclean.2 } :: m.accepted
               wf := hwf }
           else .error (.observationMismatch "more open sites than errors")
         else .ok m.reject

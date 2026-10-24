@@ -29,21 +29,36 @@ echo "$out"
 ledger=$(jq -s -c . "$app/.lean-mend/ledger.jsonl")
 # a3's proof now closes by `simp` with bar_eq, which uses propext; in v1 `rfl`
 # closed it with no axiom. The proof is valid, but its axiom set grew, so the
-# invariant asks a person: one Violation card, and nothing else.
-check "the run awaits one Violation card, for App.a3's axioms, with no residue" \
-  '.state == "awaiting" and .residue == [] and .findings == [{"card":"LeanMend.CardKind.violation","decl":"App.a3","reason":"LeanMend.Reason.axiomsDiffer"}]' "$out"
-check "three sites in three classes, each with candidates" \
-  'map(select(.obs == "diagnosed"))[0].detail.detail | map(.class) | sort ==
+# invariant asks a person: one Violation card. App.Lint's only repair leaves an
+# unused simp argument, so it is residue, and App (which imports it) is blocked.
+check "the run awaits one Violation card for App.a3; App.Lint and App are residue" \
+  '.state == "awaiting" and (.residue | sort) == ["App", "App.Lint"] and .findings == [{"card":"LeanMend.CardKind.violation","decl":"App.a3","reason":"LeanMend.Reason.axiomsDiffer"}]' "$out"
+check "App.Use: three sites in three classes" \
+  'map(select(.obs == "diagnosed" and .detail.module == "App.Use"))[0].detail.detail | map(.class) | sort ==
      ["LeanMend.ErrorClass.noGoals", "LeanMend.ErrorClass.typeMismatch", "LeanMend.ErrorClass.unsolvedGoals"]' "$ledger"
-check "the first candidate of each rule was accepted (errors 3 → 2 → 1 → 0)" \
-  '[.[] | select(.obs == "rebuilt") | .detail.errors] == [2, 1, 0]' "$ledger"
+check "App.Use: the first candidate of each rule was accepted (errors 3 → 2 → 1 → 0)" \
+  '[.[] | select(.obs == "rebuilt" and (.detail.rule | startswith("no-progress") | not)) | .detail.errors] == [2, 1, 0]' "$ledger"
+check "App.Lint: the candidate fixed the error but caused one linter warning, so it was rejected" \
+  '[.[] | select(.obs == "rebuilt" and (.detail.rule | startswith("no-progress")))] | length == 1 and .[0].detail.errors == 0 and .[0].detail.lint == 1' "$ledger"
+grep -q 'simp \[Nat.add_zero\]$' "$app/App/Lint.lean" && echo "ok   App.Lint was reverted to its original text" || { echo "FAIL App.Lint text"; cat "$app/App/Lint.lean"; fail=1; }
 src=$(cat "$app/App/Use.lean")
 grep -q 'simp \[Dep.foo_eq\]' <<<"$src" && echo "ok   a1: simp gained Dep.foo_eq" || { echo "FAIL a1"; fail=1; }
 grep -q 'exact h' <<<"$src" && echo "ok   a2: simpa became exact h" || { echo "FAIL a2"; fail=1; }
 ! grep -qE '^\s+rfl\s*$' <<<"$src" && echo "ok   a3: the rfl after the closed goal is gone" || { echo "FAIL a3"; fail=1; }
 n=$(git -C "$app" rev-list --count main..lean-mend/mend)
 [ "$n" = 3 ] && echo "ok   three commits on lean-mend/mend" || { echo "FAIL commits: $n"; fail=1; }
-(cd "$app" && lake build -q >/dev/null) && echo "ok   the mended app builds" || { echo "FAIL build"; fail=1; }
+(cd "$app" && lake build -q App.Use >/dev/null) && echo "ok   the mended App.Use builds" || { echo "FAIL build"; fail=1; }
+
+# The card loop: list the open card, read its evidence, accept it.
+cards=$("$bin" cards "$app")
+grep -q '^c-1 violation App.a3 ' <<<"$cards" && echo "ok   cards lists c-1, a violation card for App.a3" || { echo "FAIL cards: $cards"; fail=1; }
+grep -q 'baseline axioms: \[\]' "$app/.lean-mend/cards/c-1.md" && grep -q 'after axioms: \[propext\]' "$app/.lean-mend/cards/c-1.md" \
+  && echo "ok   the card shows the axiom evidence ([] -> [propext])" || { echo "FAIL card text"; cat "$app/.lean-mend/cards/c-1.md"; fail=1; }
+out=$("$bin" judge "$app" c-1 accept --by tester)
+check "accepting c-1 moves the run to done, with the same residue" '.state == "done" and (.residue | sort) == ["App", "App.Lint"]' "$out"
+[ -z "$("$bin" cards "$app")" ] && echo "ok   no open card is left" || { echo "FAIL open cards left"; fail=1; }
+if "$bin" judge "$app" c-1 accept --by tester >/dev/null; then echo "FAIL a second judgment on c-1 was accepted"; fail=1
+else echo "ok   a second judgment on c-1 is refused"; fi
 
 # Without the rules, every site is residue.
 rm -rf "$app/.lean-mend" && g switch -q main && g branch -q -D lean-mend/mend

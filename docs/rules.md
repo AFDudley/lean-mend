@@ -89,7 +89,19 @@ For one site, the candidates come from every matching rule, in this order
    A bump across several releases therefore meets errors whose aliases exist
    only in the releases between the old and the new pin. The probe runs
    `deprecated` at each of those releases, and the map is the union.
-2. **Ratified** rules, in file-name order inside one class.
+2. **Ratified** rules, in file-name order inside one class. Inside a rule, the
+   candidate order is the rule author's preference among valid repairs, and a
+   person ratifies that order on the rule's Spec card. Prefer, in this order:
+   1. a named lemma (`simpArgAdd` with the specific lemma), which is stable
+      across releases and states the reason for the step;
+   2. `simpaToExact`, which is valid but depends on definitional unfolding
+      that a later release can change;
+   3. `keywordSwap` `rw` → `erw`, which hides a mismatch instead of fixing it;
+   4. `heartbeats`, which hides a cost regression upstream.
+
+   Lean's linters are the check on this order: a candidate that causes a
+   linter warning in its own bytes is rejected even if it builds
+   ([machine.md](machine.md), structural check 4).
 3. **Proposed** rules, only if the run sets `--with-proposed`. A patch from a
    proposed rule gets a card.
 
