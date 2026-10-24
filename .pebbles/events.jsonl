@@ -55,3 +55,8 @@
 {"type":"comment","timestamp":"2026-10-24T10:06:20.639109Z","issue_id":"lea-871","payload":{"body":"exophial-integration-attempt-started: at f5d6f5c7f60a1504c9d5d5bba03c473816163f18"}}
 {"type":"comment","timestamp":"2026-10-24T10:06:22.956448Z","issue_id":"lea-871","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
 {"type":"close","timestamp":"2026-10-24T10:06:22.956928Z","issue_id":"lea-871","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
+{"type":"create","timestamp":"2026-10-24T14:59:55.639973Z","issue_id":"lea-570","payload":{"description":"Operator-authored branch `dumb-port`, landed via `exophial integrate --branch` — no pebble id already tracked it.","priority":"2","title":"land: dumb-port","type":"task"}}
+{"type":"comment","timestamp":"2026-10-24T14:59:55.640763Z","issue_id":"lea-570","payload":{"body":"branch-identity: dumb-port"}}
+{"type":"comment","timestamp":"2026-10-24T15:02:25.336124Z","issue_id":"lea-570","payload":{"body":"exophial-integration-attempt-started: at fe56d46036a89a8679e828178875848f3bce00f0"}}
+{"type":"comment","timestamp":"2026-10-24T15:02:27.485365Z","issue_id":"lea-570","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
+{"type":"close","timestamp":"2026-10-24T15:02:27.485803Z","issue_id":"lea-570","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
