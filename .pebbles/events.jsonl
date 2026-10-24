@@ -80,3 +80,8 @@
 {"type":"comment","timestamp":"2026-10-24T19:00:47.978572Z","issue_id":"lea-8bf","payload":{"body":"exophial-integration-attempt-started: at 32d0029dedd50c26d5830e5d20ad44c1b439670f"}}
 {"type":"comment","timestamp":"2026-10-24T19:00:49.884912Z","issue_id":"lea-8bf","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
 {"type":"close","timestamp":"2026-10-24T19:00:49.885481Z","issue_id":"lea-8bf","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
+{"type":"create","timestamp":"2026-10-24T19:46:55.659939Z","issue_id":"lea-3a2","payload":{"description":"Operator-authored branch `move-decl-names`, landed via `exophial integrate --branch` — no pebble id already tracked it.","priority":"2","title":"land: move-decl-names","type":"task"}}
+{"type":"comment","timestamp":"2026-10-24T19:46:55.660854Z","issue_id":"lea-3a2","payload":{"body":"branch-identity: move-decl-names"}}
+{"type":"comment","timestamp":"2026-10-24T19:50:40.203045Z","issue_id":"lea-3a2","payload":{"body":"exophial-integration-attempt-started: at 4646048d1061d9393f883b051ecefc05900ca7df"}}
+{"type":"comment","timestamp":"2026-10-24T19:50:42.011559Z","issue_id":"lea-3a2","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
+{"type":"close","timestamp":"2026-10-24T19:50:42.012085Z","issue_id":"lea-3a2","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
