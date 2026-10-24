@@ -70,3 +70,8 @@
 {"type":"comment","timestamp":"2026-10-24T17:07:04.530830Z","issue_id":"lea-43e","payload":{"body":"exophial-integration-attempt-started: at 7a2dd6d4427ab3cba633b983456987e914ae9f32"}}
 {"type":"comment","timestamp":"2026-10-24T17:07:06.516878Z","issue_id":"lea-43e","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
 {"type":"close","timestamp":"2026-10-24T17:07:06.517355Z","issue_id":"lea-43e","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
+{"type":"create","timestamp":"2026-10-24T18:12:18.966087Z","issue_id":"lea-b14","payload":{"description":"Operator-authored branch `file-rename`, landed via `exophial integrate --branch` — no pebble id already tracked it.","priority":"2","title":"land: file-rename","type":"task"}}
+{"type":"comment","timestamp":"2026-10-24T18:12:18.970057Z","issue_id":"lea-b14","payload":{"body":"branch-identity: file-rename"}}
+{"type":"comment","timestamp":"2026-10-24T18:15:01.228559Z","issue_id":"lea-b14","payload":{"body":"exophial-integration-attempt-started: at 38f1b133ee06c073e9b5ab1b458ba02e98cfc930"}}
+{"type":"comment","timestamp":"2026-10-24T18:15:03.367825Z","issue_id":"lea-b14","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
+{"type":"close","timestamp":"2026-10-24T18:15:03.368433Z","issue_id":"lea-b14","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
