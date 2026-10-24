@@ -60,3 +60,8 @@
 {"type":"comment","timestamp":"2026-10-24T15:02:25.336124Z","issue_id":"lea-570","payload":{"body":"exophial-integration-attempt-started: at fe56d46036a89a8679e828178875848f3bce00f0"}}
 {"type":"comment","timestamp":"2026-10-24T15:02:27.485365Z","issue_id":"lea-570","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
 {"type":"close","timestamp":"2026-10-24T15:02:27.485803Z","issue_id":"lea-570","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
+{"type":"create","timestamp":"2026-10-24T15:58:39.917620Z","issue_id":"lea-c77","payload":{"description":"Operator-authored branch `types`, landed via `exophial integrate --branch` — no pebble id already tracked it.","priority":"2","title":"land: types","type":"task"}}
+{"type":"comment","timestamp":"2026-10-24T15:58:39.920884Z","issue_id":"lea-c77","payload":{"body":"branch-identity: types"}}
+{"type":"comment","timestamp":"2026-10-24T16:01:28.299332Z","issue_id":"lea-c77","payload":{"body":"exophial-integration-attempt-started: at 944ccd0b241754e3b90d6121d5ffdf8108d8b774"}}
+{"type":"comment","timestamp":"2026-10-24T16:01:30.465263Z","issue_id":"lea-c77","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
+{"type":"close","timestamp":"2026-10-24T16:01:30.465734Z","issue_id":"lea-c77","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
