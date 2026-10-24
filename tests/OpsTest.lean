@@ -37,6 +37,14 @@ def cases : List (String × EditOp × String × Option String) :=
     ("rw to erw", .keywordSwap "rw" "erw", "rw [h] at g", some "erw [h] at g"),
     ("keyword mismatch: no candidate", .keywordSwap "rw" "erw", "simp [h]", none),
     ("delete", .deleteTactic, "decide +kernel", some ""),
+    ("match on a literal to if", .matchToIf, "match val with | ⟨0⟩ => f val | _ => g val",
+      some "if val = ⟨0⟩ then f val\n    else g val"),
+    ("a pattern that binds: no candidate", .matchToIf, "match o with | some x => x | _ => 0", none),
+    ("three arms: no candidate", .matchToIf, "match n with | 0 => a | 1 => b | _ => c", none),
+    ("second arm not _: no candidate", .matchToIf, "match n with | 0 => a | 1 => b", none),
+    ("match on numerals to .val", .matchOnVal, "match p with | 1 => a | 2 => b | _ => c",
+      some "match p.val with | 1 => a | 2 => b | _ => c"),
+    ("a non-numeral pattern: no candidate", .matchOnVal, "match p with | ⟨1⟩ => a | _ => c", none),
     ("append at the node's column", .appendTactic "omega", "simp [a]", some "simp [a]\n    omega") ]
 
 def prefixCases : List (String × Option String) :=

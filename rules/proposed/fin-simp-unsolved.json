@@ -1,0 +1,15 @@
+{
+  "name": "fin-simp-unsolved",
+  "class": "unsolvedGoals",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "EVMLean fd4f5e6 -> v4.33.1. v4.33.1 simp no longer unfolds Fin's `<` and leaves `↑x < N` where x : Fin N. Hand bump bcca6b1: Fin.lt_def added to 8 simp sets (Theory/OpcodeLemmas.lean); `simpa [...] using x.isLt` at Wheels 53, 99. lean-mend run 2 accepted `exact Fin.isLt _` at both Wheels sites."
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.33.1" },
+  "node": "simp",
+  "candidates": [
+    { "op": "simpArgAdd", "lemma": "Fin.lt_def" },
+    { "op": "appendTactic", "tactic": "exact Fin.isLt _" },
+    { "op": "appendTactic", "tactic": "omega" }
+  ]
+}

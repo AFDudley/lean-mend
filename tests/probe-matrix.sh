@@ -29,6 +29,7 @@ for v in "${toolchains[@]}"; do
   uses=$(run decls Fx.Uses Fx/Uses.lean)
   deprecated=$(run deprecated Fx.Basic)
   regions=$(run regions Fx/Basic.lean)
+  uregions=$(run regions Fx/Uses.lean)
 
   check() {  # check <description> <jq filter> <input>
     if jq -e -s "$2" <<<"$3" >/dev/null; then echo "ok   $v $1"
@@ -46,8 +47,10 @@ for v in "${toolchains[@]}"; do
   check "regions agree with decls on every named declaration" \
     '(.[0] | map({(.name): [.statementRange, .bodyRange]}) | add) as $d
      | (.[1] | map(select(.name != "")) | map({(.name): [.statementRange, .bodyRange]}) | add) as $r
-     | ($r | length) == 6 and ($r | to_entries | all(.value == $d[.key]))' \
+     | ($r | length) == 5 and ($r | to_entries | all(.value == $d[.key]))' \
     "$(jq -s -c . <<<"$basic") $(jq -s -c . <<<"$regions")"
+  check "regions reports each declaration of a mutual block" \
+    'map(select(.name == "Fx.isEven" or .name == "Fx.isOdd")) | length == 2 and (.[0].range != .[1].range)' "$uregions"
   check "deriving-generated constants are not in decls" \
     'map(.name) | (index("Fx.instReprPt") == null) and (index("Fx.instBEqPt") == null)' "$basic"
   check "deprecated alias" \

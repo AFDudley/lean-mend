@@ -210,6 +210,12 @@ inductive EditOp where
   occur exactly once in the declaration's body. The form in which an agent or a
   person returns a residue repair (`docs/rules.md` § From residue to rule). -/
   | replaceInBody (decl old new : String)
+  /-- `match x with | p => a | _ => b`, where `p` binds no variable, becomes
+  `if x = p then a else b`. -/
+  | matchToIf
+  /-- `match x with` whose patterns are all numerals or `_` becomes
+  `match x.val with`: the same arms, over the wrapped natural number. -/
+  | matchOnVal
   /-- Insert `tactic` after the node, on its own line at the node's column:
   close a goal that the node leaves open. -/
   | appendTactic (tactic : String)

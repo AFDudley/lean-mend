@@ -94,7 +94,7 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
   | .built ctx st =>
     match frontier ctx.mods st with
     | [] =>
-      let cert ← certificate c.target c.toolchain (c.aliases.normalize) c.files (statusList c st)
+      let cert ← certificate c.target c.toolchain (c.aliases.normalizeWith (Rule.prefixPairs c.rules)) c.files (statusList c st)
       let next ← stepL c s (.certificate cert) "certificate"
         (Json.mkObj [("built", toJson cert.built), ("decls", toJson cert.decls.length)])
       let (residue, fs) := match next with
@@ -205,7 +205,7 @@ def runAdopt (target : FilePath) (targets : List String) (aliasesFrom : List Fil
   prepareTree base prepare
   let (_, baseBuilt) ← buildAll base targets baseOrder0
   let baseToolchain := (← IO.FS.readFile (base / "lean-toolchain")).trimAscii.toString
-  let baseCert ← certificate base baseToolchain resolved.normalize baseFiles baseBuilt
+  let baseCert ← certificate base baseToolchain (resolved.normalizeWith (Rule.prefixPairs rules)) baseFiles baseBuilt
   let baseFailing := baseBuilt.filterMap fun (n, s) => if s == .built then none else some n
   let c : Ctx := { target, toolchain, files, order, targets, aliases := resolved, rules, ledger,
                    start := "" }

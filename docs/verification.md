@@ -45,12 +45,19 @@ which ones they generate. On EVMLean, `Ethereum.instInhabitedBlockHeader.default
 exists at v4.29.0 and not at v4.33.1, and that halted the run with
 `invariantBroken` before this filter.
 
+Not covered yet: inductive types, structures and classes have no `declSig`
+or `declVal`, so the probe records no row for them, and the invariant does not
+check their constructors. EVMLean's `account_change_consistent` needed a
+constructor-binder change at v4.33.1 (`{σ σ'}` → `{σ σ' : AccountMap}`); that
+is a statement edit, so it stays residue for a person.
+
 The baseline is taken at the old toolchain before any edit. The after
 certificate is taken at the new toolchain when the frontier is empty.
 `compare` matches declarations by name, after the alias map.
 
 The shell hashes the statement and body text with `String.hash` after
-`AliasMap.normalize`, at both toolchains. So a pure alias rename changes
+`AliasMap.normalizeWith`: the derived alias map, then the namespace moves of
+the loaded `renamePrefix` rules (decision D5), at both toolchains. So a pure alias rename changes
 neither hash, and it needs no card.
 
 `statementHash` is the invariant's statement check. lean-mend does not edit a

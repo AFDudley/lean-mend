@@ -26,9 +26,26 @@ def runs (s : String) : List String :=
     | [] => [(identChar c, [c])]
   (s.toList.foldl step []).reverse.map fun (_, cs) => String.ofList cs.reverse
 
+/-- `w` with its leading name `a` replaced by `b`, when `w` is `a` or starts
+with `a.` (whole components only). -/
+def swapPrefix (a b w : String) : Option String :=
+  if w == a then some b
+  else if w.startsWith (a ++ ".") then some (b ++ String.ofList (w.toList.drop a.length))
+  else none
+
 /-- Replace every whole identifier that the map renames. -/
 def AliasMap.normalize (m : AliasMap) (s : String) : String :=
   String.join <| (runs s).map fun r => (m.pairs.lookup r).getD r
+
+/-- `normalize`, then the namespace moves of the loaded `renamePrefix` rules.
+A rule's prefix pairs count as renames only because a person ratified the rule:
+this is by judgment, not by construction (`docs/verification.md`). -/
+def AliasMap.normalizeWith (m : AliasMap) (prefixes : List (String × String)) (s : String) :
+    String :=
+  String.join <| (runs s).map fun r =>
+    match m.pairs.lookup r with
+    | some n => n
+    | none => (prefixes.findSome? fun (a, b) => swapPrefix a b r).getD r
 
 /-- The first name between backticks in a diagnostic, as Lean prints an
 unknown identifier: ``Unknown identifier `Dep.old` ``. -/

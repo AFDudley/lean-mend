@@ -18,7 +18,7 @@ echo "leanprover/lean4:v4.33.1" > "$work/lean-toolchain"
 out=$("$bin" baseline "$work")
 check "intact target is baselined" '.state == "baselined"' "$out"
 check "graph order" '.order == ["Fx.Basic", "Fx.Uses", "Fx"]' "$out"
-check "certificate rows" '(.decls | length) == 8' "$out"
+check "certificate rows: the 10 source declarations, no generated ones" '(.decls | length) == 10 and ([.decls[].name] | index("Fx.instReprPt") == null)' "$out"
 check "axioms in the certificate" \
   '.decls[] | select(.name == "Fx.em_use") | .axioms | index("Classical.choice") != null' "$out"
 

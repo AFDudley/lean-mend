@@ -89,18 +89,44 @@ def applyOp (op : EditOp) (n : Node) : Option String :=
     match n.tokens with
     | k :: _ => if k.text == a then some (splice n.text (rel k).1 (rel k).2 b) else none
     | [] => none
+  | .matchToIf =>
+    -- exactly `match d with | p => a | _ => b`, tokens at the top of the node
+    let slice (a b : Nat) := (String.fromUTF8! (n.text.toUTF8.extract (a - n.start) (b - n.start))).trimAscii.toString
+    let bars := n.tokens.filter (·.text == "|")
+    let arrows := n.tokens.filter (·.text == "=>")
+    match n.tokens.head?, n.tokens.find? (·.text == "with"), bars, arrows with
+    | some m, some w, [b1, b2], [a1, a2] =>
+      if m.text != "match" then none else
+      let d := slice m.stop w.start
+      let p := slice b1.stop a1.start
+      let r1 := slice a1.stop b2.start
+      let p2 := slice b2.stop a2.start
+      let r2 := slice a2.stop n.stop
+      -- the first pattern must bind nothing: no identifier that starts lower case
+      let binds := (runs p).any fun w => (w.toList.headD 'A').isLower
+      if p2 != "_" || binds || p.isEmpty then none
+      else some s!"if {d} = {p} then {r1}\n{String.ofList (List.replicate n.column ' ')}else {r2}"
+    | _, _, _, _ => none
+  | .matchOnVal =>
+    let bars := n.tokens.filter (·.text == "|")
+    let arrows := n.tokens.filter (·.text == "=>")
+    match n.tokens.head?, n.tokens.find? (·.text == "with") with
+    | some m, some w =>
+      if m.text != "match" || bars.isEmpty || bars.length != arrows.length then none else
+      let pats := (bars.zip arrows).map fun (b, a) =>
+        (String.fromUTF8! (n.text.toUTF8.extract (b.stop - n.start) (a.start - n.start))).trimAscii.toString
+      let numeral (p : String) := p == "_" || (!p.isEmpty && p.all Char.isDigit)
+      if !pats.all numeral then none else
+      let d := (String.fromUTF8! (n.text.toUTF8.extract (m.stop - n.start) (w.start - n.start))).trimAscii.toString
+      let d' := if d.all identChar then s!"{d}.val" else s!"({d}).val"
+      let bs := n.text.toUTF8
+      some (String.fromUTF8! (bs.extract 0 (m.stop - n.start)) ++ " " ++ d' ++ " " ++
+            String.fromUTF8! (bs.extract (w.start - n.start) bs.size))
+    | _, _ => none
   | .deleteTactic => some ""
   | .appendTactic t =>
     some (n.text ++ "\n" ++ String.ofList (List.replicate n.column ' ') ++ t)
   | .rename _ _ | .renamePrefix _ _ | .replaceInBody _ _ _ | .heartbeats _ => none
-
-/-- `w` with its leading name `a` replaced by `b`, when `w` is `a` or starts
-with `a.` (whole components only: `Batteries.RBMapX` does not match
-`Batteries.RBMap`). -/
-def swapPrefix (a b w : String) : Option String :=
-  if w == a then some b
-  else if w.startsWith (a ++ ".") then some (b ++ String.ofList (w.toList.drop a.length))
-  else none
 
 /-- The identifier runs of a replacement, for the structural check
 (`Candidate.clean`). -/
@@ -157,5 +183,11 @@ def proposeAll (m : AliasMap) (rules : List Rule) (nodes : List Node) (s : Site)
   all.foldl (fun acc c =>
     if acc.any fun d => d.start == c.start && d.stop == c.stop && d.replacement == c.replacement
     then acc else acc ++ [c]) []
+
+/-- The namespace moves that the rules declare (`renamePrefix`). -/
+def Rule.prefixPairs (rs : List Rule) : List (String × String) :=
+  rs.flatMap fun r => r.ops.filterMap fun
+    | .renamePrefix a b => some (a, b)
+    | _ => none
 
 end LeanMend

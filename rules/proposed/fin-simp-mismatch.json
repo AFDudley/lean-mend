@@ -1,0 +1,14 @@
+{
+  "name": "fin-simp-mismatch",
+  "class": "typeMismatch",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "EVMLean fd4f5e6 -> v4.33.1, Ethereum/Semantics.lean 288: `simpa [Iₑ, I] using hDepth.2.1` fails, the term has `depth < 1024` and the goal has the coerced form. Hand bump bcca6b1: have + simp only at + omega; Fin.lt_def in 8 simp sets elsewhere."
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.33.1" },
+  "node": "simp",
+  "candidates": [
+    { "op": "simpArgAdd", "lemma": "Fin.lt_def" },
+    { "op": "simpaToExact" }
+  ]
+}

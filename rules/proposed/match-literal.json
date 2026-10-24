@@ -1,0 +1,11 @@
+{
+  "name": "match-literal",
+  "class": "missingDecidable",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "EVMLean fd4f5e6 -> v4.33.1: `match` on a wrapped number with literal patterns fails with `failed to synthesize Decidable (x = n)`. Hand bump bcca6b1: Gas.lean 180 `match val with | ⟨0⟩ … | _ …` became `if val = ⟨0⟩ then … else …`; Semantics.lean 1040 `match p with | 1 … | 11 …` became `match p.val with`. A def body change gets a Behavior card."
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.33.1" },
+  "node": "any",
+  "candidates": [ { "op": "matchToIf" }, { "op": "matchOnVal" } ]
+}

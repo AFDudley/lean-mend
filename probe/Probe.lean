@@ -24,7 +24,8 @@ Commands:
 * `regions <file>` — each declaration command of a file, parsed without
   elaboration: qualified name, command range, statement and body ranges.
 * `node <file> <offset>…` — for each offset, the syntax nodes that contain it,
-  innermost first, with kinds, ranges, and tokens for tactic and `open` nodes.
+  innermost first, with kinds, ranges, and tokens for tactic, `open` and
+  `match` nodes.
 * `deprecated <module>…` — `{"name", "newName"}` for every `@[deprecated]`
   declaration in the environment of the given modules.
 -/
@@ -116,15 +117,19 @@ partial def cmdRegions (file : String) : IO Unit := do
       else if k == ``Parser.Command.section then none :: scopes
       else if k == ``Parser.Command.end then scopes.drop 1
       else scopes
-    if let some (sig, body) := regions stx then
-      let written := (firstOfKinds [``Parser.Command.declId] stx).bind fun d =>
-        (d.getArgs.find? (·.isIdent)).map (·.getId)
-      let pre := scopes.reverse.filterMap id |>.foldl (fun acc n => acc ++ n) Name.anonymous
-      let name := written.map (fun w => (pre ++ w).toString) |>.getD ""
-      if let some r := byteRange stx then
-        emit <| Json.mkObj
-          [("name", toJson name), ("range", rangeJson r),
-           ("statementRange", rangeJson sig), ("bodyRange", rangeJson body)]
+    -- A `mutual` block holds several declarations: report each one.
+    let decls := if k == ``Parser.Command.mutual then nodesOfKind ``Parser.Command.declaration stx
+      else #[stx]
+    for d in decls do
+      if let some (sig, body) := regions d then
+        let written := (firstOfKinds [``Parser.Command.declId] d).bind fun i =>
+          (i.getArgs.find? (·.isIdent)).map (·.getId)
+        let pre := scopes.reverse.filterMap id |>.foldl (fun acc n => acc ++ n) Name.anonymous
+        let name := written.map (fun w => (pre ++ w).toString) |>.getD ""
+        if let some r := byteRange d then
+          emit <| Json.mkObj
+            [("name", toJson name), ("range", rangeJson r),
+             ("statementRange", rangeJson sig), ("bodyRange", rangeJson body)]
     loop st' msgs' scopes
   loop st0 msgs0 []
 
@@ -177,7 +182,8 @@ partial def cmdNode (file : String) (offsets : List Nat) : IO Unit := do
           (byteRange n).map fun r =>
             let k := n.getKind
             let base := [("kind", toJson k.toString), ("range", rangeJson r)]
-            if (`Lean.Parser.Tactic).isPrefixOf k || k == ``Parser.Command.open then
+            if (`Lean.Parser.Tactic).isPrefixOf k || k == ``Parser.Command.open ||
+                k == ``Parser.Term.match then
               Json.mkObj (base ++ [("tokens", Json.arr (tokens bytes n))])
             else Json.mkObj base
         emit <| Json.mkObj [("file", toJson file), ("offset", toJson offset),

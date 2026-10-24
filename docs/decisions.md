@@ -40,9 +40,18 @@ result.
 
 ## D5. No statement edit, except an alias rename
 
-The edit type cannot address a statement region. The one exception is the
-replacement of a deprecated name by its alias target, which the probe proves
-from `@[deprecated]`. This makes part 1 of the invariant hold by construction.
+The edit type cannot address a statement region. Two exceptions rename a
+constant, and the statement hash is computed after the rename on both sides:
+
+- a deprecated name to its alias target, which the probe reads from
+  `@[deprecated]`: by construction;
+- a namespace move declared by a `renamePrefix` rule (Batteries v4.33.1 moved
+  `Batteries.RBMap` to `RBTree.RBMap` with no aliases): by judgment. The rule's
+  claim, "the same constants under a new name", is ratified by a person on the
+  rule's Spec card. The certificate cannot check it.
+
+Without the second exception, the EVMLean run halted with `invariantBroken`
+at `Conform.Wheels`, whose statements name `Batteries.RBMap`.
 
 ## D6. The scheduled form is a CI workflow in the target
 
