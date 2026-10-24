@@ -1,6 +1,7 @@
 import LeanMend.Core.Ops
 import LeanMend.Shell.Parse
 import LeanMend.Shell.Target
+import LeanMend.Core.Compare
 
 /-!
 Edit operations on one tactic node (`docs/rules.md` § Edit operations), and the
@@ -124,6 +125,37 @@ def run : IO Nat := do
                            start := 0, stop := 0, replacement := repl, tokens := replacementTokens repl }
     let ok := c.clean == want
     IO.println s!"{if ok then "ok  " else "FAIL"} D10: {what}"
+    unless ok do failed := failed + 1
+  for (t, want) in [("| unchanged {σ σ'}:", some "| unchanged {σ σ' : _}:"),
+                    ("| f (a b) {c}", some "| f (a b : _) {c : _}"),
+                    ("{σ : AccountMap}", none), ("{ x := 1 }", none), ("{x | p x}", none),
+                    ("σ", none), ("{}", none)] do
+    let got := annotateBinders t
+    let ok := got == want
+    IO.println s!"{if ok then "ok  " else "FAIL"} annotateBinders {t}: {repr got}"
+    unless ok do failed := failed + 1
+  do
+    let txt := "inductive c (acc : A) : M → M → Prop where\n  | unchanged {σ σ'}:\n    u acc σ σ'"
+    let site : Site :=
+      { diagnostic := { module := "M", line := 2, column := 15, endLine := 2, endColumn := 16,
+                        severity := .error, kind := "[anonymous]",
+                        text := "Only parameters appearing in the declaration header may have their binders kinds be overridden" },
+        decl := some "c", region := some .statement, declStart := some 0, start := 60, stop := 61,
+        statement := some (0, txt) }
+    let ok := match typeCandidates site with
+      | [c] => c.clean && c.replacement.contains ':' && (c.target matches .typeAnnotation _)
+      | _ => false
+    IO.println s!"{if ok then "ok  " else "FAIL"} D11: the narrowing of a whole inductive is clean (it adds no declaration)"
+    unless ok do failed := failed + 1
+  -- Decision D11: a changed type is a warning from typeChanges, and compare
+  -- (which blocks `done`) ignores it.
+  do
+    let ty (h : String) : Decl := { name := "T", module := "M", kind := .inductive,
+                                    statementHash := h, bodyHash := "", axioms := [] }
+    let base : Certificate := { toolchain := ⟨"a"⟩, built := ["M"], decls := [ty "h1"] }
+    let after : Certificate := { toolchain := ⟨"b"⟩, built := ["M"], decls := [ty "h2"] }
+    let ok := (typeChanges ⟨[]⟩ base after).map (·.2) == ["changed"] && (compare ⟨[]⟩ base after []).isEmpty
+    IO.println s!"{if ok then "ok  " else "FAIL"} a changed type is a warning, not a finding"
     unless ok do failed := failed + 1
   for (what, cls, op, accept) in
       [("deleteTactic for noGoals is loaded", "noGoals", "deleteTactic", true),

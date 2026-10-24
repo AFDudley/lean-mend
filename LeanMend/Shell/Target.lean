@@ -155,15 +155,15 @@ def readRegions (target : FilePath) (file : FilePath) : IO (List DeclRegion) := 
 
 /-- The declaration and region that hold byte offset `pos`. -/
 def locate (rs : List DeclRegion) (pos : Nat) :
-    Option String × Option SiteRegion × Option Nat × Option (Nat × Nat) :=
+    Option String × Option SiteRegion × Option Nat × Option (Nat × Nat) × Option (Nat × Nat) :=
   let inside (r : Nat × Nat) := r.1 ≤ pos && pos < r.2
   match rs.find? (inside ·.range) with
-  | none => (none, none, none, none)
+  | none => (none, none, none, none, none)
   | some d =>
     let name := if d.name.isEmpty then none else some d.name
     (name, (if inside d.body then some .body
             else if inside d.statement then some .statement else none), some d.range.1,
-     some d.body)
+     some d.body, some d.statement)
 
 /-- The probe's `node` output for some offsets of one file, in one process. -/
 def readNodes (target : FilePath) (file : FilePath) (offsets : List Nat) :
@@ -179,7 +179,8 @@ syntax nodes only at sites whose class some rule answers. Returns the error
 count, the byte offsets of linter warnings (kind `linter.*`), and the open
 sites. -/
 def diagnose (target : FilePath) (module : String) (file : FilePath)
-    (aliases : AliasMap) (rules : List Rule) : IO (Nat × List Nat × List Open) := do
+    (aliases : AliasMap) (rules : List Rule) (annotate : Bool) :
+    IO (Nat × List Nat × List Open) := do
   let (_, out, _) ← run target "lake" #["env", "lean", "--json", file.toString]
   let ds ← parseOrThrow s!"lean --json {file}" (Parse.lines (Parse.diagnostic module) out)
   let errs := ds.filter (·.severity == .error)
@@ -189,12 +190,13 @@ def diagnose (target : FilePath) (module : String) (file : FilePath)
   let rs ← if errs.isEmpty then pure [] else readRegions target file
   let sites := errs.map fun d =>
     let start := byteOffset src d.line d.column
-    let (decl, region, declStart, bodyR) := locate rs start
+    let (decl, region, declStart, bodyR, stmtR) := locate rs start
     let stop := byteOffset src d.endLine d.endColumn
     let bytes := src.toUTF8
     { diagnostic := d, decl, region, declStart, start, stop,
       text := String.fromUTF8! (bytes.extract start stop),
-      body := bodyR.map fun (a, b) => (a, String.fromUTF8! (bytes.extract a b)) : Site }
+      body := bodyR.map fun (a, b) => (a, String.fromUTF8! (bytes.extract a b)),
+      statement := stmtR.map fun (a, b) => (a, String.fromUTF8! (bytes.extract a b)) : Site }
   -- An error range can cover a whole tactic block (`unsolved goals` is reported
   -- at `by`), so the probe reads the nodes at the range's start and its end.
   let last (s : Site) := if s.stop > s.start then s.stop - 1 else s.start
@@ -202,7 +204,7 @@ def diagnose (target : FilePath) (module : String) (file : FilePath)
   let nodes ← readNodes target file (wanted.flatMap fun s => [s.start, last s]).eraseDups
   let at_ (o : Nat) := (nodes.lookup o).getD []
   pure (errs.length, lints, sites.map fun s =>
-    ⟨s, proposeAll aliases rules (at_ s.start ++ at_ (last s)) s⟩)
+    ⟨s, proposeAll aliases rules (at_ s.start ++ at_ (last s)) annotate s⟩)
 
 /-- Replace bytes `[c.start, c.stop)` of `file` with `c.replacement`. Returns
 the previous content, for a revert. -/

@@ -135,8 +135,9 @@ The structural checks on an attempt (concept C2, structural):
 
 1. The edit is inside the body region of its declaration, or it is an alias
    rename, or it is an insertion before the declaration's command
-   (`set_option maxHeartbeats N in`). The edit type cannot address a statement
-   region (by construction).
+   (`set_option maxHeartbeats N in`). The one statement edit is
+   `typeAnnotation` (decision D11), and the shell proposes it only with
+   `--annotate-binders`.
 2. The candidate adds none of the tokens in `forbiddenTokens`: `sorry`,
    `admit`, `axiom`, `native_decide`, `implemented_by`, `extern`, `unsafe`,
    `opaque`, and no declaration keyword (`def`, `theorem`, `lemma`,

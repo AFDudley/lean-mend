@@ -1,0 +1,1 @@
+{"caption":"","data":"Only parameters appearing in the declaration header may have their binders kinds be overridden\n\nHint: If this is not intended to be an override, use a binder with a type: for example, `(x : _)`","endPos":{"column":9,"line":3},"fileName":"B.lean","isSilent":false,"keepFullRange":false,"kind":"[anonymous]","pos":{"column":8,"line":3},"severity":"error"}

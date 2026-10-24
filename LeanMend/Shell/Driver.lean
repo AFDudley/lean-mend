@@ -36,6 +36,9 @@ structure Ctx where
   aliases : AliasMap
   /-- Ratified and proposed rules, from `--rules` (the lean-mend source). -/
   rules : List Rule
+  /-- `--annotate-binders`: apply the type-narrowing statement edit
+  (decision D11). Off by default: the edit is reported as a warning. -/
+  annotate : Bool
   ledger : FilePath
   /-- The commit where `lean-mend/mend` starts. -/
   start : String
@@ -49,6 +52,19 @@ def appendLedger (ledger : FilePath) (obs : String) (detail : Json) (next : RunS
   let h ← IO.FS.Handle.mk ledger .append
   h.putStrLn <| Json.compress <| Json.mkObj
     [("obs", toJson obs), ("detail", detail), ("state", toJson next.tag)]
+
+/-- Append a warning line to the ledger: it changes no state. -/
+def appendWarning (ledger : FilePath) (text : String) : IO Unit := do
+  let h ← IO.FS.Handle.mk ledger .append
+  h.putStrLn <| Json.compress <| Json.mkObj [("obs", toJson "warning"), ("detail", toJson text)]
+
+/-- The warning lines of a ledger, in order. -/
+def ledgerWarnings (ledger : FilePath) : IO (List String) := do
+  let lines := ((← IO.FS.readFile ledger).splitOn "\n").filter (· ≠ "")
+  pure <| lines.filterMap fun l => do
+    let j ← (Json.parse l).toOption
+    guard ((j.getObjValAs? String "obs").toOption == some "warning")
+    (j.getObjValAs? String "detail").toOption
 
 def record (c : Ctx) (obs : String) (detail : Json) (next : RunState) : IO Unit :=
   appendLedger c.ledger obs detail next
@@ -97,6 +113,8 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
       let cert ← certificate c.target c.toolchain (c.aliases.normalizeWith (Rule.prefixPairs c.rules)) c.files (statusList c st)
       let next ← stepL c s (.certificate cert) "certificate"
         (Json.mkObj [("built", toJson cert.built), ("decls", toJson cert.decls.length)])
+      for (d, why) in typeChanges ctx.aliases ctx.base cert do
+        appendWarning c.ledger s!"type {d.name} in {d.module} {why} (decision D11)"
       let (residue, fs) := match next with
         | .awaiting _ _ r _ fs => (r, fs)
         | .done _ _ r _ => (r, [])
@@ -109,7 +127,14 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
           mods := ctx.mods, aliases := ctx.aliases, residue, cards } fs c.fileOf
       pure next
     | m :: _ =>
-      let (_, _, opens) ← diagnose c.target m (c.fileOf m) c.aliases c.rules
+      let (_, _, opens) ← diagnose c.target m (c.fileOf m) c.aliases c.rules c.annotate
+      -- Decision D11: without --annotate-binders, report the type narrowing
+      -- the run would apply, and leave the site as residue.
+      unless c.annotate do
+        for o in opens do
+          for t in typeCandidates o.site do
+            appendWarning c.ledger s!"{m}:{o.site.diagnostic.line} {o.site.decl.getD "?"}: \
+              would narrow `{o.site.text}` to `{t.replacement}`; rerun with --annotate-binders"
       let siteJson := opens.map fun o => Json.mkObj
         [("line", toJson o.site.diagnostic.line),
          ("class", toJson (toString (repr (classify o.site.diagnostic)))),
@@ -136,7 +161,7 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
     | .attempt cand =>
       let file := c.fileOf mm.module
       let saved ← applyEdit c.target file cand
-      let (e, lints, opens0) ← diagnose c.target mm.module file c.aliases c.rules
+      let (e, lints, opens0) ← diagnose c.target mm.module file c.aliases c.rules c.annotate
       -- Residue sites stay errors in the file; they are not tried again.
       let opens := opens0.filter fun o => !mm.residue.any (·.sameAs o.site)
       -- Linter warnings inside the replaced bytes: the candidate caused them.
@@ -164,7 +189,8 @@ def prepareTree (tree : FilePath) : List String → IO Unit
 
 /-- `lean-mend run <target> --adopt [--targets <t,…>] [--prepare <cmd>] [--aliases-from <project>]…` -/
 def runAdopt (target : FilePath) (targets : List String) (aliasesFrom : List FilePath)
-    (prepare : List String := []) (rules : List Rule := []) : IO RunState := do
+    (prepare : List String := []) (rules : List Rule := []) (annotate : Bool := false) :
+    IO RunState := do
   -- Absolute paths: git and lake run with the target as their working
   -- directory, so a relative path would resolve one level too deep.
   let target ← IO.FS.realPath target
@@ -207,7 +233,7 @@ def runAdopt (target : FilePath) (targets : List String) (aliasesFrom : List Fil
   let baseToolchain := (← IO.FS.readFile (base / "lean-toolchain")).trimAscii.toString
   let baseCert ← certificate base baseToolchain (resolved.normalizeWith (Rule.prefixPairs rules)) baseFiles baseBuilt
   let baseFailing := baseBuilt.filterMap fun (n, s) => if s == .built then none else some n
-  let c : Ctx := { target, toolchain, files, order, targets, aliases := resolved, rules, ledger,
+  let c : Ctx := { target, toolchain, files, order, targets, aliases := resolved, rules, annotate, ledger,
                    start := "" }
   -- The machine, in its own order.
   let s ← stepL c (.idle target.toString) (.baseline baseCert baseFailing) "baseline"

@@ -20,6 +20,8 @@ instance (js : List Judgment) (kind : CardKind) (subject : String) :
 /-- One baseline declaration is not harmed by the after state. -/
 def DeclOk (m : AliasMap) (after : Certificate) (js : List Judgment) (b : Decl) :
     Prop :=
+  -- A type's change is a warning, not a breach (decision D11, `typeChanges`).
+  b.kind.isType = false →
   b.module ∈ after.built →
     ∃ a ∈ after.decls,
       a.name = m.rename b.name ∧

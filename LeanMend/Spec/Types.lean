@@ -15,8 +15,17 @@ structure Toolchain where
 
 /-- The kind of a declaration, as the probe reports it. -/
 inductive DeclKind where
-  | «theorem» | «def» | «instance» | «abbrev» | «axiom» | other
+  | «theorem» | «def» | «instance» | «abbrev» | «axiom»
+  | «inductive» | «structure» | «class»
+  | other
   deriving DecidableEq, Repr
+
+/-- A declaration that defines a type. Its fields or constructors are its
+statement and it has no body. lean-mend records it but never edits it, except
+with `--annotate-binders` (decision D11). -/
+def DeclKind.isType : DeclKind → Bool
+  | .inductive | .structure | .class => true
+  | _ => false
 
 /-- A definition change can change what the target computes (`docs/glossary.md`). -/
 def DeclKind.computes : DeclKind → Bool
@@ -60,6 +69,11 @@ inductive ErrorClass where
   | typeMismatch
   | simpNoProgress
   | unsolvedGoals
+  /-- A binder without a type repeats a section `variable`'s name, which Lean
+  v4.33 reads as a forbidden change of that variable's binder kind ("Only
+  parameters appearing in the declaration header may have their binders kinds
+  be overridden"). -/
+  | binderOverride
   /-- A tactic ran after its goal was closed ("No goals to be solved"). -/
   | noGoals
   | heartbeat
@@ -104,6 +118,9 @@ structure Site where
   text : String := ""
   /-- Byte offset and text of `decl`'s body region, when known. -/
   body : Option (Nat × String) := none
+  /-- Byte offset and text of `decl`'s statement region, when known. For a
+  type, the whole command. -/
+  statement : Option (Nat × String) := none
   /-- Byte range of the smallest syntax node that contains the error. -/
   start : Nat
   stop : Nat
@@ -120,6 +137,10 @@ inductive EditTarget where
   | body (decl : String)
   /-- Replace a deprecated name by its alias target, anywhere. -/
   | aliasRename (old new : String)
+  /-- Add a type to a binder group in a statement: `{σ σ'}` becomes
+  `{σ σ' : _}`. The one statement edit, applied only with
+  `--annotate-binders` (decision D11). -/
+  | typeAnnotation (decl : String)
   /-- Insert text before the named declaration's command, for example
   `set_option maxHeartbeats N in`. Outside the statement region. -/
   | beforeDecl (decl : String)

@@ -47,10 +47,14 @@ for v in "${toolchains[@]}"; do
   check "regions agree with decls on every named declaration" \
     '(.[0] | map({(.name): [.statementRange, .bodyRange]}) | add) as $d
      | (.[1] | map(select(.name != "")) | map({(.name): [.statementRange, .bodyRange]}) | add) as $r
-     | ($r | length) == 5 and ($r | to_entries | all(.value == $d[.key]))' \
+     | ($r | length) == 8 and ($r | to_entries | all(.value == $d[.key]))' \
     "$(jq -s -c . <<<"$basic") $(jq -s -c . <<<"$regions")"
   check "regions reports each declaration of a mutual block" \
     'map(select(.name == "Fx.isEven" or .name == "Fx.isOdd")) | length == 2 and (.[0].range != .[1].range)' "$uregions"
+  check "types are in decls with their kind; their generated constants are not" \
+    '(map({(.name): .kind}) | add) as $k
+     | $k["Fx.Color"] == "inductive" and $k["Fx.Pt"] == "structure" and $k["Fx.HasZero"] == "class"
+       and ([$k | keys[] | select(test("casesOn|recOn|\\.rec$|\\.mk$|Pt\\.x$|Color\\.red$"))] | length) == 0' "$basic"
   check "deriving-generated constants are not in decls" \
     'map(.name) | (index("Fx.instReprPt") == null) and (index("Fx.instBEqPt") == null)' "$basic"
   check "deprecated alias" \

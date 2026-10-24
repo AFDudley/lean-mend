@@ -32,3 +32,6 @@ tests/rename.sh
 
 echo "== lean-mend run --adopt --rules on the simp-set fixture"
 tests/simpset.sh
+
+echo "== decision D11 on the binder fixture"
+tests/binder.sh

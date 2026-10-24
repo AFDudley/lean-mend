@@ -50,6 +50,9 @@ def declKind : String → Except String DeclKind
   | "instance" => .ok .instance
   | "abbrev" => .ok .abbrev
   | "axiom" => .ok .axiom
+  | "inductive" => .ok .inductive
+  | "structure" => .ok .structure
+  | "class" => .ok .class
   | "other" => .ok .other
   | s => .error s!"unknown declaration kind '{s}'"
 
@@ -125,6 +128,7 @@ def errorClass : String → Except String ErrorClass
   | "typeMismatch" => .ok .typeMismatch
   | "simpNoProgress" => .ok .simpNoProgress
   | "unsolvedGoals" => .ok .unsolvedGoals
+  | "binderOverride" => .ok .binderOverride
   | "noGoals" => .ok .noGoals
   | "heartbeat" => .ok .heartbeat
   | "wallclock" => .ok .wallclock

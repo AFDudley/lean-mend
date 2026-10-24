@@ -34,6 +34,14 @@ def run : IO Nat := do
           IO.println s!"{if ok then "ok  " else "FAIL"} {v} line {line}: {repr c}"
           unless ok do failed := failed + 1
         | none => IO.println s!"FAIL {v} line {line}: no diagnostic"; failed := failed + 1
+  -- B.lean: a constructor binder `{s t}` that repeats a section variable.
+  -- v4.29.0 accepts it; v4.33.1 and v4.35.0 reject it (decision D11).
+  match Parse.lines (Parse.diagnostic "B") (← IO.FS.readFile "tests/fixtures/diagnostics/binder-v4.35.0.jsonl") with
+  | .ok [d] =>
+    let ok := classify d == .binderOverride
+    IO.println s!"{if ok then "ok  " else "FAIL"} v4.35.0 binder override: {repr (classify d)}"
+    unless ok do failed := failed + 1
+  | _ => IO.println "FAIL binder override fixture"; failed := failed + 1
   -- A deprecated-module warning from Lean v4.33.1 (EVMLean Conform/Wheels.lean)
   -- has `"endPos": null`; it must parse, with the range at its start.
   let out ← IO.FS.readFile "tests/fixtures/diagnostics/null-endpos.jsonl"

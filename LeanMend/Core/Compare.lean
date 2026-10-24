@@ -61,4 +61,14 @@ theorem compare_nil (m : AliasMap) (base after : Certificate) (js : List Judgmen
   have := h b hb
   simpa using this
 
+/-- Types whose text changed, or that are missing, after the run: warnings,
+never findings (decision D11). lean-mend changes a type only with
+`--annotate-binders`, so a change here is that edit, reported. -/
+def typeChanges (m : AliasMap) (base after : Certificate) : List (Decl × String) :=
+  base.decls.filterMap fun b =>
+    if !b.kind.isType || !after.built.contains b.module then none else
+    match after.decls.find? (·.name == m.rename b.name) with
+    | none => some (b, "missing")
+    | some a => if a.statementHash == b.statementHash then none else some (b, "changed")
+
 end LeanMend

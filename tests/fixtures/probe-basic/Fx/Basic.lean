@@ -12,6 +12,13 @@ def New.f (n : Nat) : Nat := n
 @[deprecated New.f (since := "2026-01-01")]
 def Old.f := @New.f
 
+inductive Color where
+  | red
+  | green
+
+class HasZero (α : Type) where
+  zero : α
+
 structure Pt where
   x : Nat
   deriving Repr, BEq

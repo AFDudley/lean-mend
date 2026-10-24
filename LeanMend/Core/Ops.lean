@@ -172,14 +172,69 @@ def ruleCandidates (r : Rule) (nodes : List Node) (s : Site) : List Candidate :=
       pure (mk (.body d) n.start n.stop repl)
     | _, _, _ => none
 
+/-- One binder group's content: names and spaces only, at least one name. -/
+private def namesOnly (c : String) : Bool :=
+  c.any (· != ' ') && c.all fun ch => ch == ' ' || identChar ch
+
+/-- Every binder group `{a b}`, `(a b)` or `⦃a b⦄` whose content is names and
+spaces only becomes `{a b : _}`, Lean's own hint for `binderOverride`. Groups
+with a type, a `:=`, a `|` or any other symbol are kept. `none` if nothing
+changes. Lean reports only the first offending group, and the type fails until
+every group is fixed, so all groups change in one edit. -/
+def annotateBinders (t : String) : Option String :=
+  let pairs := [('{', '}'), ('(', ')'), ('⦃', '⦄')]
+  -- one pass: copy text; at an opening bracket, look for its close on the
+  -- same group with only names and spaces between
+  let rec go (cs : List Char) (acc : List Char) (changed : Bool) : List Char × Bool :=
+    match cs with
+    | [] => (acc.reverse, changed)
+    | c :: rest =>
+      match pairs.lookup c with
+      | some close =>
+        let inner := rest.takeWhile (· != close)
+        let after := rest.drop inner.length
+        if after.head? == some close && namesOnly (String.ofList inner) then
+          let grp := [c] ++ inner ++ " : _".toList ++ [close]
+          go (after.drop 1) (grp.reverse ++ acc) true
+        else go rest (c :: acc) changed
+      | none => go rest (c :: acc) changed
+  termination_by cs.length
+  decreasing_by all_goals simp_wf; all_goals omega
+  match go t.toList [] false with
+  | (out, true) => some (String.ofList out)
+  | (_, false) => none
+
+/-- The identifier runs of `new` that `old` does not have, counted with
+multiplicity: what an edit adds. -/
+def addedTokens (old new : String) : List String :=
+  (replacementTokens new).foldl (init := ([], replacementTokens old)) (fun (acc, rest) t =>
+    if rest.contains t then (acc, rest.erase t) else (acc ++ [t], rest)) |>.1
+
+/-- The built-in type-narrowing candidate (decision D11): a statement edit of
+the whole type declaration, so the shell applies it only with
+`--annotate-binders`. -/
+def typeCandidates (s : Site) : List Candidate :=
+  match classify s.diagnostic, s.decl, s.statement with
+  | .binderOverride, some d, some (a, txt) =>
+    match annotateBinders txt with
+    | some r =>
+      [{ rule := "annotate-binders (Lean's hint)", entrenchment := .derived,
+         target := .typeAnnotation d, start := a, stop := a + txt.utf8ByteSize,
+         -- the clean check sees what the edit adds: the type keeps its own
+         -- `inductive`/`structure`/`class` keyword, which D10 must not count
+         replacement := r, tokens := addedTokens txt r }]
+    | none => []
+  | _, _, _ => []
+
 /-- All candidates for a site, in entrenchment order (concept C3): the derived
 alias candidates, then ratified rules, then proposed rules, each in rule-list
 order. A candidate that an earlier one already proposed is dropped. -/
-def proposeAll (m : AliasMap) (rules : List Rule) (nodes : List Node) (s : Site) :
-    List Candidate :=
+def proposeAll (m : AliasMap) (rules : List Rule) (nodes : List Node)
+    (annotate : Bool) (s : Site) : List Candidate :=
   let byE (e : Entrenchment) := (rules.filter (·.entrenchment == e)).flatMap
     (ruleCandidates · nodes s)
-  let all := propose m s ++ byE .ratified ++ byE .proposed
+  let all := propose m s ++ (if annotate then typeCandidates s else []) ++
+    byE .ratified ++ byE .proposed
   all.foldl (fun acc c =>
     if acc.any fun d => d.start == c.start && d.stop == c.stop && d.replacement == c.replacement
     then acc else acc ++ [c]) []

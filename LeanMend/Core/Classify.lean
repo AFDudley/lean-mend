@@ -34,6 +34,7 @@ private def classOfText (t : String) : ErrorClass :=
   else if has t "timeout" then .wallclock
   else if has t "unknown identifier" || has t "unknown constant" then .unknownIdentifier
   else if has t "unknown namespace" then .unknownNamespace
+  else if has t "may have their binders kinds be overridden" then .binderOverride
   else if has t "failed to synthesize" && has t "Decidable" then .missingDecidable
   else if has t "type mismatch" then .typeMismatch
   else if has t "made no progress" then .simpNoProgress

@@ -94,6 +94,27 @@ adds `Ethereum.State.subtractGas` to the existing `simp` sets
 (`rules/proposed/evmlean-subtractGas-unfold.json`); on the real file this
 removed 8 of 33 errors.
 
+## D11. Types are in the certificate; lean-mend narrows them only on request
+
+The operator decided this on 2026-10-24.
+
+- The certificate records every `inductive`, `structure` and `class`. A type's
+  statement is its whole command: its fields or constructors define it.
+- lean-mend does not edit a type. If a type's text differs after the run, the
+  run reports a warning (`typeChanges`). A warning does not block `done` and
+  needs no card.
+- One edit to a type exists: narrowing. At Lean v4.33, a constructor binder
+  without a type that repeats a section `variable` (`{σ σ'}`) is an error
+  (`binderOverride`). Lean's own hint is to give it a type. lean-mend proposes
+  `{σ σ' : _}` for every names-only binder group of that type, in one edit,
+  because Lean reports only the first group.
+- By default lean-mend applies nothing: it writes a warning with the exact
+  edit, and the site is residue. With `--annotate-binders` it applies the
+  edit, and the type change then appears as a warning.
+
+EVMLean `Theory/AccountLocality.lean` (`account_change_consistent`): on the
+real file the narrowing took the errors from 86 to 14.
+
 # Open questions
 
 **Q1. Which statement identity across toolchains?** The source statement hash

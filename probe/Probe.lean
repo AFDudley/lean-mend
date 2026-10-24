@@ -76,10 +76,23 @@ def kindOf (env : Environment) (n : Name) : ConstantInfo → String
     else match d.hints with
       | .abbrev => "abbrev"
       | _ => "def"
+  | .inductInfo _ =>
+    if isClass env n then "class" else if isStructure env n then "structure" else "inductive"
   | _ => "other"
 
-/-- Statement and body byte ranges of one parsed declaration command. -/
+/-- A declaration command that defines a type: its fields or constructors are
+its statement, and it has no body. -/
+def isTypeCommand (stx : Syntax) : Bool :=
+  (firstOfKinds [``Parser.Command.inductive, ``Parser.Command.structure,
+    ``Parser.Command.classInductive] stx).isSome
+
+/-- Statement and body byte ranges of one parsed declaration command. A type
+command (`inductive`, `structure`, `class`) has its whole text as the
+statement and an empty body at its end (`docs/verification.md`). -/
 def regions (stx : Syntax) : Option ((Nat × Nat) × (Nat × Nat)) := do
+  if isTypeCommand stx then
+    let r ← byteRange stx
+    return (r, (r.2, r.2))
   let sig ← firstOfKinds [``Parser.Command.declSig, ``Parser.Command.optDeclSig] stx
   let body ← firstOfKinds
     [``Parser.Command.declValSimple, ``Parser.Command.declValEqns,
