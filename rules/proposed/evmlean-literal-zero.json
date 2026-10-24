@@ -1,0 +1,11 @@
+{
+  "name": "evmlean-literal-zero",
+  "class": "typeMismatch",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "EVMLean fd4f5e6 -> v4.33.1, Theory/AccountLocality.lean 1271: after simp, the hypothesis has `balance := UInt256.ofNat 0` and the goal has `balance := { val := 0 }` (the literal-form class, EquiVM report §13.3). EVMLean already proves the bridge, Ethereum.UInt256_ofNat_0 (UInt256.lean 380), without @[simp]. The hand bump bcca6b1 added a new lemma instead; decision D10 forbids that."
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.33.1" },
+  "node": "simp",
+  "candidates": [ { "op": "simpArgAdd", "lemma": "Ethereum.UInt256_ofNat_0" } ]
+}

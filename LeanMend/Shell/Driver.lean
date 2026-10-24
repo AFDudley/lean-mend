@@ -166,7 +166,8 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
       let opens := opens0.filter fun o => !mm.residue.any (·.sameAs o.site)
       -- Linter warnings inside the replaced bytes: the candidate caused them.
       let editEnd := cand.start + cand.replacement.utf8ByteSize
-      let lint := (lints.filter fun o => cand.start ≤ o && o < editEnd).length
+      let spans := if cand.changed.isEmpty then [(cand.start, editEnd)] else cand.changed
+      let lint := (lints.filter fun o => spans.any fun (a, b) => a ≤ o && o < b).length
       let s' ← stepL c s (.mend (.rebuilt e lint opens)) "rebuilt"
         (Json.mkObj [("rule", toJson cand.rule), ("errors", toJson e), ("lint", toJson lint)])
       let acceptedNow := match s' with

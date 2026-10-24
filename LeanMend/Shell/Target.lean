@@ -193,7 +193,7 @@ def diagnose (target : FilePath) (module : String) (file : FilePath)
     let (decl, region, declStart, bodyR, stmtR) := locate rs start
     let stop := byteOffset src d.endLine d.endColumn
     let bytes := src.toUTF8
-    { diagnostic := d, decl, region, declStart, start, stop,
+    { diagnostic := d, decl, region, declStart, start, stop, file := src,
       text := String.fromUTF8! (bytes.extract start stop),
       body := bodyR.map fun (a, b) => (a, String.fromUTF8! (bytes.extract a b)),
       statement := stmtR.map fun (a, b) => (a, String.fromUTF8! (bytes.extract a b)) : Site }

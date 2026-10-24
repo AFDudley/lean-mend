@@ -161,6 +161,25 @@ def run : IO Nat := do
     let ok := (typeChanges ⟨[]⟩ base after).map (·.2) == ["changed"] && (compare ⟨[]⟩ base after []).isEmpty
     IO.println s!"{if ok then "ok  " else "FAIL"} a changed type is a warning, not a finding"
     unless ok do failed := failed + 1
+  -- The file-wide namespace move: every occurrence in one edit, and a site of
+  -- class `unknown` that names a moved name triggers it.
+  do
+    let src := "def f (s : Batteries.RBNode.Stream α) := s\n| Batteries.RBNode.Stream.nil => Batteries.RBNode.all₂ x"
+    let site : Site :=
+      { diagnostic := { module := "M", line := 2, column := 2, endLine := 2, endColumn := 10,
+                        severity := .error, kind := "[anonymous]",
+                        text := "Invalid pattern variable: Variable name must be atomic, but `Batteries.RBNode.Stream.nil` has multiple components" },
+        decl := some "f", region := some .body, declStart := some 0, start := 47, stop := 74,
+        text := "Batteries.RBNode.Stream.nil", file := src }
+    let r : Rule := { name := "mv", cls := .unknownIdentifier, entrenchment := .proposed,
+                      family := .any, ops := [.renamePrefix "Batteries.RBNode" "RBTree.RBNode"] }
+    let ok := match ruleCandidates r [] site with
+      | [c] => c.start == 0 && c.replacement ==
+          "def f (s : RBTree.RBNode.Stream α) := s\n| RBTree.RBNode.Stream.nil => RBTree.RBNode.all₂ x"
+          && c.changed.length == 3 && c.clean
+      | _ => false
+    IO.println s!"{if ok then "ok  " else "FAIL"} renamePrefix renames all 3 occurrences in one edit, from an `unknown`-class site"
+    unless ok do failed := failed + 1
   for (what, cls, op, accept) in
       [("deleteTactic for noGoals is loaded", "noGoals", "deleteTactic", true),
        ("deleteTactic for typeMismatch is refused", "typeMismatch", "deleteTactic", false),

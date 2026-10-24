@@ -118,6 +118,8 @@ structure Site where
   text : String := ""
   /-- Byte offset and text of `decl`'s body region, when known. -/
   body : Option (Nat × String) := none
+  /-- The whole text of the site's file. -/
+  file : String := ""
   /-- Byte offset and text of `decl`'s statement region, when known. For a
   type, the whole command. -/
   statement : Option (Nat × String) := none
@@ -156,6 +158,10 @@ structure Candidate where
   replacement : String
   /-- The atoms and identifiers of the parsed replacement, from the probe. -/
   tokens : List String
+  /-- The byte spans the edit changed, in the new text, when the edit touches
+  only parts of `[start, stop)` (a file-wide rename). Empty means the whole
+  replacement. The linter check counts warnings only inside these spans. -/
+  changed : List (Nat × Nat) := []
   deriving Repr
 
 /-- Tokens a candidate may not add (`docs/verification.md`, structural checks). -/

@@ -128,14 +128,41 @@ def applyOp (op : EditOp) (n : Node) : Option String :=
     some (n.text ++ "\n" ++ String.ofList (List.replicate n.column ' ') ++ t)
   | .rename _ _ | .renamePrefix _ _ | .replaceInBody _ _ _ | .heartbeats _ => none
 
+/-- Every name between backticks in a diagnostic's text. -/
+def namesIn (d : Diagnostic) : List String :=
+  ((d.text.splitOn "`").zipIdx.filter (·.2 % 2 == 1)).map (·.1)
+
+/-- Every identifier in `src` that starts with the name `a` gets `b` in its
+place. Returns the new text and the byte spans of the renamed identifiers in
+it, or `none` if nothing changes. -/
+def renameAll (a b src : String) : Option (String × List (Nat × Nat)) :=
+  let (out, spans, pos, n) := (runs src).foldl (init := ("", ([] : List (Nat × Nat)), 0, 0))
+    fun (out, spans, pos, n) r =>
+      match swapPrefix a b r with
+      | some r' => (out ++ r', spans ++ [(pos, pos + r'.utf8ByteSize)], pos + r'.utf8ByteSize, n + 1)
+      | none => (out ++ r, spans, pos + r.utf8ByteSize, n)
+  let _ := pos
+  if n == 0 then none else some (out, spans)
+
 /-- The identifier runs of a replacement, for the structural check
 (`Candidate.clean`). -/
 def replacementTokens (r : String) : List String :=
   (runs r).filter fun w => (w.toList.headD ' ').isAlpha || w.startsWith "_"
 
+/-- The identifier runs of `new` that `old` does not have, counted with
+multiplicity: what an edit adds. -/
+def addedTokens (old new : String) : List String :=
+  (replacementTokens new).foldl (init := ([], replacementTokens old)) (fun (acc, rest) t =>
+    if rest.contains t then (acc, rest.erase t) else (acc ++ [t], rest)) |>.1
+
 /-- Candidates from one rule for one site. -/
 def ruleCandidates (r : Rule) (nodes : List Node) (s : Site) : List Candidate :=
-  if classify s.diagnostic != r.cls then [] else
+  -- A namespace move answers any site whose message names a moved name,
+  -- whatever its class ("Invalid pattern variable … `Batteries.RBNode.Stream.nil`").
+  let moves := r.ops.any fun
+    | .renamePrefix a b => (namesIn s.diagnostic).any fun n => (swapPrefix a b n).isSome
+    | _ => false
+  if classify s.diagnostic != r.cls && !moves then [] else
   r.ops.filterMap fun op =>
     let mk (target : EditTarget) (a b : Nat) (repl : String) : Candidate :=
       { rule := s!"{r.name}: {repr op}", entrenchment := r.entrenchment, target,
@@ -155,8 +182,13 @@ def ruleCandidates (r : Rule) (nodes : List Node) (s : Site) : List Candidate :=
         pure (mk (.body d) a (a + old.utf8ByteSize) new)
       | _ => none
     | .renamePrefix a b, _, _ =>
-      match swapPrefix a b s.text with
-      | some t => some (mk (.aliasRename a b) s.start s.stop t)
+      -- A namespace move is all-or-nothing: rename every occurrence in the
+      -- file in one edit, because renaming one site of a declaration lets Lean
+      -- check the rest of it, which still has the old names.
+      match renameAll a b s.file with
+      | some (t, spans) =>
+        some { mk (.aliasRename a b) 0 s.file.utf8ByteSize t with
+               tokens := addedTokens s.file t, changed := spans }
       | none =>
         -- `open X (n …)`: Lean reports `X.n` at the token `n`; the namespace
         -- token `X` is the one that moves.
@@ -216,12 +248,6 @@ def annotateBinders (t : String) : Option String :=
   match go t.toList [] 0 0 false with
   | (out, true) => some (String.ofList out)
   | (_, false) => none
-
-/-- The identifier runs of `new` that `old` does not have, counted with
-multiplicity: what an edit adds. -/
-def addedTokens (old new : String) : List String :=
-  (replacementTokens new).foldl (init := ([], replacementTokens old)) (fun (acc, rest) t =>
-    if rest.contains t then (acc, rest.erase t) else (acc ++ [t], rest)) |>.1
 
 /-- The built-in type-narrowing candidate (decision D11): a statement edit of
 the whole type declaration, so the shell applies it only with
