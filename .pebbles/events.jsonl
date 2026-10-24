@@ -65,3 +65,8 @@
 {"type":"comment","timestamp":"2026-10-24T16:01:28.299332Z","issue_id":"lea-c77","payload":{"body":"exophial-integration-attempt-started: at 944ccd0b241754e3b90d6121d5ffdf8108d8b774"}}
 {"type":"comment","timestamp":"2026-10-24T16:01:30.465263Z","issue_id":"lea-c77","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
 {"type":"close","timestamp":"2026-10-24T16:01:30.465734Z","issue_id":"lea-c77","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
+{"type":"create","timestamp":"2026-10-24T17:04:02.918003Z","issue_id":"lea-43e","payload":{"description":"Operator-authored branch `narrow-binders`, landed via `exophial integrate --branch` — no pebble id already tracked it.","priority":"2","title":"land: narrow-binders","type":"task"}}
+{"type":"comment","timestamp":"2026-10-24T17:04:02.922035Z","issue_id":"lea-43e","payload":{"body":"branch-identity: narrow-binders"}}
+{"type":"comment","timestamp":"2026-10-24T17:07:04.530830Z","issue_id":"lea-43e","payload":{"body":"exophial-integration-attempt-started: at 7a2dd6d4427ab3cba633b983456987e914ae9f32"}}
+{"type":"comment","timestamp":"2026-10-24T17:07:06.516878Z","issue_id":"lea-43e","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
+{"type":"close","timestamp":"2026-10-24T17:07:06.517355Z","issue_id":"lea-43e","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
