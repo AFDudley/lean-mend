@@ -38,3 +38,6 @@ tests/binder.sh
 
 echo "== decision D12 on the follow fixture"
 tests/follow.sh
+
+echo "== a namespace move with no aliases, on the move fixture"
+tests/move.sh

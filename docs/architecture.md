@@ -49,6 +49,7 @@ tests/
 * rename.sh      `lean-mend run --adopt` on tests/fixtures/rename, with and without the alias source
 * simpset.sh     `lean-mend run --adopt --rules` on tests/fixtures/simpset: three classes repaired, one candidate rejected by the linter condition, one Violation card judged with `lean-mend judge`
 * OpsTest.lean   edit operations at their edges, and the rule loader's refusals
+* move.sh        a namespace move with no aliases, including a declaration the app declares under the moved prefix
 * follow.sh      decision D12 on tests/fixtures/follow, a real v4.29.0 → v4.33.1 bump
 * binder.sh      decision D11 on tests/fixtures/binder, a real v4.29.0 → v4.33.1 bump: the default warns, `--annotate-binders` narrows
   fixtures/      small Lake projects, each with a known break

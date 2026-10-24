@@ -1,0 +1,3 @@
+{ "name": "old-map-move", "class": "unknownIdentifier", "entrenchment": "proposed",
+  "provenance": { "evidence": "fixture: dep v2 moves Old.Map to New.Map with no aliases" },
+  "node": "any", "candidates": [ { "op": "renamePrefix", "old": "Old.Map", "new": "New.Map" } ] }

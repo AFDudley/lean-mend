@@ -275,6 +275,15 @@ def runAdopt (target : FilePath) (targets : List String) (aliasesFrom : List Fil
   let baseToolchain := (← IO.FS.readFile (base / "lean-toolchain")).trimAscii.toString
   let baseCert ← certificate base baseToolchain (resolved.normalizeWith (Rule.prefixPairs rules)) baseFiles baseBuilt
   let baseFailing := baseBuilt.filterMap fun (n, s) => if s == .built then none else some n
+  -- A namespace move also renames declarations the target itself declares
+  -- under the moved prefix (EVMLean: `def Batteries.RBMap.partition`). Give
+  -- each one an exact alias, so `compare` and the cards find it after the move.
+  let moved := baseCert.decls.filterMap fun d =>
+    (Rule.prefixPairs rules).findSome? fun (a, b) => (swapPrefix a b d.name).map (d.name, ·)
+  let raw : AliasMap := ⟨(raw.pairs ++ moved).eraseDups⟩
+  let resolved ← match raw.resolve with
+    | some a => pure a
+    | none => throw <| IO.userError "alias cycle"
   let followed ← IO.mkRef ([] : List String)
   let warned ← IO.mkRef ([] : List String)
   let followedDecls ← IO.mkRef ([] : List String)
