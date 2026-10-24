@@ -90,8 +90,15 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
         (Json.mkObj [("built", toJson cert.built), ("decls", toJson cert.decls.length)])
     | m :: _ =>
       let (_, opens) ← diagnose c.target m (c.fileOf m) (propose c.aliases)
+      let siteJson := opens.map fun o => Json.mkObj
+        [("line", toJson o.site.diagnostic.line),
+         ("class", toJson (toString (repr (classify o.site.diagnostic)))),
+         ("decl", toJson o.site.decl),
+         ("region", toJson (o.site.region.map fun r => toString (repr r))),
+         ("candidates", toJson o.candidates.length)]
       loop c (← stepL c s (.diagnosed m opens) "diagnosed"
-        (Json.mkObj [("module", toJson m), ("sites", toJson opens.length)]))
+        (Json.mkObj [("module", toJson m), ("sites", toJson opens.length),
+                     ("detail", Json.arr siteJson.toArray)]))
   | .mending _ _ mm =>
     match mm.next with
     | .finish =>

@@ -77,6 +77,7 @@ JSON to stdout. Its commands:
 | `imports <file>…` | each file's imports, from its parsed header |
 | `decls-batch <list>` | `decls` for every `module<TAB>file` line of the list, from one environment; the shell sends 200 modules per probe process |
 | `decls <module> <file>` | for each declaration of the built module: name, kind, statement text and byte range, body text and byte range, axioms (by `collectAxioms`, the method of `#print axioms`) |
+| `regions <file>` | each declaration command of a file, parsed without elaboration (so it works on a module that fails): qualified name, command range, statement and body ranges. The environment is the file's imports plus the implicit `Init`; notation defined in the same file does not parse |
 | `deprecated <module>…` | every `@[deprecated]` declaration in the environment of the modules, with its new name, from `Lean.Linter.deprecatedAttr` |
 | `goal <file> <pos>` | not built yet: the goal state at a position, from the info tree, for a residue packet |
 

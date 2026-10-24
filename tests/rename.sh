@@ -33,6 +33,10 @@ check "the alias map holds the v2 rename" \
   'map(select(.obs == "bumped"))[0].detail.aliases | index("Dep.old → Dep.new") != null' "$ledger"
 check "4 errors, 2 accepted patches, error count 4 → 1 → 0" \
   '(map(select(.obs == "diagnosed"))[0].detail.sites == 4) and ([.[] | select(.obs == "rebuilt") | .detail.errors] == [1, 0])' "$ledger"
+check "sites carry their declaration and region" \
+  'map(select(.obs == "diagnosed"))[0].detail.detail as $d
+   | ($d | map(select(.decl == "App.three"))[0].region == "LeanMend.SiteRegion.body")
+     and ($d | map(select(.decl == "App.old_id"))[0].region == "LeanMend.SiteRegion.statement")' "$ledger"
 check "the statement that names Dep.old is unchanged after the alias map (no finding)" \
   'map(select(.obs == "certificate"))[0].state == "done"' "$ledger"
 n=$(git -C "$app" rev-list --count main..lean-mend/mend)

@@ -83,12 +83,19 @@ structure Diagnostic where
   text : String
   deriving Repr
 
+/-- The part of a declaration a site is in (`docs/glossary.md`). -/
+inductive SiteRegion where
+  | statement | body
+  deriving DecidableEq, Repr
+
 /-- A failing position, with the syntax node the probe found for it. -/
 structure Site where
   diagnostic : Diagnostic
   /-- The declaration that contains the site, when the probe has read the
   file's regions. An alias rename needs no declaration. -/
   decl : Option String
+  /-- The region of `decl` that holds the site's start, when known. -/
+  region : Option SiteRegion
   /-- Byte range of the smallest syntax node that contains the error. -/
   start : Nat
   stop : Nat

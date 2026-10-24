@@ -28,6 +28,7 @@ for v in "${toolchains[@]}"; do
   basic=$(run decls Fx.Basic Fx/Basic.lean)
   uses=$(run decls Fx.Uses Fx/Uses.lean)
   deprecated=$(run deprecated Fx.Basic)
+  regions=$(run regions Fx/Basic.lean)
 
   check() {  # check <description> <jq filter> <input>
     if jq -e -s "$2" <<<"$3" >/dev/null; then echo "ok   $v $1"
@@ -42,6 +43,11 @@ for v in "${toolchains[@]}"; do
     'map(select(.name == "Fx.double"))[0].body == ":= n + n"' "$basic"
   check "axioms" \
     '[.[] | {(.name): .axioms}] | add | (.["Fx.em_use"] | index("Classical.choice") != null) and .["Fx.double_zero"] == []' "$uses"
+  check "regions agree with decls on every named declaration" \
+    '(.[0] | map({(.name): [.statementRange, .bodyRange]}) | add) as $d
+     | (.[1] | map(select(.name != "")) | map({(.name): [.statementRange, .bodyRange]}) | add) as $r
+     | ($r | length) == 5 and ($r | to_entries | all(.value == $d[.key]))' \
+    "$(jq -s -c . <<<"$basic") $(jq -s -c . <<<"$regions")"
   check "deprecated alias" \
     'map(select(.name == "Fx.Old.f"))[0].newName == "Fx.New.f"' "$deprecated"
 done

@@ -21,6 +21,8 @@ Commands:
   byte ranges, axioms. Needs the module built.
 * `decls-batch <list>` — `decls` for every `module<TAB>file` line of `<list>`,
   from one environment.
+* `regions <file>` — each declaration command of a file, parsed without
+  elaboration: qualified name, command range, statement and body ranges.
 * `deprecated <module>…` — `{"name", "newName"}` for every `@[deprecated]`
   declaration in the environment of the given modules.
 -/
@@ -84,6 +86,46 @@ def regions (stx : Syntax) : Option ((Nat × Nat) × (Nat × Nat)) := do
   -- region is the empty range where the body starts.
   pure ((byteRange sig).getD (b.1, b.1), b)
 
+/-- `regions <file>`: every declaration command in a file, parsed but not
+elaborated, so it works on a module that does not build. The environment is
+the file's imports (they build, because only a frontier module is read), so
+notation from imports parses; notation defined in the same file does not.
+Names are qualified by the enclosing `namespace` commands. -/
+partial def cmdRegions (file : String) : IO Unit := do
+  let src ← IO.FS.readFile file
+  let ictx := Parser.mkInputContext src file
+  let (hdr, st0, msgs0) ← Parser.parseHeader ictx
+  let explicit := (nodesOfKind ``Parser.Module.import hdr.raw).filterMap fun imp =>
+    (imp.getArgs.find? (·.isIdent)).map (·.getId)
+  -- Every file imports `Init` unless its header says `prelude`.
+  let isPrelude := !(nodesOfKind ``Parser.Module.prelude hdr.raw).isEmpty
+  let imports := if isPrelude then explicit else #[`Init] ++ explicit
+  let env ← importModules (imports.map fun n => { module := n }) {} (loadExts := true)
+  let pmctx : Parser.ParserModuleContext := { env, options := {} }
+  -- The scope stack: `some ns` for a namespace, `none` for a section.
+  let rec loop (st : Parser.ModuleParserState) (msgs : MessageLog)
+      (scopes : List (Option Name)) : IO Unit := do
+    let (stx, st', msgs') := Parser.parseCommand ictx pmctx st msgs
+    if Parser.isTerminalCommand stx then return
+    let k := stx.getKind
+    let scopes :=
+      if k == ``Parser.Command.namespace then
+        (stx.getArgs.find? (·.isIdent)).map (·.getId) :: scopes
+      else if k == ``Parser.Command.section then none :: scopes
+      else if k == ``Parser.Command.end then scopes.drop 1
+      else scopes
+    if let some (sig, body) := regions stx then
+      let written := (firstOfKinds [``Parser.Command.declId] stx).bind fun d =>
+        (d.getArgs.find? (·.isIdent)).map (·.getId)
+      let pre := scopes.reverse.filterMap id |>.foldl (fun acc n => acc ++ n) Name.anonymous
+      let name := written.map (fun w => (pre ++ w).toString) |>.getD ""
+      if let some r := byteRange stx then
+        emit <| Json.mkObj
+          [("name", toJson name), ("range", rangeJson r),
+           ("statementRange", rangeJson sig), ("bodyRange", rangeJson body)]
+    loop st' msgs' scopes
+  loop st0 msgs0 []
+
 /-- Declarations of many modules, from one environment: the modules are
 imported once, so a large target does not pay the import cost per module.
 `pairs` are (module, file). -/
@@ -144,8 +186,9 @@ unsafe def main (args : List String) : IO UInt32 := do
   | "imports" :: files => cmdImports files
   | ["decls", m, f] => cmdDecls [(m, f)]
   | ["decls-batch", l] => cmdDeclsBatch l
+  | ["regions", f] => cmdRegions f
   | "deprecated" :: ms => cmdDeprecated ms
   | _ =>
-    IO.eprintln "usage: imports <file>… | decls <module> <file> | decls-batch <list> | deprecated <module>…"
+    IO.eprintln "usage: imports <file>… | decls <module> <file> | decls-batch <list> | regions <file> | deprecated <module>…"
     return 2
   return 0

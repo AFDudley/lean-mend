@@ -135,17 +135,47 @@ def byteOffset (src : String) (line column : Nat) : Nat :=
   let before := (lines.take (line - 1)).foldl (fun acc l => acc + l.utf8ByteSize + 1) 0
   before + (String.ofList ((lines.getD (line - 1) "").toList.take column)).utf8ByteSize
 
+/-- One declaration command of a file, from the probe's `regions`. -/
+structure DeclRegion where
+  name : String
+  range : Nat × Nat
+  statement : Nat × Nat
+  body : Nat × Nat
+
+def readRegions (target : FilePath) (file : FilePath) : IO (List DeclRegion) := do
+  let out ← probe target #["regions", file.toString]
+  let pair (j : Lean.Json) (k : String) : Except String (Nat × Nat) := do
+    match ← j.getObjValAs? (List Nat) k with
+    | [a, b] => pure (a, b)
+    | _ => throw s!"field '{k}' is not a byte range"
+  parseOrThrow s!"probe regions {file}" <| Parse.lines (fun j => do
+    pure { name := ← j.getObjValAs? String "name", range := ← pair j "range",
+           statement := ← pair j "statementRange", body := ← pair j "bodyRange" }) out
+
+/-- The declaration and region that hold byte offset `pos`. -/
+def locate (rs : List DeclRegion) (pos : Nat) : Option String × Option SiteRegion :=
+  let inside (r : Nat × Nat) := r.1 ≤ pos && pos < r.2
+  match rs.find? (inside ·.range) with
+  | none => (none, none)
+  | some d =>
+    let name := if d.name.isEmpty then none else some d.name
+    (name, if inside d.body then some .body
+           else if inside d.statement then some .statement else none)
+
 /-- Compile one module with `lake env lean --json` and read its errors as
-sites, each with its candidates. Returns the error count and the open sites. -/
+sites, each with its declaration, region and candidates. Returns the error
+count and the open sites. -/
 def diagnose (target : FilePath) (module : String) (file : FilePath)
     (cands : Site → List Candidate) : IO (Nat × List Open) := do
   let (_, out, _) ← run target "lake" #["env", "lean", "--json", file.toString]
   let ds ← parseOrThrow s!"lean --json {file}" (Parse.lines (Parse.diagnostic module) out)
   let errs := ds.filter (·.severity == .error)
   let src ← IO.FS.readFile (target / file)
+  let rs ← if errs.isEmpty then pure [] else readRegions target file
   let sites := errs.map fun d =>
-    { diagnostic := d, decl := none,
-      start := byteOffset src d.line d.column,
+    let start := byteOffset src d.line d.column
+    let (decl, region) := locate rs start
+    { diagnostic := d, decl, region, start,
       stop := byteOffset src d.endLine d.endColumn : Site }
   pure (errs.length, sites.map fun s => ⟨s, cands s⟩)
 
