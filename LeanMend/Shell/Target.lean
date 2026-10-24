@@ -74,31 +74,58 @@ def moduleGraph (target : FilePath) : IO (List (Module × FilePath)) := do
     pure (f, is)) out
   pure <| rows.map fun (f, is) => (⟨moduleOfFile f, is⟩, FilePath.mk f)
 
-/-- Build each module in graph order with `lake build <module>`. A module whose
-target-internal import did not build is `blocked` and is not built. -/
-def statuses (target : FilePath) (order : List Module) : IO (List (String × ModStatus)) := do
-  let mut st : List (String × ModStatus) := []
-  for m in order do
-    let importsOk := m.imports.all fun i =>
-      match st.lookup i with
-      | some s => s == .built
-      | none => true  -- outside the target: Lake builds it as a dependency
-    if !importsOk then
-      st := st ++ [(m.name, .blocked)]
-    else
-      let (code, _, _) ← run target "lake" #["build", m.name]
-      st := st ++ [(m.name, if code == 0 then .built else .failing)]
-  return st
+/-- The status of each module from one `lake build -v` (decision D4). Lake
+prints one line per module job, in the same format from v4.29.0 to v4.35.0:
+`Built M` or `Replayed M` means built, `✖ … Building M` means failing, and
+`Ran M` with no build means an import failed, so `M` is blocked. A module that
+Lake names in no line is not required by the targets, so it is outside the run
+and is dropped from `order`. Returns the order restricted to the run, and the
+statuses. -/
+def buildAll (target : FilePath) (targets : List String) (order : List Module) :
+    IO (List Module × List (String × ModStatus)) := do
+  let (_, out, err) ← run target "lake" (#["build", "-v"] ++ targets.toArray)
+  let names := order.map (·.name)
+  let mut seen : List (String × ModStatus) := []
+  for line in (out ++ "\n" ++ err).splitOn "\n" do
+    let ws := (line.splitOn " ").filter (· ≠ "")
+    -- ws: [symbol, "[i/n]", verb, module, …]
+    match ws with
+    | sym :: _ :: verb :: m :: _ =>
+      if names.contains m then
+        let st? : Option ModStatus :=
+          if verb == "Built" || verb == "Replayed" then some .built
+          else if verb == "Building" && sym == "✖" then some .failing
+          else if verb == "Ran" then some .blocked
+          else none
+        if let some st := st? then
+          -- A module can appear more than once; built or failing wins over Ran.
+          seen := match seen.lookup m with
+            | some .built | some .failing => seen
+            | _ => (m, st) :: seen.filter (·.1 != m)
+    | _ => pure ()
+  let inRun := order.filter (fun m => (seen.lookup m.name).isSome)
+  pure (inRun, inRun.map fun m => (m.name, (seen.lookup m.name).getD .blocked))
 
-/-- The certificate of the built modules (`docs/verification.md`). -/
+/-- `l` in consecutive parts of at most `n` elements (`n` = 0 means one part). -/
+def chunks {α} (n : Nat) (l : List α) : List (List α) :=
+  if n = 0 then (if l.isEmpty then [] else [l]) else
+  let step := fun (acc : List (List α)) (x : α) => match acc with
+    | cur :: rest => if cur.length < n then (x :: cur) :: rest else [x] :: acc
+    | [] => [[x]]
+  ((l.foldl step []).map List.reverse).reverse
+
+/-- The certificate of the built modules (`docs/verification.md`). The probe
+reads `chunk` modules per process, from one environment. -/
 def certificate (target : FilePath) (toolchain : String) (norm : String → String)
-    (mods : List (Module × FilePath)) (st : List (String × ModStatus)) :
-    IO Certificate := do
+    (mods : List (Module × FilePath)) (st : List (String × ModStatus))
+    (chunk : Nat := 200) : IO Certificate := do
   let built := mods.filter fun (m, _) => st.lookup m.name == some .built
+  let list := target / ".lean-mend" / "decls-batch.txt"
   let mut decls := []
-  for (m, f) in built do
-    let out ← probe target #["decls", m.name, f.toString]
-    decls := decls ++ (← parseOrThrow s!"probe decls {m.name}" (Parse.lines (Parse.decl norm) out))
+  for part in chunks chunk built do
+    IO.FS.writeFile list ("\n".intercalate (part.map fun (m, f) => s!"{m.name}\t{f}"))
+    let out ← probe target #["decls-batch", list.toString]
+    decls := decls ++ (← parseOrThrow "probe decls-batch" (Parse.lines (Parse.decl norm) out))
   pure { toolchain := ⟨toolchain⟩, built := built.map (·.1.name), decls }
 
 /-- The byte offset of a `lean --json` position: `line` counts from 1 and

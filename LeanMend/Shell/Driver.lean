@@ -30,6 +30,8 @@ structure Ctx where
   /-- Every target module with its file, at `HEAD`. -/
   files : List (Module × FilePath)
   order : List Module
+  /-- Lake targets to build; empty means the default targets. -/
+  targets : List String
   aliases : AliasMap
   ledger : FilePath
 
@@ -71,8 +73,10 @@ def projectModules (project : FilePath) : IO (List String) := do
   let order ← match topoOrder (mods.map (·.1)) with
     | .ok o => pure o
     | .error r => throw <| IO.userError s!"{project}: {repr r}"
-  for m in order do discard <| runOk project "lake" #["build", m.name]
-  pure (order.map (·.name))
+  let (inRun, st) ← buildAll project [] order
+  if let some (m, _) := st.find? (·.2 != .built) then
+    throw <| IO.userError s!"{project}: module {m} does not build"
+  pure (inRun.map (·.name))
 
 /-- The level-1 loop, after `bumped`. Termination is the theorem set in
 `Spec/Termination.lean`; the loop itself is `partial` because it runs IO. -/
@@ -94,7 +98,7 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
       let s' ← stepL c s .mended "mended" (toJson mm.module)
       match s' with
       | .built _ st' =>
-        let built ← statuses c.target c.order
+        let (_, built) ← buildAll c.target c.targets c.order
         let merged := overlay st' built
         loop c (← stepL c s' (.build merged) "build" (toJson ((statusList c merged).map fun (n, x) => s!"{n}: {repr x}")))
       | other => pure other
@@ -120,8 +124,9 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
       loop c s'
   | other => pure other
 
-/-- `lean-mend run <target> --adopt [--aliases-from <project>]…` -/
-def runAdopt (target : FilePath) (aliasesFrom : List FilePath) : IO RunState := do
+/-- `lean-mend run <target> --adopt [--targets <t,…>] [--aliases-from <project>]…` -/
+def runAdopt (target : FilePath) (targets : List String) (aliasesFrom : List FilePath) :
+    IO RunState := do
   let status ← git target #["status", "--porcelain", "--untracked-files=no"]
   unless status.isEmpty do throw <| IO.userError s!"{target} has uncommitted changes"
   IO.FS.createDirAll (target / ".lean-mend")
@@ -130,10 +135,10 @@ def runAdopt (target : FilePath) (aliasesFrom : List FilePath) : IO RunState := 
   -- The bumped tree at HEAD: graph and build (this also builds the dependencies).
   let toolchain := (← IO.FS.readFile (target / "lean-toolchain")).trimAscii.toString
   let files ← moduleGraph target
-  let order ← match topoOrder (files.map (·.1)) with
+  let order0 ← match topoOrder (files.map (·.1)) with
     | .ok o => pure o
     | .error r => throw <| IO.userError s!"{repr r}"
-  let built ← statuses target order
+  let (order, built) ← buildAll target targets order0
   -- The alias map: the dependencies at HEAD, and every --aliases-from project.
   let names := order.map (·.name)
   let external := (order.flatMap (·.imports)).filter (!names.contains ·) |>.eraseDups
@@ -149,14 +154,14 @@ def runAdopt (target : FilePath) (aliasesFrom : List FilePath) : IO RunState := 
   if ← base.pathExists then discard <| git target #["worktree", "remove", "--force", base.toString]
   discard <| git target #["worktree", "add", "-q", "--detach", base.toString, "HEAD~1"]
   let baseFiles ← moduleGraph base
-  let baseOrder ← match topoOrder (baseFiles.map (·.1)) with
+  let baseOrder0 ← match topoOrder (baseFiles.map (·.1)) with
     | .ok o => pure o
     | .error r => throw <| IO.userError s!"{repr r}"
-  let baseBuilt ← statuses base baseOrder
+  let (_, baseBuilt) ← buildAll base targets baseOrder0
   let baseToolchain := (← IO.FS.readFile (base / "lean-toolchain")).trimAscii.toString
   let baseCert ← certificate base baseToolchain resolved.normalize baseFiles baseBuilt
   let baseFailing := baseBuilt.filterMap fun (n, s) => if s == .built then none else some n
-  let c : Ctx := { target, toolchain, files, order, aliases := resolved, ledger }
+  let c : Ctx := { target, toolchain, files, order, targets, aliases := resolved, ledger }
   -- The machine, in its own order.
   let s ← stepL c (.idle target.toString) (.baseline baseCert baseFailing) "baseline"
     (Json.mkObj [("decls", toJson baseCert.decls.length), ("failing", toJson baseFailing)])

@@ -75,6 +75,7 @@ JSON to stdout. Its commands:
 | Command | Output |
 |---|---|
 | `imports <file>…` | each file's imports, from its parsed header |
+| `decls-batch <list>` | `decls` for every `module<TAB>file` line of the list, from one environment; the shell sends 200 modules per probe process |
 | `decls <module> <file>` | for each declaration of the built module: name, kind, statement text and byte range, body text and byte range, axioms (by `collectAxioms`, the method of `#print axioms`) |
 | `deprecated <module>…` | every `@[deprecated]` declaration in the environment of the modules, with its new name, from `Lean.Linter.deprecatedAttr` |
 | `goal <file> <pos>` | not built yet: the goal state at a position, from the info tree, for a residue packet |
@@ -94,10 +95,13 @@ output. A toolchain that breaks the probe is a red gate.
 Lake owns the target's build products and their traces. lean-mend does not
 replace Lake.
 
-1. The shell runs `lake build <module>` for each target module, in graph
-   order. Lake builds the dependency packages on the first call. A module whose
-   target-internal import did not build is `blocked` and is not built. The
-   exit code of each call gives the status, so no Lake log text is parsed.
+1. The shell runs one `lake build -v` (with `--targets`, if given). Lake prints
+   one line per module job, in the same format from v4.29.0 to v4.35.0:
+   `Built M` or `Replayed M` is `built`; `✖ … Building M` is `failing`;
+   `Ran M` with no build is `blocked`, because an import failed. A module that
+   Lake names in no line is not required by the targets, and it is outside the
+   run. The first design ran `lake build <module>` once per module; on EquiVM
+   (about 10,000 target modules) that is thousands of Lake start-ups.
 2. For each failing frontier module, the shell runs
    `lake env lean --json <file>` and parses the diagnostics. This is the second
    compile of a failing module only.

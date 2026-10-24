@@ -19,6 +19,8 @@ Commands:
 * `decls <module> <file>` — one line per declaration of `<module>` that has a
   source range: name, kind, statement text, body text, statement and body
   byte ranges, axioms. Needs the module built.
+* `decls-batch <list>` — `decls` for every `module<TAB>file` line of `<list>`,
+  from one environment.
 * `deprecated <module>…` — `{"name", "newName"}` for every `@[deprecated]`
   declaration in the environment of the given modules.
 -/
@@ -82,29 +84,46 @@ def regions (stx : Syntax) : Option ((Nat × Nat) × (Nat × Nat)) := do
   -- region is the empty range where the body starts.
   pure ((byteRange sig).getD (b.1, b.1), b)
 
-def cmdDecls (module : String) (file : String) : IO Unit := do
-  let modName := module.toName
-  let env ← importModules #[{ module := modName }] {} (loadExts := true)
-  let src ← IO.FS.readFile file
-  let bytes := src.toUTF8
-  let ictx := Parser.mkInputContext src file
+/-- Declarations of many modules, from one environment: the modules are
+imported once, so a large target does not pay the import cost per module.
+`pairs` are (module, file). -/
+def cmdDecls (pairs : List (String × String)) : IO Unit := do
+  let env ← importModules (pairs.toArray.map fun (m, _) => { module := m.toName }) {}
+    (loadExts := true)
   let pmctx : Parser.ParserModuleContext := { env, options := {} }
-  let some idx := env.getModuleIdx? modName
-    | throw <| IO.userError s!"module {module} is not in its own environment"
-  let ctx : Core.Context := { fileName := file, fileMap := ictx.fileMap }
+  -- Declarations grouped by module index, in one pass over the environment.
+  let mut byIdx : Std.HashMap Nat (Array (Name × ConstantInfo)) := {}
   for (n, ci) in env.constants.toList do
-    if n.isInternal || env.getModuleIdxFor? n != some idx then continue
-    let some ranges := declRangeExt.find? env n | continue
-    let (stx, _, _) := Parser.parseCommand ictx pmctx
-      { pos := ictx.fileMap.ofPosition ranges.range.pos } {}
-    let some (sig, body) := regions stx | continue
-    let (axioms, _) ← (collectAxioms n : CoreM _).toIO ctx { env }
-    emit <| Json.mkObj
-      [("name", toJson n.toString), ("module", toJson module),
-       ("kind", toJson (kindOf env n ci)),
-       ("statement", toJson (textOf bytes sig)), ("statementRange", rangeJson sig),
-       ("body", toJson (textOf bytes body)), ("bodyRange", rangeJson body),
-       ("axioms", toJson (axioms.map (·.toString)))]
+    if n.isInternal then continue
+    if let some idx := env.getModuleIdxFor? n then
+      byIdx := byIdx.insert idx.toNat ((byIdx.getD idx.toNat #[]).push (n, ci))
+  for (module, file) in pairs do
+    let some idx := env.getModuleIdx? module.toName
+      | throw <| IO.userError s!"module {module} is not in the environment"
+    let src ← IO.FS.readFile file
+    let bytes := src.toUTF8
+    let ictx := Parser.mkInputContext src file
+    let ctx : Core.Context := { fileName := file, fileMap := ictx.fileMap }
+    for (n, ci) in byIdx.getD idx.toNat #[] do
+      let some ranges := declRangeExt.find? env n | continue
+      let (stx, _, _) := Parser.parseCommand ictx pmctx
+        { pos := ictx.fileMap.ofPosition ranges.range.pos } {}
+      let some (sig, body) := regions stx | continue
+      let (axioms, _) ← (collectAxioms n : CoreM _).toIO ctx { env }
+      emit <| Json.mkObj
+        [("name", toJson n.toString), ("module", toJson module),
+         ("kind", toJson (kindOf env n ci)),
+         ("statement", toJson (textOf bytes sig)), ("statementRange", rangeJson sig),
+         ("body", toJson (textOf bytes body)), ("bodyRange", rangeJson body),
+         ("axioms", toJson (axioms.map (·.toString)))]
+
+/-- `decls-batch <list>`: each line of `<list>` is `module<TAB>file`. -/
+def cmdDeclsBatch (list : String) : IO Unit := do
+  let lines := (← IO.FS.readFile list).splitOn "\n" |>.filter (· ≠ "")
+  let pairs ← lines.mapM fun l => match l.splitOn "\t" with
+    | [m, f] => pure (m, f)
+    | _ => throw <| IO.userError s!"decls-batch: bad line '{l}'"
+  cmdDecls pairs
 
 def cmdDeprecated (modules : List String) : IO Unit := do
   let env ← importModules (modules.toArray.map fun m => { module := m.toName }) {}
@@ -123,9 +142,10 @@ unsafe def main (args : List String) : IO UInt32 := do
   enableInitializersExecution
   match args with
   | "imports" :: files => cmdImports files
-  | ["decls", m, f] => cmdDecls m f
+  | ["decls", m, f] => cmdDecls [(m, f)]
+  | ["decls-batch", l] => cmdDeclsBatch l
   | "deprecated" :: ms => cmdDeprecated ms
   | _ =>
-    IO.eprintln "usage: imports <file>… | decls <module> <file> | deprecated <module>…"
+    IO.eprintln "usage: imports <file>… | decls <module> <file> | decls-batch <list> | deprecated <module>…"
     return 2
   return 0

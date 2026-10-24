@@ -29,6 +29,11 @@ The probe writes a certificate for a list of modules. For each declaration:
 - `type`: the elaborated type, printed with `pp.all`, for the report only;
 - `axioms`: the axioms the declaration depends on, by the method of
   `#print axioms`.
+  The shell keeps them as a sorted set, and it collapses every generated
+  `native_decide` axiom (`X._native.native_decide.ax_1_12`) to the one name
+  `native_decide`. Lean numbers those per declaration, so their names can
+  change between toolchains when the trust does not. EquiVM's certificates
+  rest on them.
 
 The baseline is taken at the old toolchain before any edit. The after
 certificate is taken at the new toolchain when the frontier is empty.

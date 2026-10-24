@@ -55,6 +55,16 @@ baseline and the after certificate. -/
 def textHash (s : String) : String :=
   String.ofList (Nat.toDigits 16 s.hash.toNat)
 
+/-- The axiom set of a declaration, as `compare` sees it: sorted, without
+duplicates, and with every generated `native_decide` axiom
+(`X._native.native_decide.ax_1_12`) collapsed to the one name
+`native_decide`. Lean numbers those axioms per declaration, so their names can
+change between toolchains when the trust does not. -/
+def axiomSet (raw : List String) : List String :=
+  let norm := raw.map fun a =>
+    if (a.splitOn "._native.native_decide.ax_").length > 1 then "native_decide" else a
+  (norm.eraseDups.toArray.qsort (· < ·)).toList
+
 /-- One line of the probe's `decls` output. `norm` rewrites region text
 before it is hashed (`AliasMap.normalize`), so the same alias map applies to
 the baseline and the after certificate. -/
@@ -65,7 +75,7 @@ def decl (norm : String → String) (j : Json) : Except String Decl := do
     kind := ← declKind (← field j "kind")
     statementHash := textHash (norm (← field j "statement"))
     bodyHash := textHash (norm (← field j "body"))
-    axioms := ← field j "axioms" }
+    axioms := axiomSet (← field j "axioms") }
 
 /-- One line of the probe's `deprecated` output: old name and new name. A
 deprecation with no new name gives no alias. -/

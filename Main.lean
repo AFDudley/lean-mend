@@ -24,7 +24,7 @@ def baseline (target : System.FilePath) : IO UInt32 := do
   let order ← match topoOrder (mods.map (·.1)) with
     | .ok o => pure o
     | .error r => throw <| IO.userError s!"{repr r}"
-  let st ← statuses target order
+  let (order, st) ← buildAll target [] order
   let cert ← certificate target toolchain id mods st
   let failing := st.filterMap fun (n, s) => if s == .built then none else some n
   let next := (RunState.idle target.toString).step (.baseline cert failing)
@@ -49,23 +49,25 @@ def summary (s : RunState) : Json :=
   | _ => Json.mkObj [("state", toJson s.tag)]
 
 def runCmd (t : String) (rest : List String) : IO UInt32 := do
-  let rec froms : List String → Option (List System.FilePath)
-    | [] => some []
-    | "--aliases-from" :: p :: more => (froms more).map (System.FilePath.mk p :: ·)
+  -- (targets, alias sources)
+  let rec opts : List String → Option (List String × List System.FilePath)
+    | [] => some ([], [])
+    | "--aliases-from" :: p :: more => (opts more).map fun (t, ps) => (t, System.FilePath.mk p :: ps)
+    | "--targets" :: ts :: more => (opts more).map fun (t, ps) => (t ++ ts.splitOn ",", ps)
     | _ => none
   match rest with
   | "--adopt" :: more =>
-    match froms more with
-    | some ps =>
-      let s ← runAdopt t ps
+    match opts more with
+    | some (ts, ps) =>
+      let s ← runAdopt t ts ps
       IO.println (summary s).compress
       return match s with | .halted _ => 1 | _ => 0
-    | none => IO.eprintln "usage: lean-mend run <target> --adopt [--aliases-from <project>]…"; return 2
-  | _ => IO.eprintln "usage: lean-mend run <target> --adopt [--aliases-from <project>]…"; return 2
+    | none => IO.eprintln "usage: lean-mend run <target> --adopt [--targets <t,…>] [--aliases-from <project>]…"; return 2
+  | _ => IO.eprintln "usage: lean-mend run <target> --adopt [--targets <t,…>] [--aliases-from <project>]…"; return 2
 
 def main : List String → IO UInt32
   | ["baseline", t] => baseline t
   | "run" :: t :: rest => runCmd t rest
   | _ => do
-    IO.eprintln "usage: lean-mend baseline <target> | lean-mend run <target> --adopt [--aliases-from <project>]…"
+    IO.eprintln "usage: lean-mend baseline <target> | lean-mend run <target> --adopt [--targets <t,…>] [--aliases-from <project>]…"
     return 2
