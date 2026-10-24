@@ -136,7 +136,9 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
     | .attempt cand =>
       let file := c.fileOf mm.module
       let saved ← applyEdit c.target file cand
-      let (e, lints, opens) ← diagnose c.target mm.module file c.aliases c.rules
+      let (e, lints, opens0) ← diagnose c.target mm.module file c.aliases c.rules
+      -- Residue sites stay errors in the file; they are not tried again.
+      let opens := opens0.filter fun o => !mm.residue.any (·.sameAs o.site)
       -- Linter warnings inside the replaced bytes: the candidate caused them.
       let editEnd := cand.start + cand.replacement.utf8ByteSize
       let lint := (lints.filter fun o => cand.start ≤ o && o < editEnd).length
@@ -192,6 +194,8 @@ def runAdopt (target : FilePath) (targets : List String) (aliasesFrom : List Fil
     | none => throw <| IO.userError "alias cycle"
   -- The baseline: HEAD~1 in a detached worktree.
   let base := target / ".lean-mend" / "base"
+  -- A crashed run can leave the worktree registered with its directory gone.
+  discard <| git target #["worktree", "prune"]
   if ← base.pathExists then discard <| git target #["worktree", "remove", "--force", base.toString]
   discard <| git target #["worktree", "add", "-q", "--detach", base.toString, "HEAD~1"]
   let baseFiles ← moduleGraph base

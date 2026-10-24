@@ -55,6 +55,9 @@ for the site, and writes a replacement for that node's byte range only
 | `simpaToExact` | `simpa […] using T` becomes `exact T` | the pc-sum defeq class (§14.3), `default : UInt256` |
 | `keywordSwap` `from` `to` | replace the tactic keyword | `rw` → `erw` (§13.3) |
 | `deleteTactic` | remove the tactic | the no-op `dsimp only at h`; a trailing `decide +kernel` after the goal is closed |
+| `appendTactic` `tactic` | insert `tactic` after the node, on its own line at the node's column, to close the goal the node leaves | EVMLean `Wheels.lean` 53 and 99: `simp [UInt256.size, …]` leaves `↑x < 2^256`; the hand repair was `simpa [...] using val.val.isLt`, which names a local variable; `exact Fin.isLt _` is the same step without the name |
+| `renamePrefix` `old` `new` | a namespace move with no `@[deprecated]` aliases: an identifier at the site that starts with the name `old` (whole components) gets `new` | Batteries v4.33.1 moved `Batteries.RBMap`, `RBSet`, `RBNode` to `RBTree.*`; `Batteries.Data.RBMap` is a `deprecated_module` with no per-name aliases |
+| `replaceInBody` `decl` `old` `new` | in declaration `decl`, replace text `old`, which must occur exactly once in its body, with `new` | the form of an agent's residue repair (§ From residue to rule) |
 | `heartbeats` `n` | put `set_option maxHeartbeats n in` before the declaration | the deep pc reaches (§14.3 limit) |
 
 An operation that does not apply to the node (for example `simpaToExact` on a
@@ -164,7 +167,13 @@ Brief item 10. A residue site goes to an agent or a person as a residue packet:
 - every candidate that was tried, with its rebuild diagnostics;
 - the rules that matched.
 
-The agent returns an edit, and may return a rule. The fixed runner, which the
+The agent returns its edit as a proposed rule file with one `replaceInBody`
+operation: the declaration, the exact old text, and the new text. It may also
+return a general rule. The EVMLean test used this path for
+`Ethereum.AccountAddress.ofUInt256_ofNat` (`Wheels.lean` 81), with the hand
+bump's repair as the agent's answer: no rule candidate closed that goal, and
+the module is imported by almost every other module, so its residue blocked
+the whole run. The fixed runner, which the
 agent does not control (concept C4), then does this:
 
 1. It applies the edit as an attempt, with the same structural checks, rebuild

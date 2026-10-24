@@ -1,0 +1,18 @@
+{
+  "name": "agent-evmlean-wheels-ofUInt256_ofNat",
+  "class": "unsolvedGoals",
+  "entrenchment": "proposed",
+  "provenance": {
+    "agent": "hand bump AFDudley/EVMLean bcca6b1 (Ethereum/Wheels.lean), used as the agent's answer to the residue site",
+    "evidence": "lean-mend run on EVMLean fd4f5e6 -> v4.33.1: site Wheels.lean:81 had no candidate from fin-bound-after-simp"
+  },
+  "node": "any",
+  "candidates": [
+    {
+      "op": "replaceInBody",
+      "decl": "Ethereum.AccountAddress.ofUInt256_ofNat",
+      "old": "by\n  ext\n  unfold AccountAddress.ofUInt256 UInt256.ofNat\n  simp [Id.run, AccountAddress.size, UInt256.size]",
+      "new": "by\n  have h : (a : ℕ) < 1461501637330902918203684832716283019655932542976 := a.isLt\n  ext\n  unfold AccountAddress.ofUInt256 UInt256.ofNat\n  simp only [Id.run]\n  rw [Fin.val_ofNat, Fin.val_ofNat]\n  simp only [UInt256.size, AccountAddress.size]\n  omega"
+    }
+  ]
+}

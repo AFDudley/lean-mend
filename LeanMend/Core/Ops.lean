@@ -90,7 +90,17 @@ def applyOp (op : EditOp) (n : Node) : Option String :=
     | k :: _ => if k.text == a then some (splice n.text (rel k).1 (rel k).2 b) else none
     | [] => none
   | .deleteTactic => some ""
-  | .rename _ _ | .heartbeats _ => none
+  | .appendTactic t =>
+    some (n.text ++ "\n" ++ String.ofList (List.replicate n.column ' ') ++ t)
+  | .rename _ _ | .renamePrefix _ _ | .replaceInBody _ _ _ | .heartbeats _ => none
+
+/-- `w` with its leading name `a` replaced by `b`, when `w` is `a` or starts
+with `a.` (whole components only: `Batteries.RBMapX` does not match
+`Batteries.RBMap`). -/
+def swapPrefix (a b w : String) : Option String :=
+  if w == a then some b
+  else if w.startsWith (a ++ ".") then some (b ++ String.ofList (w.toList.drop a.length))
+  else none
 
 /-- The identifier runs of a replacement, for the structural check
 (`Candidate.clean`). -/
@@ -109,6 +119,27 @@ def ruleCandidates (r : Rule) (nodes : List Node) (s : Site) : List Candidate :=
       s.declStart.map fun p => mk (.beforeDecl d) p p s!"set_option maxHeartbeats {n} in\n"
     | .rename a b, _, _ =>
       if identOf s.diagnostic == some a then some (mk (.aliasRename a b) s.start s.stop b) else none
+    | .replaceInBody d old new, some sd, _ => do
+      guard (d == sd)
+      let (bodyStart, bodyText) ← s.body
+      -- exactly one occurrence, at a known byte offset
+      match bodyText.splitOn old with
+      | [before, _] =>
+        let a := bodyStart + before.utf8ByteSize
+        pure (mk (.body d) a (a + old.utf8ByteSize) new)
+      | _ => none
+    | .renamePrefix a b, _, _ =>
+      match swapPrefix a b s.text with
+      | some t => some (mk (.aliasRename a b) s.start s.stop t)
+      | none =>
+        -- `open X (n …)`: Lean reports `X.n` at the token `n`; the namespace
+        -- token `X` is the one that moves.
+        let ns (x : String) := ".".intercalate ((x.splitOn ".").dropLast)
+        if (identOf s.diagnostic).any (fun i => (swapPrefix a b i).isSome) then do
+          let n ← nodes.find? (·.kind.endsWith "Command.open")
+          let t ← n.tokens.find? (·.text == ns a)
+          pure (mk (.aliasRename a b) t.start t.stop (ns b))
+        else none
     | op, some d, some .body => do
       let n ← pickNode r.family nodes
       let repl ← applyOp op n

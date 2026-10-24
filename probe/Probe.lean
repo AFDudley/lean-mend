@@ -24,7 +24,7 @@ Commands:
 * `regions <file>` — each declaration command of a file, parsed without
   elaboration: qualified name, command range, statement and body ranges.
 * `node <file> <offset>…` — for each offset, the syntax nodes that contain it,
-  innermost first, with kinds, ranges, and tokens for tactic nodes.
+  innermost first, with kinds, ranges, and tokens for tactic and `open` nodes.
 * `deprecated <module>…` — `{"name", "newName"}` for every `@[deprecated]`
   declaration in the environment of the given modules.
 -/
@@ -177,7 +177,7 @@ partial def cmdNode (file : String) (offsets : List Nat) : IO Unit := do
           (byteRange n).map fun r =>
             let k := n.getKind
             let base := [("kind", toJson k.toString), ("range", rangeJson r)]
-            if (`Lean.Parser.Tactic).isPrefixOf k then
+            if (`Lean.Parser.Tactic).isPrefixOf k || k == ``Parser.Command.open then
               Json.mkObj (base ++ [("tokens", Json.arr (tokens bytes n))])
             else Json.mkObj base
         emit <| Json.mkObj [("file", toJson file), ("offset", toJson offset),
@@ -211,6 +211,15 @@ def cmdDecls (pairs : List (String × String)) : IO Unit := do
       let (stx, _, _) := Parser.parseCommand ictx pmctx
         { pos := ictx.fileMap.ofPosition ranges.range.pos } {}
       let some (sig, body) := regions stx | continue
+      -- Keep only a constant that the parsed command declares: its `declId` is a
+      -- suffix of the constant's name, or the command has no `declId` (an
+      -- anonymous `instance`). A compiler-generated constant (from `deriving`)
+      -- has a range inside another command, and Lean versions differ in which
+      -- ones they generate, so it is not part of the certificate.
+      let written := (firstOfKinds [``Parser.Command.declId] stx).bind fun d =>
+        (d.getArgs.find? (·.isIdent)).map (·.getId)
+      if let some w := written then
+        unless w.components.isSuffixOf n.components do continue
       let (axioms, _) ← (collectAxioms n : CoreM _).toIO ctx { env }
       emit <| Json.mkObj
         [("name", toJson n.toString), ("module", toJson module),

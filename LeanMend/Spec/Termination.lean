@@ -65,7 +65,9 @@ theorem Mending.step_measure (m m' : Mending) (o : MendObs)
         · split at h
           · cases h
             rename_i hfell _ _
-            exact Prod.Lex.left _ _ hfell
+            apply Prod.Lex.left
+            show e - m.residue.length < m.errors
+            omega
           · cases h
         · cases h; exact Mending.reject_measure m o₀ rest hs hne
       · cases h; exact Mending.reject_measure m o₀ rest hs hne

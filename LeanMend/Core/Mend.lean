@@ -41,10 +41,12 @@ inductive MendAction where
 inductive MendObs where
   /-- The probe could not parse the candidate at its node kind. -/
   | unparsable
-  /-- The module rebuilt with the candidate applied. `lint` counts the linter
+  /-- The module rebuilt with the candidate applied. `errors` is the module's
+  whole error count, residue sites included. `lint` counts the linter
   warnings (kind `linter.*`) inside the replaced bytes: warnings the candidate
   itself caused. `sites` are the open sites the shell read from the new
-  diagnostics, with their candidates. -/
+  diagnostics, with their candidates, without the residue sites
+  (`Site.sameAs`). -/
   | rebuilt (errors : Nat) (lint : Nat) (sites : List Open)
   /-- The shell recorded the head site as residue. -/
   | gaveUp
@@ -94,21 +96,28 @@ def Mending.step (m : Mending) (o : MendObs) : Except Refusal Mending :=
     match o₀.candidates with
     | [] => .error (.observationMismatch "no candidate was attempted")
     | c :: _ =>
-      if hfell : e < m.errors then
+      -- `e` is the module's whole error count, residue sites included, so it
+      -- is compared with unresolved plus residue.
+      if hfell : e < m.errors + m.residue.length then
         if hclean : c.clean = true ∧ lint = 0 then
-          if hwf : sites.length ≤ e then
+          if hwf : sites.length + m.residue.length ≤ e then
             .ok { m with
-              errors := e
+              errors := e - m.residue.length
               sites := sites
               accepted :=
-                { candidate := c, errorsBefore := m.errors, errorsAfter := e,
+                { candidate := c, errorsBefore := m.errors + m.residue.length, errorsAfter := e,
                   fell := hfell, clean := hclean.1, lintAtEdit := lint,
                   lintFree := hclean.2 } :: m.accepted
-              wf := hwf }
+              wf := by omega }
           else .error (.observationMismatch "more open sites than errors")
         else .ok m.reject
       else .ok m.reject
   | [], _ => .error (.observationMismatch "no open site")
+
+/-- The same failure after an edit elsewhere in the file: byte positions
+move, so a site is identified by its declaration, class and message. -/
+def Site.sameAs (a b : Site) : Bool :=
+  a.decl == b.decl && a.diagnostic.kind == b.diagnostic.kind && a.diagnostic.text == b.diagnostic.text
 
 /-- The termination measure inside `Mending` (`docs/machine.md` § Termination):
 the unresolved errors, then the candidates left at the head site. -/

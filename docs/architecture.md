@@ -85,6 +85,12 @@ JSON to stdout. Its commands:
 | `deprecated <module>…` | every `@[deprecated]` declaration in the environment of the modules, with its new name, from `Lean.Linter.deprecatedAttr` |
 | `goal <file> <pos>` | not built yet: the goal state at a position, from the info tree, for a residue packet |
 
+`Shell/Target.lean` embeds the probe with `include_str`. A change to
+`probe/Probe.lean` alone did not rebuild the module in one observed case, so
+the binary kept the old probe. `tests/OpsTest.lean` fails if the embedded
+text differs from the file. The gate builds from scratch in its container, so
+it is not affected.
+
 The probe names no position type. v4.35.0 removed `String.Range` and made
 `String.Pos` depend on its string, so the probe reads positions only through
 `Syntax.getPos?`, `Syntax.getTailPos?` and `.byteIdx`, and slices UTF-8 bytes.

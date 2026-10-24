@@ -29,7 +29,11 @@ def severity : String → Except String Severity
 knows which module it compiled. -/
 def diagnostic (module : String) (j : Json) : Except String Diagnostic := do
   let pos ← field (α := Json) j "pos"
-  let endPos ← field (α := Json) j "endPos"
+  -- `endPos` is null for some messages (a deprecated-module warning): the
+  -- range is then the start position.
+  let endPos ← match j.getObjValD "endPos" with
+    | Json.null => pure pos
+    | e => pure e
   pure {
     module
     line := ← field pos "line"
@@ -108,8 +112,10 @@ def nodes (src : String) (j : Json) : Except String (Nat × List Node) := do
     let toks ← toks.mapM fun t => do
       let (ta, tb) ← pair t "range"
       pure ({ text := ← field t "text", start := ta, stop := tb } : Token)
+    let lineStart := (String.fromUTF8! (bytes.extract 0 a)).splitOn "\n" |>.getLast!
     pure { kind := ← field n "kind", start := a, stop := b,
-           text := String.fromUTF8! (bytes.extract a b), tokens := toks }
+           text := String.fromUTF8! (bytes.extract a b), column := lineStart.length,
+           tokens := toks }
   pure (offset, ns)
 
 def errorClass : String → Except String ErrorClass
@@ -133,10 +139,13 @@ def family : String → Except String TacticFamily
 def editOp (j : Json) : Except String EditOp := do
   match ← field (α := String) j "op" with
   | "rename" => pure (.rename (← field j "old") (← field j "new"))
+  | "renamePrefix" => pure (.renamePrefix (← field j "old") (← field j "new"))
+  | "replaceInBody" => pure (.replaceInBody (← field j "decl") (← field j "old") (← field j "new"))
   | "simpArgAdd" => pure (.simpArgAdd (← field j "lemma"))
   | "simpaToExact" => pure .simpaToExact
   | "keywordSwap" => pure (.keywordSwap (← field j "from") (← field j "to"))
   | "deleteTactic" => pure .deleteTactic
+  | "appendTactic" => pure (.appendTactic (← field j "tactic"))
   | "heartbeats" => pure (.heartbeats (← field j "n"))
   | o => throw s!"unknown op '{o}'"
 

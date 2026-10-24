@@ -100,6 +100,10 @@ structure Site where
   region : Option SiteRegion
   /-- Byte offset where `decl`'s command starts, when known. -/
   declStart : Option Nat
+  /-- The source text of `[start, stop)`. -/
+  text : String := ""
+  /-- Byte offset and text of `decl`'s body region, when known. -/
+  body : Option (Nat × String) := none
   /-- Byte range of the smallest syntax node that contains the error. -/
   start : Nat
   stop : Nat
@@ -194,10 +198,21 @@ inductive TacticFamily where
 operation is a change here, and every function over candidates must handle it. -/
 inductive EditOp where
   | rename (old new : String)
+  /-- A namespace move with no `@[deprecated]` aliases: an identifier at the
+  site that starts with the name `old` (whole components) gets `new` in its
+  place. -/
+  | renamePrefix (old new : String)
   | simpArgAdd (lemma : String)
   | simpaToExact
   | keywordSwap (from_ to : String)
   | deleteTactic
+  /-- In declaration `decl`, replace the text `old` with `new`. `old` must
+  occur exactly once in the declaration's body. The form in which an agent or a
+  person returns a residue repair (`docs/rules.md` § From residue to rule). -/
+  | replaceInBody (decl old new : String)
+  /-- Insert `tactic` after the node, on its own line at the node's column:
+  close a goal that the node leaves open. -/
+  | appendTactic (tactic : String)
   | heartbeats (n : Nat)
   deriving DecidableEq, Repr
 
@@ -224,6 +239,8 @@ structure Node where
   stop : Nat
   /-- The node's source text. -/
   text : String
+  /-- The node's column (code points from the start of its line). -/
+  column : Nat
   tokens : List Token
   deriving Repr
 

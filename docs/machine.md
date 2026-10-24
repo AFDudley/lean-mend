@@ -120,7 +120,7 @@ ledger before the transition runs.
 | `bumped mods aliases` | `baselined` | the alias map resolves | `built`; else `aliasCycle` |
 | `build st` | `built` | `Settled`: no closed module changed status | `built`; else `observationMismatch` |
 | `diagnosed module sites` | `built` | the module is in the frontier | `mending` |
-| `mend (rebuilt e lint sites)` | `mending` | the head site has a candidate | accept if `e` is below the error count, the candidate is clean, `lint` is 0, and `sites` fit `e`; else reject |
+| `mend (rebuilt e lint sites)` | `mending` | the head site has a candidate | `e` is the module's whole error count, residue included. Accept if `e` is below unresolved plus residue, the candidate is clean, `lint` is 0, and `sites` (without residue sites) fit `e`; else reject |
 | `mend unparsable` | `mending` | the head site has a candidate | reject |
 | `mend gaveUp` | `mending` | the head site has no candidate | the head site becomes residue |
 | `mended` | `mending` | `Mending.next = finish` | `built`, with the module `built` or `residual` |
@@ -195,8 +195,8 @@ The run stops. The measure is lexicographic, over:
    marked residue;
 3. the number of candidates left at the head site.
 
-`accept` needs a strict fall in the error count of the module, so it reduces
-item 2. `reject` reduces item 3. `Residue` removes a site, so it reduces
+`accept` needs a strict fall in the module's whole error count `e`, and the
+new unresolved count is `e` minus the residue, so it reduces item 2. `reject` reduces item 3. `Residue` removes a site, so it reduces
 item 2. A module leaves `Mending` built or residual, so item 1 falls at the next
 `build`. A blocked module becomes a frontier module only when an import starts
 to build, and that never adds to item 1.

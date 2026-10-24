@@ -58,6 +58,25 @@ def tour : List (String × RunObs) :=
 
 namespace Tour
 
+/-- Regression (EVMLean, Ethereum/Wheels.lean): after a site becomes residue,
+a candidate at the next site that lowers the module's whole error count from
+2 to 1 is accepted. The first version compared 1 with the unresolved count
+(1) and rejected it. -/
+def residueThenAccept : IO Nat := do
+  let m : Mending :=
+    { module := "W", errors := 2, sites := [⟨site "W", []⟩, ⟨site "W", [cand ["New.f"]]⟩],
+      residue := [], accepted := [], wf := by decide }
+  let r := do
+    let m ← m.step .gaveUp
+    m.step (.rebuilt 1 0 [])
+  match r with
+  | .ok m' =>
+    let ok := m'.accepted.length == 1 && m'.errors == 0 && m'.residue.length == 1
+    IO.println s!"{if ok then "ok  " else "FAIL"} residue, then accept on the whole error count"
+    return if ok then 0 else 1
+  | .error e =>
+    IO.println s!"FAIL residue, then accept: {repr e}"; return 1
+
 def run : IO Nat := do
   let mut s := RunState.idle "target"
   let mut failed := 0
@@ -71,6 +90,6 @@ def run : IO Nat := do
     IO.println s!"residue: {residue}"
     unless residue == ["B"] do failed := failed + 1
   | _ => failed := failed + 1
-  return failed
+  return failed + (← residueThenAccept)
 
 end Tour

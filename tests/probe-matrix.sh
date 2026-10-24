@@ -46,8 +46,10 @@ for v in "${toolchains[@]}"; do
   check "regions agree with decls on every named declaration" \
     '(.[0] | map({(.name): [.statementRange, .bodyRange]}) | add) as $d
      | (.[1] | map(select(.name != "")) | map({(.name): [.statementRange, .bodyRange]}) | add) as $r
-     | ($r | length) == 5 and ($r | to_entries | all(.value == $d[.key]))' \
+     | ($r | length) == 6 and ($r | to_entries | all(.value == $d[.key]))' \
     "$(jq -s -c . <<<"$basic") $(jq -s -c . <<<"$regions")"
+  check "deriving-generated constants are not in decls" \
+    'map(.name) | (index("Fx.instReprPt") == null) and (index("Fx.instBEqPt") == null)' "$basic"
   check "deprecated alias" \
     'map(select(.name == "Fx.Old.f"))[0].newName == "Fx.New.f"' "$deprecated"
 done

@@ -1,0 +1,15 @@
+{
+  "name": "batteries-rbtree-move",
+  "class": "unknownIdentifier",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "Batteries at Lean v4.33.1: Batteries.Data.RBMap is a deprecated_module (since 2026-05-14) that only imports Batteries.Recycling.RBTree.Basic; the names moved to the RBTree namespace with no @[deprecated] aliases. Hand bump AFDudley/EVMLean bcca6b1 made the same rename in 9 files."
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.33.1" },
+  "node": "any",
+  "candidates": [
+    { "op": "renamePrefix", "old": "Batteries.RBMap", "new": "RBTree.RBMap" },
+    { "op": "renamePrefix", "old": "Batteries.RBSet", "new": "RBTree.RBSet" },
+    { "op": "renamePrefix", "old": "Batteries.RBNode", "new": "RBTree.RBNode" }
+  ]
+}

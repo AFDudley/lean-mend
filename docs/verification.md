@@ -35,6 +35,16 @@ The probe writes a certificate for a list of modules. For each declaration:
   change between toolchains when the trust does not. EquiVM's certificates
   rest on them.
 
+The certificate holds only declarations that the source declares: the probe
+keeps a constant only if the command at its source range declares that name,
+or declares no name (an anonymous `instance`). Compiler-generated constants,
+for example the instances that `deriving BEq, Inhabited, Repr` makes, are
+excluded. Their source range is inside another command, so the first probe
+recorded another declaration's statement for them, and Lean versions differ in
+which ones they generate. On EVMLean, `Ethereum.instInhabitedBlockHeader.default`
+exists at v4.29.0 and not at v4.33.1, and that halted the run with
+`invariantBroken` before this filter.
+
 The baseline is taken at the old toolchain before any edit. The after
 certificate is taken at the new toolchain when the frontier is empty.
 `compare` matches declarations by name, after the alias map.
