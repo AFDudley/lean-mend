@@ -139,7 +139,9 @@ The structural checks on an attempt (concept C2, structural):
    region (by construction).
 2. The candidate adds none of the tokens in `forbiddenTokens`: `sorry`,
    `admit`, `axiom`, `native_decide`, `implemented_by`, `extern`, `unsafe`,
-   `opaque`. The probe supplies the tokens of the parsed candidate, so the
+   `opaque`, and no declaration keyword (`def`, `theorem`, `lemma`,
+   `instance`, `abbrev`, `inductive`, `structure`, `class`, `example`,
+   `mutual`, `attribute`): decision D10. The probe supplies the tokens of the parsed candidate, so the
    check reads syntax, not text (`Candidate.clean`).
 3. The candidate's rule passed the vacuity check when it was loaded
    (concept C9).

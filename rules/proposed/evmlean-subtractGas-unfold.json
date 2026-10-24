@@ -1,0 +1,11 @@
+{
+  "name": "evmlean-subtractGas-unfold",
+  "class": "typeMismatch",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "EVMLean fd4f5e6 -> v4.33.1, Ethereum/Theory/GasLemmas.lean: v4.33.1 simp no longer reduces fields of `(s.subtractGas d)` through the record update, so `simpa [evmState₁] using hstatic` fails. The hand bump bcca6b1 added three @[simp] lemmas; lean-mend adds no declaration (decision D10) and unfolds the definition instead. Checked on the real file: errors 33 -> 25."
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.33.1" },
+  "node": "simp",
+  "candidates": [ { "op": "simpArgAdd", "lemma": "Ethereum.State.subtractGas" } ]
+}

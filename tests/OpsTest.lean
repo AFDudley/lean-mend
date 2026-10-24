@@ -115,6 +115,16 @@ def run : IO Nat := do
     let ok := LeanMend.Shell.probeSource == (← IO.FS.readFile "probe/Probe.lean")
     IO.println s!"{if ok then "ok  " else "FAIL"} the embedded probe equals probe/Probe.lean{if ok then "" else " (delete .lake/build/**/LeanMend/Shell/Target.* and rebuild)"}"
     unless ok do failed := failed + 1
+  -- Decision D10: a candidate that adds a declaration is not clean.
+  for (what, repl, want) in
+      [("a helper lemma is refused", "rfl\n@[simp] theorem t : 1 = 1 := rfl", false),
+       ("a new def is refused", "0\ndef helper := 1", false),
+       ("a have inside a proof is allowed", "by\n  have h : 1 = 1 := rfl\n  omega", true)] do
+    let c : Candidate := { rule := "t", entrenchment := .proposed, target := .body "D.f",
+                           start := 0, stop := 0, replacement := repl, tokens := replacementTokens repl }
+    let ok := c.clean == want
+    IO.println s!"{if ok then "ok  " else "FAIL"} D10: {what}"
+    unless ok do failed := failed + 1
   for (what, cls, op, accept) in
       [("deleteTactic for noGoals is loaded", "noGoals", "deleteTactic", true),
        ("deleteTactic for typeMismatch is refused", "typeMismatch", "deleteTactic", false),

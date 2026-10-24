@@ -140,7 +140,10 @@ structure Candidate where
 /-- Tokens a candidate may not add (`docs/verification.md`, structural checks). -/
 def forbiddenTokens : List String :=
   ["sorry", "admit", "axiom", "native_decide", "implemented_by", "extern",
-   "unsafe", "opaque"]
+   "unsafe", "opaque",
+   -- decision D10: a candidate never adds a declaration
+   "def", "theorem", "lemma", "instance", "abbrev", "inductive", "structure",
+   "class", "example", "mutual", "attribute"]
 
 /-- The structural check on a candidate's syntax. -/
 def Candidate.clean (c : Candidate) : Bool :=

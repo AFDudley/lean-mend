@@ -76,6 +76,24 @@ Definition changes, axiom differences and rule ratification go to cards (see
 [verification.md](verification.md)). No count of automated successes replaces
 a card.
 
+## D10. lean-mend is a dumb port: it never adds a declaration
+
+lean-mend changes the bodies of declarations that already exist, and the
+renames of decisions D5. It never adds a `def`, `theorem`, `lemma`,
+`instance`, `inductive` or any other declaration, and no candidate, rule or
+agent repair may do so (structural check 3 in `machine.md`). The operator
+decided this on 2026-10-24.
+
+The reason: a new declaration adds a statement that the baseline certificate
+has no row for, and a new `@[simp]` lemma changes what `simp` does in every
+later proof. That is new code, not a port.
+
+Example: for EVMLean v4.33.1 the hand bump added three `@[simp]` projection
+lemmas for `State.subtractGas` in `Theory/GasLemmas.lean`. lean-mend instead
+adds `Ethereum.State.subtractGas` to the existing `simp` sets
+(`rules/proposed/evmlean-subtractGas-unfold.json`); on the real file this
+removed 8 of 33 errors.
+
 # Open questions
 
 **Q1. Which statement identity across toolchains?** The source statement hash
