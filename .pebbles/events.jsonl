@@ -50,3 +50,8 @@
 {"type":"comment","timestamp":"2026-10-24T06:01:46.308137Z","issue_id":"lea-6a0","payload":{"body":"exophial-integration-attempt-started: at 9c30137e1a8d1cc8d6e1007a6e0890360224a29e"}}
 {"type":"comment","timestamp":"2026-10-24T06:01:48.590379Z","issue_id":"lea-6a0","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
 {"type":"close","timestamp":"2026-10-24T06:01:48.590948Z","issue_id":"lea-6a0","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
+{"type":"create","timestamp":"2026-10-24T10:03:39.834375Z","issue_id":"lea-871","payload":{"description":"Operator-authored branch `append-tactic`, landed via `exophial integrate --branch` — no pebble id already tracked it.","priority":"2","title":"land: append-tactic","type":"task"}}
+{"type":"comment","timestamp":"2026-10-24T10:03:39.837542Z","issue_id":"lea-871","payload":{"body":"branch-identity: append-tactic"}}
+{"type":"comment","timestamp":"2026-10-24T10:06:20.639109Z","issue_id":"lea-871","payload":{"body":"exophial-integration-attempt-started: at f5d6f5c7f60a1504c9d5d5bba03c473816163f18"}}
+{"type":"comment","timestamp":"2026-10-24T10:06:22.956448Z","issue_id":"lea-871","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
+{"type":"close","timestamp":"2026-10-24T10:06:22.956928Z","issue_id":"lea-871","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
