@@ -45,3 +45,8 @@
 {"type":"comment","timestamp":"2026-10-24T04:48:53.832108Z","issue_id":"lea-eb3","payload":{"body":"exophial-integration-attempt-started: at 4f4245f92627fe2dcc757e1f8d2fb819b4a821e6"}}
 {"type":"comment","timestamp":"2026-10-24T04:48:55.646754Z","issue_id":"lea-eb3","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
 {"type":"close","timestamp":"2026-10-24T04:48:55.647406Z","issue_id":"lea-eb3","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
+{"type":"create","timestamp":"2026-10-24T05:58:09.370030Z","issue_id":"lea-6a0","payload":{"description":"Operator-authored branch `cards`, landed via `exophial integrate --branch` — no pebble id already tracked it.","priority":"2","title":"land: cards","type":"task"}}
+{"type":"comment","timestamp":"2026-10-24T05:58:09.370989Z","issue_id":"lea-6a0","payload":{"body":"branch-identity: cards"}}
+{"type":"comment","timestamp":"2026-10-24T06:01:46.308137Z","issue_id":"lea-6a0","payload":{"body":"exophial-integration-attempt-started: at 9c30137e1a8d1cc8d6e1007a6e0890360224a29e"}}
+{"type":"comment","timestamp":"2026-10-24T06:01:48.590379Z","issue_id":"lea-6a0","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
+{"type":"close","timestamp":"2026-10-24T06:01:48.590948Z","issue_id":"lea-6a0","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
