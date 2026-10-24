@@ -25,7 +25,7 @@ rm -rf "$app/dep" && cp -r "$fx/dep-v3" "$app/dep"
 g add -A && g commit -q -m "bump dep to v3"
 
 out=$(GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@lean-mend GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@lean-mend \
-  "$bin" run "$app" --adopt --aliases-from "$work/dep-v2")
+  bash -c 'cd "$1" && "$2" run app --adopt --aliases-from dep-v2' _ "$work" "$bin")
 echo "$out"
 ledger=$(jq -s -c . "$app/.lean-mend/ledger.jsonl")
 check "the run ends done with no residue" '.state == "done" and .residue == []' "$out"

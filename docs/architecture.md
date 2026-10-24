@@ -147,7 +147,7 @@ from an agent runs only through the fixed runner (concept C7).
 | Command | Effect |
 |---|---|
 | `lean-mend run <target> --to <toolchain>` | runs the machine from `Idle` to `Done` or `Halted` |
-| `lean-mend run <target> --adopt [--aliases-from <project>]…` | built: accepts a target that another tool already bumped; the baseline is `HEAD~1` in a detached worktree; each `--aliases-from` project adds its `@[deprecated]` aliases to the map |
+| `lean-mend run <target> --adopt [--aliases-from <project>]…` | built: accepts a target that another tool already bumped; the baseline is `HEAD~1` in a detached worktree; each `--aliases-from` project adds its `@[deprecated]` aliases to the map; `--prepare <cmd>` runs in both trees before the build (for example `lake exe cache get`); `--targets` limits the Lake targets |
 | `lean-mend status <target>` | prints the state from the ledger |
 | `lean-mend cards <target>` | lists open cards |
 | `lean-mend judge <target> <card> accept\|reject --by <name>` | records a judgment |

@@ -49,25 +49,26 @@ def summary (s : RunState) : Json :=
   | _ => Json.mkObj [("state", toJson s.tag)]
 
 def runCmd (t : String) (rest : List String) : IO UInt32 := do
-  -- (targets, alias sources)
-  let rec opts : List String → Option (List String × List System.FilePath)
-    | [] => some ([], [])
-    | "--aliases-from" :: p :: more => (opts more).map fun (t, ps) => (t, System.FilePath.mk p :: ps)
-    | "--targets" :: ts :: more => (opts more).map fun (t, ps) => (t ++ ts.splitOn ",", ps)
+  -- (targets, alias sources, prepare command)
+  let rec opts : List String → Option (List String × List System.FilePath × List String)
+    | [] => some ([], [], [])
+    | "--aliases-from" :: p :: more => (opts more).map fun (t, ps, c) => (t, System.FilePath.mk p :: ps, c)
+    | "--targets" :: ts :: more => (opts more).map fun (t, ps, c) => (t ++ ts.splitOn ",", ps, c)
+    | "--prepare" :: cmd :: more => (opts more).map fun (t, ps, _) => (t, ps, (cmd.splitOn " ").filter (· ≠ ""))
     | _ => none
   match rest with
   | "--adopt" :: more =>
     match opts more with
-    | some (ts, ps) =>
-      let s ← runAdopt t ts ps
+    | some (ts, ps, prep) =>
+      let s ← runAdopt t ts ps prep
       IO.println (summary s).compress
       return match s with | .halted _ => 1 | _ => 0
-    | none => IO.eprintln "usage: lean-mend run <target> --adopt [--targets <t,…>] [--aliases-from <project>]…"; return 2
-  | _ => IO.eprintln "usage: lean-mend run <target> --adopt [--targets <t,…>] [--aliases-from <project>]…"; return 2
+    | none => IO.eprintln "usage: lean-mend run <target> --adopt [--targets <t,…>] [--prepare <cmd>] [--aliases-from <project>]…"; return 2
+  | _ => IO.eprintln "usage: lean-mend run <target> --adopt [--targets <t,…>] [--prepare <cmd>] [--aliases-from <project>]…"; return 2
 
 def main : List String → IO UInt32
   | ["baseline", t] => baseline t
   | "run" :: t :: rest => runCmd t rest
   | _ => do
-    IO.eprintln "usage: lean-mend baseline <target> | lean-mend run <target> --adopt [--targets <t,…>] [--aliases-from <project>]…"
+    IO.eprintln "usage: lean-mend baseline <target> | lean-mend run <target> --adopt [--targets <t,…>] [--prepare <cmd>] [--aliases-from <project>]…"
     return 2

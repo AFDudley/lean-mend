@@ -131,9 +131,19 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
       loop c s'
   | other => pure other
 
-/-- `lean-mend run <target> --adopt [--targets <t,…>] [--aliases-from <project>]…` -/
-def runAdopt (target : FilePath) (targets : List String) (aliasesFrom : List FilePath) :
-    IO RunState := do
+/-- Run the `--prepare` command in a tree before its build, for example
+`lake exe cache get` for a Mathlib project. It must succeed. -/
+def prepareTree (tree : FilePath) : List String → IO Unit
+  | [] => pure ()
+  | cmd :: args => discard <| runOk tree cmd args.toArray
+
+/-- `lean-mend run <target> --adopt [--targets <t,…>] [--prepare <cmd>] [--aliases-from <project>]…` -/
+def runAdopt (target : FilePath) (targets : List String) (aliasesFrom : List FilePath)
+    (prepare : List String := []) : IO RunState := do
+  -- Absolute paths: git and lake run with the target as their working
+  -- directory, so a relative path would resolve one level too deep.
+  let target ← IO.FS.realPath target
+  let aliasesFrom ← aliasesFrom.mapM IO.FS.realPath
   let status ← git target #["status", "--porcelain", "--untracked-files=no"]
   unless status.isEmpty do throw <| IO.userError s!"{target} has uncommitted changes"
   IO.FS.createDirAll (target / ".lean-mend")
@@ -145,6 +155,7 @@ def runAdopt (target : FilePath) (targets : List String) (aliasesFrom : List Fil
   let order0 ← match topoOrder (files.map (·.1)) with
     | .ok o => pure o
     | .error r => throw <| IO.userError s!"{repr r}"
+  prepareTree target prepare
   let (order, built) ← buildAll target targets order0
   -- The alias map: the dependencies at HEAD, and every --aliases-from project.
   let names := order.map (·.name)
@@ -164,6 +175,7 @@ def runAdopt (target : FilePath) (targets : List String) (aliasesFrom : List Fil
   let baseOrder0 ← match topoOrder (baseFiles.map (·.1)) with
     | .ok o => pure o
     | .error r => throw <| IO.userError s!"{repr r}"
+  prepareTree base prepare
   let (_, baseBuilt) ← buildAll base targets baseOrder0
   let baseToolchain := (← IO.FS.readFile (base / "lean-toolchain")).trimAscii.toString
   let baseCert ← certificate base baseToolchain resolved.normalize baseFiles baseBuilt
