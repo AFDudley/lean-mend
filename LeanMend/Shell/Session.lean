@@ -28,7 +28,7 @@ def declJson (d : Decl) : Json := Json.mkObj
 
 def certJson (c : Certificate) : Json := Json.mkObj
   [("toolchain", toJson c.toolchain.name), ("built", toJson c.built),
-   ("decls", Json.arr (c.decls.toArray.map declJson))]
+   ("decls", Json.arr (c.decls.toArray.map declJson)), ("followed", toJson c.followed)]
 
 private def get {α} [Lean.FromJson α] (j : Json) (k : String) : Except String α :=
   match j.getObjValAs? α k with
@@ -44,7 +44,8 @@ def declOf (j : Json) : Except String Decl := do
 
 def certOf (j : Json) : Except String Certificate := do
   pure { toolchain := ⟨← get j "toolchain"⟩, built := ← get j "built",
-         decls := ← (← get (α := List Json) j "decls").mapM declOf }
+         decls := ← (← get (α := List Json) j "decls").mapM declOf,
+         followed := ← get j "followed" }
 
 def cardKindName : CardKind → String
   | .behavior => "behavior" | .violation => "violation" | .spec => "spec"

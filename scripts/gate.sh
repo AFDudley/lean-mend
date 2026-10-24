@@ -35,3 +35,6 @@ tests/simpset.sh
 
 echo "== decision D11 on the binder fixture"
 tests/binder.sh
+
+echo "== decision D12 on the follow fixture"
+tests/follow.sh

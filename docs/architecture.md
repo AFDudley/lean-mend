@@ -49,6 +49,7 @@ tests/
 * rename.sh      `lean-mend run --adopt` on tests/fixtures/rename, with and without the alias source
 * simpset.sh     `lean-mend run --adopt --rules` on tests/fixtures/simpset: three classes repaired, one candidate rejected by the linter condition, one Violation card judged with `lean-mend judge`
 * OpsTest.lean   edit operations at their edges, and the rule loader's refusals
+* follow.sh      decision D12 on tests/fixtures/follow, a real v4.29.0 → v4.33.1 bump
 * binder.sh      decision D11 on tests/fixtures/binder, a real v4.29.0 → v4.33.1 bump: the default warns, `--annotate-binders` narrows
   fixtures/      small Lake projects, each with a known break
 ```
@@ -158,7 +159,7 @@ from an agent runs only through the fixed runner (concept C7).
 | Command | Effect |
 |---|---|
 | `lean-mend run <target> --to <toolchain>` | runs the machine from `Idle` to `Done` or `Halted` |
-| `lean-mend run <target> --adopt [--aliases-from <project>]…` | built: accepts a target that another tool already bumped; the baseline is `HEAD~1` in a detached worktree; each `--aliases-from` project adds its `@[deprecated]` aliases to the map; `--prepare <cmd>` runs in both trees before the build (for example `lake exe cache get`); `--targets` limits the Lake targets; `--rules <dir>` loads the rule files; `--annotate-binders` applies the type narrowing of decision D11 (default: report it as a warning). The summary lists the run's warnings |
+| `lean-mend run <target> --adopt [--aliases-from <project>]…` | built: accepts a target that another tool already bumped; the baseline is `HEAD~1` in a detached worktree; each `--aliases-from` project adds its `@[deprecated]` aliases to the map; `--prepare <cmd>` runs in both trees before the build (for example `lake exe cache get`); `--targets` limits the Lake targets; `--rules <dir>` loads the rule files; `--annotate-binders` applies the type narrowing of decision D11 (default: report it as a warning). `--follow-definition-changes` lets a statement follow a definition's `match` repair (decision D12; default: report it as a warning). The summary lists the run's warnings |
 | `lean-mend status <target>` | prints the state from the ledger |
 | `lean-mend cards <target>` | built: lists the cards no judgment has answered, with the path of each card file |
 | `lean-mend judge <target> <card> accept\|reject --by <name>` | built: records the judgment in the ledger and steps the machine on the saved session; a rejected Behavior card does not yet revert its patch |

@@ -39,6 +39,14 @@ structure Ctx where
   /-- `--annotate-binders`: apply the type-narrowing statement edit
   (decision D11). Off by default: the edit is reported as a warning. -/
   annotate : Bool
+  /-- `--follow-definition-changes` (decision D12). -/
+  follow : Bool
+  /-- Rules accepted in a declaration body earlier in this run. -/
+  followed : IO.Ref (List String)
+  /-- Statement sites already warned about (decision D12). -/
+  warned : IO.Ref (List String)
+  /-- Declarations whose statement this run changed (decision D12). -/
+  followedDecls : IO.Ref (List String)
   ledger : FilePath
   /-- The commit where `lean-mend/mend` starts. -/
   start : String
@@ -103,6 +111,20 @@ def projectModules (project : FilePath) : IO (List String) := do
     throw <| IO.userError s!"{project}: module {m} does not build"
   pure (inRun.map (·.name))
 
+/-- Decision D12 without the flag: write one warning per statement site that
+the run would change to follow a definition change. -/
+def warnFollow (c : Ctx) (m : String) (done : List String) (nodesAt : List (Site × List Node)) :
+    IO Unit := do
+  if c.follow then return
+  for (site, ns) in nodesAt do
+    for t in followCandidates (c.rules.filter (done.contains ·.name)) ns site do
+      let key := s!"{site.decl.getD "?"}:{site.diagnostic.line}"
+      unless (← c.warned.get).contains key do
+        c.warned.modify (key :: ·)
+        appendWarning c.ledger s!"{m}:{site.diagnostic.line} {site.decl.getD "?"}: \
+          would change the statement `{t.replacement.take 60}…` to follow a definition change; \
+          rerun with --follow-definition-changes"
+
 /-- The level-1 loop, after `bumped`. Termination is the theorem set in
 `Spec/Termination.lean`; the loop itself is `partial` because it runs IO. -/
 partial def loop (c : Ctx) (s : RunState) : IO RunState := do
@@ -110,7 +132,8 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
   | .built ctx st =>
     match frontier ctx.mods st with
     | [] =>
-      let cert ← certificate c.target c.toolchain (c.aliases.normalizeWith (Rule.prefixPairs c.rules)) c.files (statusList c st)
+      let cert0 ← certificate c.target c.toolchain (c.aliases.normalizeWith (Rule.prefixPairs c.rules)) c.files (statusList c st)
+      let cert := { cert0 with followed := (← c.followedDecls.get).eraseDups }
       let next ← stepL c s (.certificate cert) "certificate"
         (Json.mkObj [("built", toJson cert.built), ("decls", toJson cert.decls.length)])
       for (d, why) in typeChanges ctx.aliases ctx.base cert do
@@ -127,7 +150,10 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
           mods := ctx.mods, aliases := ctx.aliases, residue, cards } fs c.fileOf
       pure next
     | m :: _ =>
-      let (_, _, opens) ← diagnose c.target m (c.fileOf m) c.aliases c.rules c.annotate
+      let done ← c.followed.get
+      let (_, _, opens, nodesAt) ← diagnose c.target m (c.fileOf m) c.aliases c.rules c.annotate
+        (if c.follow then done else [])
+      warnFollow c m done nodesAt
       -- Decision D11: without --annotate-binders, report the type narrowing
       -- the run would apply, and leave the site as residue.
       unless c.annotate do
@@ -161,7 +187,12 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
     | .attempt cand =>
       let file := c.fileOf mm.module
       let saved ← applyEdit c.target file cand
-      let (e, lints, opens0) ← diagnose c.target mm.module file c.aliases c.rules c.annotate
+      -- Read the new sites as if this attempt is accepted: on a reject the
+      -- machine ignores them. So a statement site sees a body edit at once.
+      let done := (← c.followed.get) ++
+        (match cand.target with | .body _ => [(cand.rule.splitOn ": ").head!] | _ => [])
+      let (e, lints, opens0, nodesAt) ← diagnose c.target mm.module file c.aliases c.rules c.annotate
+        (if c.follow then done else [])
       -- Residue sites stay errors in the file; they are not tried again.
       let opens := opens0.filter fun o => !mm.residue.any (·.sameAs o.site)
       -- Linter warnings inside the replaced bytes: the candidate caused them.
@@ -178,6 +209,12 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
         -- the module does not build and the certificate never compares it.
         if let .typeAnnotation d := cand.target then
           appendWarning c.ledger s!"narrowed binders of type {d} in {mm.module}: {cand.rule}"
+        if let .followStatement d := cand.target then
+          c.followedDecls.modify (d :: ·)
+          appendWarning c.ledger s!"changed the statement of {d} in {mm.module} to follow a definition change: {cand.rule}"
+        if let .body _ := cand.target then
+          c.followed.modify fun xs => (cand.rule.splitOn ": ").head! :: xs
+        warnFollow c mm.module done nodesAt
         discard <| git c.target #["add", file.toString]
         discard <| git c.target #["commit", "-q", "-m",
           s!"lean-mend: {cand.rule} in {mm.module}\n\nRule: {cand.rule}\nEntrenchment: {repr cand.entrenchment}"]
@@ -194,8 +231,8 @@ def prepareTree (tree : FilePath) : List String → IO Unit
 
 /-- `lean-mend run <target> --adopt [--targets <t,…>] [--prepare <cmd>] [--aliases-from <project>]…` -/
 def runAdopt (target : FilePath) (targets : List String) (aliasesFrom : List FilePath)
-    (prepare : List String := []) (rules : List Rule := []) (annotate : Bool := false) :
-    IO RunState := do
+    (prepare : List String := []) (rules : List Rule := []) (annotate : Bool := false)
+    (follow : Bool := false) : IO RunState := do
   -- Absolute paths: git and lake run with the target as their working
   -- directory, so a relative path would resolve one level too deep.
   let target ← IO.FS.realPath target
@@ -238,7 +275,11 @@ def runAdopt (target : FilePath) (targets : List String) (aliasesFrom : List Fil
   let baseToolchain := (← IO.FS.readFile (base / "lean-toolchain")).trimAscii.toString
   let baseCert ← certificate base baseToolchain (resolved.normalizeWith (Rule.prefixPairs rules)) baseFiles baseBuilt
   let baseFailing := baseBuilt.filterMap fun (n, s) => if s == .built then none else some n
-  let c : Ctx := { target, toolchain, files, order, targets, aliases := resolved, rules, annotate, ledger,
+  let followed ← IO.mkRef ([] : List String)
+  let warned ← IO.mkRef ([] : List String)
+  let followedDecls ← IO.mkRef ([] : List String)
+  let c : Ctx := { target, toolchain, files, order, targets, aliases := resolved, rules, annotate,
+                   follow, followed, warned, followedDecls, ledger,
                    start := "" }
   -- The machine, in its own order.
   let s ← stepL c (.idle target.toString) (.baseline baseCert baseFailing) "baseline"

@@ -115,6 +115,26 @@ The operator decided this on 2026-10-24.
 EVMLean `Theory/AccountLocality.lean` (`account_change_consistent`): on the
 real file the narrowing took the errors from 86 to 14.
 
+## D12. A statement may follow a definition change, only on request
+
+The operator decided this on 2026-10-24.
+
+A theorem's statement can restate a definition's code. When lean-mend changes
+that code in the definition's body (EVMLean: `match p with` over precompile
+numbers became `match p.val with` in `Semantics`), the statement no longer
+compiles, and it must change the same way to stay about the same thing.
+
+- With `--follow-definition-changes`, the `match` operations of a rule that
+  was already accepted in a declaration body this run may also edit a
+  statement (`EditTarget.followStatement`). Each such change is a warning,
+  and the after certificate lists the declaration in `followed`, which part 1
+  of the invariant allows.
+- Without the flag, the run writes a warning with the edit, and the site is
+  residue.
+
+EVMLean `Theory/AccountLocality.lean` 2359, 2379, 2393: the hand bump made the
+same change.
+
 # Open questions
 
 **Q1. Which statement identity across toolchains?** The source statement hash

@@ -25,8 +25,9 @@ def DeclOk (m : AliasMap) (after : Certificate) (js : List Judgment) (b : Decl) 
   b.module ∈ after.built →
     ∃ a ∈ after.decls,
       a.name = m.rename b.name ∧
-      -- part 1: the statement is unchanged
-      a.statementHash = b.statementHash ∧
+      -- part 1: the statement is unchanged, or lean-mend changed it to follow
+      -- a definition change under --follow-definition-changes (decision D12)
+      (a.statementHash = b.statementHash ∨ a.name ∈ after.followed) ∧
       -- part 2: the axioms are unchanged, or a card accepts the difference
       (a.axioms = b.axioms ∨ accepted js .violation a.name) ∧
       -- part 3: a changed definition body needs a card

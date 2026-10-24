@@ -36,7 +36,7 @@ def statuses (a b : ModStatus) : Statuses := fun n =>
 
 def tour : List (String × RunObs) :=
   let mods := [⟨"A", []⟩, ⟨"B", ["A"]⟩]
-  [ ("baselined", .baseline ⟨tc "v4.29.0", ["A", "B"], [declA "b1", declB]⟩ []),
+  [ ("baselined", .baseline ⟨tc "v4.29.0", ["A", "B"], [declA "b1", declB], []⟩ []),
     ("built", .bumped mods ⟨[("Old.f", "Mid.f"), ("Mid.f", "New.f")]⟩),
     ("built", .build (statuses .failing .blocked)),
     ("mending", .diagnosed "A" [⟨site "A", [cand ["sorry"], cand ["New.f", "("], cand ["New.f", "unused"], cand ["New.f"]]⟩]),
@@ -52,7 +52,7 @@ def tour : List (String × RunObs) :=
     ("mending", .mend .gaveUp),
     ("built", .mended),
     -- `A.f` is a `def` whose body changed: a Behavior card
-    ("awaiting", .certificate ⟨tc "v4.33.1", ["A"], [declA "b1'"]⟩),
+    ("awaiting", .certificate ⟨tc "v4.33.1", ["A"], [declA "b1'"], []⟩),
     ("done", .judgment { card := "c-1", kind := .behavior, subject := "A.f",
                          answer := .accept, author := "tour", at_ := "t0" }) ]
 

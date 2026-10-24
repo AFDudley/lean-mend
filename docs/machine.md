@@ -136,8 +136,9 @@ The structural checks on an attempt (concept C2, structural):
 1. The edit is inside the body region of its declaration, or it is an alias
    rename, or it is an insertion before the declaration's command
    (`set_option maxHeartbeats N in`). The one statement edit is
-   `typeAnnotation` (decision D11), and the shell proposes it only with
-   `--annotate-binders`.
+   `typeAnnotation` (decision D11), proposed only with `--annotate-binders`.
+   `followStatement` (decision D12) is proposed only with
+   `--follow-definition-changes`.
 2. The candidate adds none of the tokens in `forbiddenTokens`: `sorry`,
    `admit`, `axiom`, `native_decide`, `implemented_by`, `extern`, `unsafe`,
    `opaque`, and no declaration keyword (`def`, `theorem`, `lemma`,
@@ -165,7 +166,8 @@ This is the one invariant. It is stated first, in
 > module is built in the after certificate:
 >
 > 1. the source statement of `d` at the new toolchain equals the source
->    statement at the old toolchain, after the alias map is applied; and
+>    statement at the old toolchain, after the alias map is applied, or `d`
+>    is in the after certificate's `followed` list (decision D12); and
 > 2. the axioms of `d` equal the baseline axioms of `d`, or a closed card
 >    accepts the difference; and
 > 3. if `d` is a `def`, `instance` or `abbrev` and its body changed, a closed

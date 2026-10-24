@@ -265,15 +265,34 @@ def typeCandidates (s : Site) : List Candidate :=
     | none => []
   | _, _, _ => []
 
+/-- Statement candidates for decision D12: the `match` operations of `rules`
+applied at a site in a statement. The shell passes only the rules that were
+already accepted in a declaration body this run. -/
+def followCandidates (rules : List Rule) (nodes : List Node) (s : Site) : List Candidate :=
+  match s.decl, s.region with
+  | some d, some .statement =>
+    rules.flatMap fun r =>
+      if classify s.diagnostic != r.cls then [] else
+      r.ops.filterMap fun op =>
+        if !(op == .matchOnVal || op == .matchToIf) then none else do
+        let n ← pickNode r.family nodes
+        let repl ← applyOp op n
+        pure { rule := s!"{r.name}: {repr op} (following a definition change)",
+               entrenchment := r.entrenchment, target := .followStatement d,
+               start := n.start, stop := n.stop, replacement := repl,
+               tokens := addedTokens n.text repl }
+  | _, _ => []
+
 /-- All candidates for a site, in entrenchment order (concept C3): the derived
 alias candidates, then ratified rules, then proposed rules, each in rule-list
 order. A candidate that an earlier one already proposed is dropped. -/
 def proposeAll (m : AliasMap) (rules : List Rule) (nodes : List Node)
-    (annotate : Bool) (s : Site) : List Candidate :=
+    (annotate : Bool) (followed : List String) (s : Site) : List Candidate :=
   let byE (e : Entrenchment) := (rules.filter (·.entrenchment == e)).flatMap
     (ruleCandidates · nodes s)
   let all := propose m s ++ (if annotate then typeCandidates s else []) ++
-    byE .ratified ++ byE .proposed
+    byE .ratified ++ byE .proposed ++
+    followCandidates (rules.filter (followed.contains ·.name)) nodes s
   all.foldl (fun acc c =>
     if acc.any fun d => d.start == c.start && d.stop == c.stop && d.replacement == c.replacement
     then acc else acc ++ [c]) []

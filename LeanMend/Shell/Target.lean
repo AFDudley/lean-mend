@@ -179,8 +179,8 @@ syntax nodes only at sites whose class some rule answers. Returns the error
 count, the byte offsets of linter warnings (kind `linter.*`), and the open
 sites. -/
 def diagnose (target : FilePath) (module : String) (file : FilePath)
-    (aliases : AliasMap) (rules : List Rule) (annotate : Bool) :
-    IO (Nat × List Nat × List Open) := do
+    (aliases : AliasMap) (rules : List Rule) (annotate : Bool) (followed : List String) :
+    IO (Nat × List Nat × List Open × List (Site × List Node)) := do
   let (_, out, _) ← run target "lake" #["env", "lean", "--json", file.toString]
   let ds ← parseOrThrow s!"lean --json {file}" (Parse.lines (Parse.diagnostic module) out)
   let errs := ds.filter (·.severity == .error)
@@ -203,8 +203,9 @@ def diagnose (target : FilePath) (module : String) (file : FilePath)
   let wanted := sites.filter fun s => rules.any (·.cls == classify s.diagnostic)
   let nodes ← readNodes target file (wanted.flatMap fun s => [s.start, last s]).eraseDups
   let at_ (o : Nat) := (nodes.lookup o).getD []
-  pure (errs.length, lints, sites.map fun s =>
-    ⟨s, proposeAll aliases rules (at_ s.start ++ at_ (last s)) annotate s⟩)
+  pure (errs.length, lints,
+    sites.map (fun s => ⟨s, proposeAll aliases rules (at_ s.start ++ at_ (last s)) annotate followed s⟩),
+    sites.map fun s => (s, at_ s.start ++ at_ (last s)))
 
 /-- Replace bytes `[c.start, c.stop)` of `file` with `c.replacement`. Returns
 the previous content, for a revert. -/

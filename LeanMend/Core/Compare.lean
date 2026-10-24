@@ -43,7 +43,7 @@ def reasonFor (m : AliasMap) (after : Certificate) (js : List Judgment) (b : Dec
   match after.decls.find? (·.name == m.rename b.name) with
   | none => .missing
   | some a =>
-    if a.statementHash ≠ b.statementHash then .statementChanged
+    if a.statementHash ≠ b.statementHash ∧ a.name ∉ after.followed then .statementChanged
     else if a.axioms ≠ b.axioms ∧ ¬ accepted js .violation a.name then .axiomsDiffer
     else .definitionChanged
 

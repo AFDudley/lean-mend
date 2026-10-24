@@ -1,0 +1,3 @@
+{ "name": "match-literal", "class": "missingDecidable", "entrenchment": "proposed",
+  "provenance": { "evidence": "copy of rules/proposed/match-literal.json for the follow fixture" },
+  "node": "any", "candidates": [ { "op": "matchToIf" }, { "op": "matchOnVal" } ] }

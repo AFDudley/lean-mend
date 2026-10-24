@@ -49,6 +49,10 @@ structure Certificate where
   toolchain : Toolchain
   built : List String
   decls : List Decl
+  /-- Declarations whose statement lean-mend changed to follow a definition
+  change, under `--follow-definition-changes` (decision D12). Empty in a
+  baseline. -/
+  followed : List String := []
   deriving Repr
 
 /-- Old name to final new name, from `@[deprecated]` under the new toolchain. -/
@@ -143,6 +147,10 @@ inductive EditTarget where
   `{σ σ' : _}`. The one statement edit, applied only with
   `--annotate-binders` (decision D11). -/
   | typeAnnotation (decl : String)
+  /-- Inside a statement: the same `match` edit that lean-mend already made in
+  a declaration body this run, so the statement stays about the same thing.
+  Applied only with `--follow-definition-changes` (decision D12). -/
+  | followStatement (decl : String)
   /-- Insert text before the named declaration's command, for example
   `set_option maxHeartbeats N in`. Outside the statement region. -/
   | beforeDecl (decl : String)
