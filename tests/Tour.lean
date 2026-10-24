@@ -25,7 +25,7 @@ def site (m : String) : Site :=
   { diagnostic := { module := m, line := 3, column := 2, endLine := 3, endColumn := 7,
                     severity := .error, kind := "lean.unknownIdentifier._namedError",
                     text := "Unknown identifier `Old.f`" },
-    decl := s!"{m}.f", start := 10, stop := 15 }
+    decl := some s!"{m}.f", start := 10, stop := 15 }
 
 def cand (tokens : List String) : Candidate :=
   { rule := "alias", entrenchment := .derived, target := .aliasRename "Old.f" "New.f",

@@ -25,7 +25,7 @@ The probe writes a certificate for a list of modules. For each declaration:
 - `name` and `kind`;
 - `statement`: the source text of the statement region, with whitespace
   normalized;
-- `statementHash`: a SHA-256 of `statement` after the alias map is applied;
+- `statementHash`: `String.hash` of `statement` after `AliasMap.normalize`;
 - `type`: the elaborated type, printed with `pp.all`, for the report only;
 - `axioms`: the axioms the declaration depends on, by the method of
   `#print axioms`.
@@ -33,6 +33,10 @@ The probe writes a certificate for a list of modules. For each declaration:
 The baseline is taken at the old toolchain before any edit. The after
 certificate is taken at the new toolchain when the frontier is empty.
 `compare` matches declarations by name, after the alias map.
+
+The shell hashes the statement and body text with `String.hash` after
+`AliasMap.normalize`, at both toolchains. So a pure alias rename changes
+neither hash, and it needs no card.
 
 `statementHash` is the invariant's statement check. lean-mend does not edit a
 statement region, so a difference can come only from an alias rename, and the

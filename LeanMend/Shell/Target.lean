@@ -43,7 +43,8 @@ def parseOrThrow {α} (what : String) : Except String α → IO α
   | .error e => throw <| IO.userError s!"{what}: {e}"
 
 /-- The target's own `.lean` files: everything outside `.lake`, `.lean-mend`,
-`.scratch`, `.git` and the lakefile. -/
+`.scratch`, `.git`, the lakefile, and any nested Lake package (a directory
+with its own lakefile, such as a path dependency). -/
 partial def sourceFiles (target : FilePath) : IO (List FilePath) := do
   let skip := [".lake", ".lean-mend", ".scratch", ".git"]
   let rec walk (dir : FilePath) (rel : FilePath) : IO (List FilePath) := do
@@ -51,7 +52,9 @@ partial def sourceFiles (target : FilePath) : IO (List FilePath) := do
     for e in ← dir.readDir do
       let r := if rel.toString.isEmpty then FilePath.mk e.fileName else rel / e.fileName
       if ← e.path.isDir then
-        unless skip.contains e.fileName do acc := acc ++ (← walk e.path r)
+        let nested := (← (e.path / "lakefile.toml").pathExists) ||
+          (← (e.path / "lakefile.lean").pathExists)
+        unless skip.contains e.fileName || nested do acc := acc ++ (← walk e.path r)
       else if e.fileName.endsWith ".lean" && e.fileName != "lakefile.lean" then
         acc := acc ++ [r]
     return acc
@@ -88,14 +91,44 @@ def statuses (target : FilePath) (order : List Module) : IO (List (String × Mod
   return st
 
 /-- The certificate of the built modules (`docs/verification.md`). -/
-def certificate (target : FilePath) (toolchain : String)
+def certificate (target : FilePath) (toolchain : String) (norm : String → String)
     (mods : List (Module × FilePath)) (st : List (String × ModStatus)) :
     IO Certificate := do
   let built := mods.filter fun (m, _) => st.lookup m.name == some .built
   let mut decls := []
   for (m, f) in built do
     let out ← probe target #["decls", m.name, f.toString]
-    decls := decls ++ (← parseOrThrow s!"probe decls {m.name}" (Parse.lines Parse.decl out))
+    decls := decls ++ (← parseOrThrow s!"probe decls {m.name}" (Parse.lines (Parse.decl norm) out))
   pure { toolchain := ⟨toolchain⟩, built := built.map (·.1.name), decls }
+
+/-- The byte offset of a `lean --json` position: `line` counts from 1 and
+`column` counts code points from 0. -/
+def byteOffset (src : String) (line column : Nat) : Nat :=
+  let lines := src.splitOn "\n"
+  let before := (lines.take (line - 1)).foldl (fun acc l => acc + l.utf8ByteSize + 1) 0
+  before + (String.ofList ((lines.getD (line - 1) "").toList.take column)).utf8ByteSize
+
+/-- Compile one module with `lake env lean --json` and read its errors as
+sites, each with its candidates. Returns the error count and the open sites. -/
+def diagnose (target : FilePath) (module : String) (file : FilePath)
+    (cands : Site → List Candidate) : IO (Nat × List Open) := do
+  let (_, out, _) ← run target "lake" #["env", "lean", "--json", file.toString]
+  let ds ← parseOrThrow s!"lean --json {file}" (Parse.lines (Parse.diagnostic module) out)
+  let errs := ds.filter (·.severity == .error)
+  let src ← IO.FS.readFile (target / file)
+  let sites := errs.map fun d =>
+    { diagnostic := d, decl := none,
+      start := byteOffset src d.line d.column,
+      stop := byteOffset src d.endLine d.endColumn : Site }
+  pure (errs.length, sites.map fun s => ⟨s, cands s⟩)
+
+/-- Replace bytes `[c.start, c.stop)` of `file` with `c.replacement`. Returns
+the previous content, for a revert. -/
+def applyEdit (target : FilePath) (file : FilePath) (c : Candidate) : IO ByteArray := do
+  let path := target / file
+  let old ← IO.FS.readBinFile path
+  IO.FS.writeBinFile path
+    (old.extract 0 c.start ++ c.replacement.toUTF8 ++ old.extract c.stop old.size)
+  pure old
 
 end LeanMend.Shell

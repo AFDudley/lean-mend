@@ -25,7 +25,7 @@ LeanMend/
   * Run.lean         level 1: RunState, frontier, Settled, alias resolve, step
   * Compare.lean     baseline × after → findings; compare_nil
   * Graph.lean       module-graph order (topoOrder); a cycle is a refusal
-    Propose.lean     Site × rules × AliasMap → ordered candidates
+  * Propose.lean     Site × AliasMap → ordered candidates (derived alias rules only); AliasMap.normalize
   Shell/         IO. Parsing at the edge, Lake, git, files, the ledger.
   * Parse.lean       JSON → typed operands, once (concept B2)
   * Target.lean      processes, the probe (embedded by include_str), module graph, per-module lake build, certificate
@@ -33,8 +33,8 @@ LeanMend/
     Git.lean         the mend branch and attempt worktrees
     Ledger.lean      append and replay
     Cards.lean       writes cards, reads judgments
-    Driver.lean      the composition root (concept A3)
-* Main.lean      the `lean-mend` executable; today only `lean-mend baseline <target>`
+  * Driver.lean      the composition root (concept A3): `run --adopt`, the level-1 loop, the ledger
+* Main.lean      the `lean-mend` executable: `baseline` and `run --adopt`
 probe/
   Probe.lean     runs under the TARGET toolchain; writes JSON
 rules/
@@ -45,6 +45,7 @@ tests/
 * ClassifyTest.lean  classify on recorded `lean --json` output
 * NoSorry.lean   no LeanMend constant depends on sorryAx (the gate runs it)
 * baseline.sh    `lean-mend baseline` on the fixture under v4.33.1, intact and broken
+* rename.sh      `lean-mend run --adopt` on tests/fixtures/rename, with and without the alias source
   fixtures/      small Lake projects, each with a known break
 ```
 
@@ -104,8 +105,11 @@ replace Lake.
    `lake build <module>` there. Lake rebuilds only that module, because its
    imports are built.
 
-Modules are handled in graph order (brief item 1). Independent frontier
-modules may be attempted in parallel, each in its own worktree (concept D3).
+Modules are handled in graph order (brief item 1). The design attempts
+independent frontier modules in parallel, each in its own worktree (concept D3).
+The current driver does not do this yet: it attempts one candidate at a time in
+the target checkout, and it reverts a rejected candidate by writing back the
+file's previous bytes.
 
 ## The two stores
 
@@ -138,7 +142,7 @@ from an agent runs only through the fixed runner (concept C7).
 | Command | Effect |
 |---|---|
 | `lean-mend run <target> --to <toolchain>` | runs the machine from `Idle` to `Done` or `Halted` |
-| `lean-mend run <target> --adopt` | accepts a target that another tool already bumped; takes the baseline from the parent commit |
+| `lean-mend run <target> --adopt [--aliases-from <project>]…` | built: accepts a target that another tool already bumped; the baseline is `HEAD~1` in a detached worktree; each `--aliases-from` project adds its `@[deprecated]` aliases to the map |
 | `lean-mend status <target>` | prints the state from the ledger |
 | `lean-mend cards <target>` | lists open cards |
 | `lean-mend judge <target> <card> accept\|reject --by <name>` | records a judgment |

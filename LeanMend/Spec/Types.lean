@@ -86,8 +86,9 @@ structure Diagnostic where
 /-- A failing position, with the syntax node the probe found for it. -/
 structure Site where
   diagnostic : Diagnostic
-  /-- The declaration that contains the site. -/
-  decl : String
+  /-- The declaration that contains the site, when the probe has read the
+  file's regions. An alias rename needs no declaration. -/
+  decl : Option String
   /-- Byte range of the smallest syntax node that contains the error. -/
   start : Nat
   stop : Nat

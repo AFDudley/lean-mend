@@ -26,3 +26,6 @@ tests/probe-matrix.sh
 
 echo "== lean-mend baseline on a real target"
 tests/baseline.sh
+
+echo "== lean-mend run --adopt on the rename fixture"
+tests/rename.sh

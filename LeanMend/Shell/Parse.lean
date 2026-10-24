@@ -55,14 +55,16 @@ baseline and the after certificate. -/
 def textHash (s : String) : String :=
   String.ofList (Nat.toDigits 16 s.hash.toNat)
 
-/-- One line of the probe's `decls` output. -/
-def decl (j : Json) : Except String Decl := do
+/-- One line of the probe's `decls` output. `norm` rewrites region text
+before it is hashed (`AliasMap.normalize`), so the same alias map applies to
+the baseline and the after certificate. -/
+def decl (norm : String → String) (j : Json) : Except String Decl := do
   pure {
     name := ← field j "name"
     module := ← field j "module"
     kind := ← declKind (← field j "kind")
-    statementHash := textHash (← field j "statement")
-    bodyHash := textHash (← field j "body")
+    statementHash := textHash (norm (← field j "statement"))
+    bodyHash := textHash (norm (← field j "body"))
     axioms := ← field j "axioms" }
 
 /-- One line of the probe's `deprecated` output: old name and new name. A
