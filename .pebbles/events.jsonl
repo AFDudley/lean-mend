@@ -30,3 +30,8 @@
 {"type":"comment","timestamp":"2026-10-24T04:09:46.542783Z","issue_id":"lea-b50","payload":{"body":"exophial-integration-attempt-started: at 8f0fc6cbec608967b5d352b0f9e07d25336bbff5"}}
 {"type":"comment","timestamp":"2026-10-24T04:09:51.134835Z","issue_id":"lea-b50","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
 {"type":"close","timestamp":"2026-10-24T04:09:51.135171Z","issue_id":"lea-b50","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
+{"type":"create","timestamp":"2026-10-24T04:16:38.038764Z","issue_id":"lea-519","payload":{"description":"Operator-authored branch `scale`, landed via `exophial integrate --branch` — no pebble id already tracked it.","priority":"2","title":"land: scale","type":"task"}}
+{"type":"comment","timestamp":"2026-10-24T04:16:38.039321Z","issue_id":"lea-519","payload":{"body":"branch-identity: scale"}}
+{"type":"comment","timestamp":"2026-10-24T04:18:06.337267Z","issue_id":"lea-519","payload":{"body":"exophial-integration-attempt-started: at b7a402e80ed8e2af17d44b6c0ee69860d2f811a8"}}
+{"type":"comment","timestamp":"2026-10-24T04:18:08.024776Z","issue_id":"lea-519","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
+{"type":"close","timestamp":"2026-10-24T04:18:08.025139Z","issue_id":"lea-519","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
