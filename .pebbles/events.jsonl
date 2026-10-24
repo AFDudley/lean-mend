@@ -35,3 +35,8 @@
 {"type":"comment","timestamp":"2026-10-24T04:18:06.337267Z","issue_id":"lea-519","payload":{"body":"exophial-integration-attempt-started: at b7a402e80ed8e2af17d44b6c0ee69860d2f811a8"}}
 {"type":"comment","timestamp":"2026-10-24T04:18:08.024776Z","issue_id":"lea-519","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
 {"type":"close","timestamp":"2026-10-24T04:18:08.025139Z","issue_id":"lea-519","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
+{"type":"create","timestamp":"2026-10-24T04:30:32.169399Z","issue_id":"lea-b34","payload":{"description":"Operator-authored branch `regions`, landed via `exophial integrate --branch` — no pebble id already tracked it.","priority":"2","title":"land: regions","type":"task"}}
+{"type":"comment","timestamp":"2026-10-24T04:30:32.170022Z","issue_id":"lea-b34","payload":{"body":"branch-identity: regions"}}
+{"type":"comment","timestamp":"2026-10-24T04:32:26.603335Z","issue_id":"lea-b34","payload":{"body":"exophial-integration-attempt-started: at 7f5d5b7815ae2d68ad9c768704d7bbdc70f5ade5"}}
+{"type":"comment","timestamp":"2026-10-24T04:32:28.634435Z","issue_id":"lea-b34","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
+{"type":"close","timestamp":"2026-10-24T04:32:28.635113Z","issue_id":"lea-b34","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
