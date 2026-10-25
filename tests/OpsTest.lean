@@ -2,6 +2,7 @@ import LeanMend.Core.Ops
 import LeanMend.Shell.Parse
 import LeanMend.Shell.Target
 import LeanMend.Core.Compare
+import LeanMend.Core.Mend
 
 /-!
 Edit operations on one tactic node (`docs/rules.md` § Edit operations), and the
@@ -205,6 +206,36 @@ def run : IO Nat := do
         text := "failed to synthesize\n  Decidable (p✝ = 1)\n\nHint: Additional diagnostic" }
     let ok := decidableVar d == some "p"
     IO.println ((if ok then "ok  " else "FAIL") ++ " decidableVar reads p from Decidable (p✝ = 1)")
+    unless ok do failed := failed + 1
+  -- Lean's hint for an unused simp argument, applied (dropSimpArgs).
+  for (what, repl, args, want) in
+      [("EVMLean AccountLocality 2658",
+        "simp [getD_eq, ← get?_eq, ha,\n  hstorage_bne, hstorage_ne_default] at hXi ⊢\n  exact hXi",
+        ["hstorage_bne"],
+        some "simp [getD_eq, ← get?_eq, ha,\n  hstorage_ne_default] at hXi ⊢\n  exact hXi"),
+       ("the first item", "simp [Nat.add_zero, Dep.foo_eq]", ["Nat.add_zero"], some "simp [Dep.foo_eq]"),
+       ("the only item: the list goes", "simp only [a] at h", ["a"], some "simp only at h"),
+       ("a ← item by its name", "simp [← h, k]", ["h"], some "simp [k]"),
+       ("an argument not in the list: none", "simp [a, b]", ["c"], none)] do
+    let got := dropSimpArgs repl args
+    let ok := got == want
+    IO.println s!"{if ok then "ok  " else "FAIL"} dropSimpArgs, {what}: {repr got}"
+    unless ok do failed := failed + 1
+  -- The Core step: a candidate that clears the error but leaves one unused
+  -- simp argument is not accepted; its cleaned form replaces it.
+  do
+    let c : Candidate := { rule := "r", entrenchment := .proposed, target := .body "D.f",
+                           start := 0, stop := 10, replacement := "simp [a, b] at h ⊢", tokens := ["simp", "a", "b", "h"] }
+    let site : Site := { diagnostic := { module := "M", line := 1, column := 0, endLine := 1, endColumn := 1,
+                                         severity := .error, kind := "[anonymous]", text := "t" },
+                         decl := some "D.f", region := some .body, declStart := some 0, start := 0, stop := 1 }
+    let m : Mending := { module := "M", errors := 1, sites := [⟨site, [c]⟩], residue := [], accepted := [],
+                         wf := by decide }
+    let ok : Bool := match m.step (.rebuilt 0 1 ["b"] []) with
+      | .ok m' => m'.accepted.isEmpty &&
+          ((m'.sites.head?.bind (·.candidates.head?)).map (·.replacement) == some "simp [a] at h ⊢")
+      | .error _ => false
+    IO.println s!"{if ok then "ok  " else "FAIL"} a flagged candidate is not accepted; Lean's hint replaces it"
     unless ok do failed := failed + 1
   for (what, cls, op, accept) in
       [("deleteTactic for noGoals is loaded", "noGoals", "deleteTactic", true),

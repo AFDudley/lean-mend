@@ -104,9 +104,13 @@ For one site, the candidates come from every matching rule, in this order
    3. `keywordSwap` `rw` → `erw`, which hides a mismatch instead of fixing it;
    4. `heartbeats`, which hides a cost regression upstream.
 
-   Lean's linters are the check on this order: a candidate that causes a
-   linter warning in its own bytes is rejected even if it builds
-   ([machine.md](machine.md), structural check 4).
+   Lean's linters check this order and improve on it. A candidate that
+   causes a linter warning in its own bytes is never accepted. When the only
+   warnings are unused simp arguments, Lean names them, and the machine tries
+   the same edit without them ([machine.md](machine.md), structural check 4).
+   On EVMLean's `AccountLocality` 2658 and 2833 (run 16) this gave
+   `simpaSplit` without `hstorage_bne`, and the module built; the hand bump
+   kept that argument and its warning.
 3. **Proposed** rules, only if the run sets `--with-proposed`. A patch from a
    proposed rule gets a card.
 

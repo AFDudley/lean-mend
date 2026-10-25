@@ -41,11 +41,11 @@ def tour : List (String × RunObs) :=
     ("built", .build (statuses .failing .blocked)),
     ("mending", .diagnosed "A" [⟨site "A", [cand ["sorry"], cand ["New.f", "("], cand ["New.f", "unused"], cand ["New.f"]]⟩]),
     -- the first candidate adds `sorry`: the core rejects it even though the error count fell
-    ("mending", .mend (.rebuilt 0 0 [])),
+    ("mending", .mend (.rebuilt 0 0 [] [])),
     ("mending", .mend .unparsable),
     -- the error count fell, but the candidate caused a linter warning: reject
-    ("mending", .mend (.rebuilt 0 1 [])),
-    ("mending", .mend (.rebuilt 0 0 [])),
+    ("mending", .mend (.rebuilt 0 1 [] [])),
+    ("mending", .mend (.rebuilt 0 0 [] [])),
     ("built", .mended),
     ("built", .build (statuses .built .failing)),
     ("mending", .diagnosed "B" [⟨site "B", []⟩]),
@@ -68,7 +68,7 @@ def residueThenAccept : IO Nat := do
       residue := [], accepted := [], wf := by decide }
   let r := do
     let m ← m.step .gaveUp
-    m.step (.rebuilt 1 0 [])
+    m.step (.rebuilt 1 0 [] [])
   match r with
   | .ok m' =>
     let ok := m'.accepted.length == 1 && m'.errors == 0 && m'.residue.length == 1

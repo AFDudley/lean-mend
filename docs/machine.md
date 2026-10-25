@@ -157,6 +157,14 @@ The structural checks on an attempt (concept C2, structural):
    blocks the candidate. That is deliberate: the repaired tactic must be clean
    as a whole. `Accepted` carries `lintFree`, and `branchSound` states it.
 
+   Lean's warnings also make the better candidate. If a candidate clears the
+   error and every warning in its bytes is an unused simp argument
+   (`linter.unusedSimpArgs` names it), `Mending.step` replaces the head
+   candidate with the same edit without those arguments (`dropSimpArgs`,
+   which keeps the layout), and the shell attempts it next. The flagged
+   candidate itself is never accepted; if the cleaned one fails, it is
+   rejected like any other candidate.
+
 ## The invariant
 
 This is the one invariant. It is stated first, in
@@ -198,7 +206,9 @@ The run stops. The measure is lexicographic, over:
 1. the number of modules that are `failing` or `blocked`, and not `residual`;
 2. inside `Mending`, the number of error sites in the module that are not
    marked residue;
-3. the number of candidates left at the head site.
+3. the number of candidates left at the head site;
+4. the length of the head candidate's replacement. A cleaning by Lean's hint
+   keeps items 2 and 3 and shortens it (`Mending.refine_measure`).
 
 `accept` needs a strict fall in the module's whole error count `e`, and the
 new unresolved count is `e` minus the residue, so it reduces item 2. `reject` reduces item 3. `Residue` removes a site, so it reduces

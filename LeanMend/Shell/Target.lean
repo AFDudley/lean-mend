@@ -177,17 +177,22 @@ def readNodes (target : FilePath) (file : FilePath) (offsets : List Nat) :
 /-- Compile one module with `lake env lean --json` and read its errors as
 sites, each with its declaration, region and candidates. The probe reads the
 syntax nodes only at sites whose class some rule answers. Returns the error
-count, the byte offsets of linter warnings (kind `linter.*`), and the open
-sites. -/
+count, the linter warnings (kind `linter.*`) with their byte offsets and, for
+an unused simp argument, its name, and the open sites. -/
 def diagnose (target : FilePath) (module : String) (file : FilePath)
     (aliases : AliasMap) (rules : List Rule) (annotate : Bool) (followed : List String) :
-    IO (Nat × List Nat × List Open × List (Site × List Node)) := do
+    IO (Nat × List (Nat × Option String) × List Open × List (Site × List Node)) := do
   let (_, out, _) ← run target "lake" #["env", "lean", "--json", file.toString]
   let ds ← parseOrThrow s!"lean --json {file}" (Parse.lines (Parse.diagnostic module) out)
   let errs := ds.filter (·.severity == .error)
   let src ← IO.FS.readFile (target / file)
+  -- Each linter warning: its byte offset, and for `linter.unusedSimpArgs` the
+  -- argument Lean names ("This simp argument is unused:\n  x").
   let lints := (ds.filter fun d => d.severity == .warning && d.kind.startsWith "linter.").map
-    fun d => byteOffset src d.line d.column
+    fun d =>
+      let arg := if d.kind == "linter.unusedSimpArgs" then
+        ((d.text.splitOn "\n").drop 1).head?.map (·.trimAscii.toString) else none
+      (byteOffset src d.line d.column, arg)
   let rs ← if errs.isEmpty then pure [] else readRegions target file
   let sites := errs.map fun d =>
     let start := byteOffset src d.line d.column
