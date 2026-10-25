@@ -1,0 +1,14 @@
+{
+  "name": "expose-back-fix",
+  "class": "unknownIdentifier",
+  "entrenchment": "ratified",
+  "node": "any",
+  "candidates": [
+    {
+      "op": "replaceInBody",
+      "decl": "foo",
+      "old": "exact unknownHead",
+      "new": "constructor\n  exact unknownA\n  exact unknownB"
+    }
+  ]
+}
