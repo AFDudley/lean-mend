@@ -100,3 +100,8 @@
 {"type":"comment","timestamp":"2026-10-25T07:21:26.723960Z","issue_id":"lea-d36","payload":{"body":"exophial-integration-attempt-started: at 91a7fa35d646af826cd968b57a57a225234f33b5"}}
 {"type":"comment","timestamp":"2026-10-25T07:21:29.038749Z","issue_id":"lea-d36","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
 {"type":"close","timestamp":"2026-10-25T07:21:29.039424Z","issue_id":"lea-d36","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
+{"type":"create","timestamp":"2026-10-25T09:08:16.156897Z","issue_id":"lea-8ad","payload":{"description":"Operator-authored branch `simpa-split-term`, landed via `exophial integrate --branch` — no pebble id already tracked it.","priority":"2","title":"land: simpa-split-term","type":"task"}}
+{"type":"comment","timestamp":"2026-10-25T09:08:16.159936Z","issue_id":"lea-8ad","payload":{"body":"branch-identity: simpa-split-term"}}
+{"type":"comment","timestamp":"2026-10-25T09:12:00.487841Z","issue_id":"lea-8ad","payload":{"body":"exophial-integration-attempt-started: at 61b7f4b2d5d1e9d797d135bd00603b2f2d628d95"}}
+{"type":"comment","timestamp":"2026-10-25T09:12:02.725585Z","issue_id":"lea-8ad","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
+{"type":"close","timestamp":"2026-10-25T09:12:02.726150Z","issue_id":"lea-8ad","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
