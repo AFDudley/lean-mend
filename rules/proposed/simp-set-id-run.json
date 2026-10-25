@@ -1,0 +1,11 @@
+{
+  "name": "simp-set-id-run",
+  "class": "unsolvedGoals",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "Lean v4.33: `Id.run` is no longer in the default simp set (EquiVM lean-v4.33.1 report §13.3). EVMLean fd4f5e6 -> v4.33.1, Theory/NoOutOfFuel.lean: goals left as `¬Id.run (Except.ok …) = Except.error …` after `split <;> simp`; the hand bump bcca6b1 changed 16 sites to `simp [Id.run]`. Lean's unused-argument hint rejects the edit where Id.run is not needed."
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.33.1" },
+  "node": "simp",
+  "candidates": [ { "op": "simpArgAdd", "lemma": "Id.run" } ]
+}
