@@ -164,6 +164,22 @@ The structural checks on an attempt (concept C2, structural):
    which keeps the layout), and the shell attempts it next. The flagged
    candidate itself is never accepted; if the cleaned one fails, it is
    rejected like any other candidate.
+5. The edit made progress. Either the module's whole error count `e` fell,
+   or the count did not change and the edit exposed one later error
+   (`Candidate.exposes`). An exposing edit removed the site's error, so Lean
+   checks further into the declaration and reports an error it could not
+   reach before. Exactly one new open site must exist: every other site
+   matches an old one by `Site.sameAs`. The new site must be in the attempted
+   site's declaration, after every byte the edit changed there, and nearer
+   the declaration's end (`Site.reach`). The Core then moves it to the head
+   (`Candidate.reorder`). The check reads every site, because Lean reports
+   sites in message order, not source order. Example: EVMLean
+   `ReturnDataBound` 2528, where the `RBSet` move exposes an error at 2552.
+
+   An edit that exposes two or more errors for one is rejected. A measure
+   over byte distance to the end of the file does not admit it: an accepted
+   edit changes the file's length, so the distance of every earlier error
+   changes. EVMLean run 20 measured this at `Semantics` 288 and 1040.
 
 ## The invariant
 
@@ -206,21 +222,26 @@ The run stops. The measure is lexicographic, over:
 1. the number of modules that are `failing` or `blocked`, and not `residual`;
 2. inside `Mending`, the number of error sites in the module that are not
    marked residue;
-3. the number of candidates left at the head site;
-4. the length of the head candidate's replacement. A cleaning by Lean's hint
-   keeps items 2 and 3 and shortens it (`Mending.refine_measure`).
+3. the head site's `Site.reach`, its distance in bytes to the end of its
+   declaration;
+4. the number of candidates left at the head site;
+5. the length of the head candidate's replacement. A cleaning by Lean's hint
+   keeps items 2 to 4 and shortens it (`Mending.refine_measure`).
 
-`accept` needs a strict fall in the module's whole error count `e`, and the
-new unresolved count is `e` minus the residue, so it reduces item 2. `reject` reduces item 3. `Residue` removes a site, so it reduces
-item 2. A module leaves `Mending` built or residual, so item 1 falls at the next
-`build`. A blocked module becomes a frontier module only when an import starts
-to build, and that never adds to item 1.
+`accept` with a fall in the module's whole error count `e` reduces item 2; the
+new unresolved count is `e` minus the residue. An exposing `accept` keeps item
+2 and reduces item 3: an edit changes no byte after itself, so the exposed
+error's distance to the declaration's end is smaller. `reject` reduces item 4.
+`Residue` removes a site, so it reduces item 2. A module leaves `Mending` built
+or residual, so item 1 falls at the next `build`. A blocked module becomes a
+frontier module only when an import starts to build, and that never adds to
+item 1.
 
 The decrease is proved in `LeanMend/Spec/Termination.lean`:
 
 | Theorem | Statement |
 |---|---|
-| `Mending.step_measure` | every successful `Mending.step` lowers (item 2, item 3) lexicographically |
+| `Mending.step_measure` | every successful `Mending.step` lowers (items 2 to 5) lexicographically |
 | `openCount_finish` | leaving `Mending` with the module `built` or `residual` lowers item 1 |
 | `openCount_settled` | a settled `build` never raises item 1 |
 | `frontier_open` | a frontier module is open, so `openCount_finish` applies to it |

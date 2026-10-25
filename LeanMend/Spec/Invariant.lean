@@ -46,9 +46,12 @@ def NoHarm (m : AliasMap) (base after : Certificate) (js : List Judgment) : Prop
 accepted patch. The mend branch is modelled as the list of its patches; the
 type `Accepted` carries the evidence, so this holds by construction. -/
 def BranchSound (branch : List Accepted) : Prop :=
-  ∀ p ∈ branch, p.errorsAfter < p.errorsBefore ∧ p.candidate.clean = true ∧ p.lintAtEdit = 0
+  ∀ p ∈ branch,
+    (p.errorsAfter < p.errorsBefore ∨
+      (p.errorsAfter = p.errorsBefore ∧ p.reachAfter < p.reachBefore)) ∧
+    p.candidate.clean = true ∧ p.lintAtEdit = 0
 
 theorem branchSound (branch : List Accepted) : BranchSound branch :=
-  fun p _ => ⟨p.fell, p.clean, p.lintFree⟩
+  fun p _ => ⟨p.progress, p.clean, p.lintFree⟩
 
 end LeanMend

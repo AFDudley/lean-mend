@@ -132,10 +132,59 @@ def Mending.refine (m : Mending) (c' : Candidate) : Mending :=
       sites := { o with candidates := c' :: o.candidates.drop 1 } :: rest
       wf := by have := m.wf; simp_all }
 
+/-- The same failure after an edit elsewhere in the file: byte positions
+move, so a site is identified by its declaration, class and message. -/
+def Site.sameAs (a b : Site) : Bool :=
+  a.decl == b.decl && a.diagnostic.kind == b.diagnostic.kind && a.diagnostic.text == b.diagnostic.text
+
+/-- The one site that the edit exposed, if there is one (`Candidate.exposes`). The new open sites
+hold exactly one site that matches no other old site (`Site.sameAs`; `others`
+are the old open sites without the attempted one). That site is in the
+attempted site's declaration, after every byte the edit changed there, and
+nearer the declaration's end (`Site.reach`). The shell reports sites in
+Lean's message order, not source order, so the check reads every site, not
+the head. A changed span in a later declaration cannot change this one. -/
+def Candidate.exposedSite (c : Candidate) (s : Site) (others sites : List Open) : Option Open :=
+  let spans := if c.changed.isEmpty then [(c.start, c.start + c.replacement.utf8ByteSize)]
+    else c.changed
+  match sites.filter (fun o => !others.any (·.site.sameAs o.site)) with
+  | [o'] =>
+    match o'.site.declText with
+    | none => none
+    | some (a, t) =>
+      if o'.site.decl.isSome && o'.site.decl == s.decl &&
+          spans.all (fun (x, y) => decide (a + t.utf8ByteSize ≤ x) || decide (y ≤ o'.site.start))
+      then some o' else none
+  | _ => none
+
+@[inherit_doc Candidate.exposedSite]
+def Candidate.exposes (c : Candidate) (s : Site) (others sites : List Open) : Option Open :=
+  (c.exposedSite s others sites).filter fun o' => decide (o'.site.reach < s.reach)
+
+theorem Candidate.exposes_reach {c : Candidate} {s : Site} {others sites : List Open} {o' : Open}
+    (h : c.exposes s others sites = some o') : o'.site.reach < s.reach := by
+  unfold Candidate.exposes at h
+  cases hx : c.exposedSite s others sites with
+  | none => simp [hx] at h
+  | some o =>
+    rw [hx] at h
+    simp only [Option.filter] at h
+    split at h <;> simp_all
+
+/-- The new open sites, with the exposed site first: the next attempt is at the
+error the edit exposed. -/
+def Candidate.reorder (x : Option Open) (sites : List Open) : List Open :=
+  match x with
+  | some o' => o' :: sites.filter (fun o => !(o.site.sameAs o'.site))
+  | none => sites
+
 /-- The transition function (`docs/machine.md` § Transitions).
 
-* `attempt` then `rebuilt`: accept if the error count fell, the candidate is
-  clean, and it caused no linter warning. If the error count fell and every
+* `attempt` then `rebuilt`: accept if the edit made progress, the candidate is
+  clean, and it caused no linter warning. Progress is a fall in the error
+  count, or an unchanged count where the edit exposed one later error of the
+  same declaration (`Candidate.exposes`); the exposed site becomes the head
+  site. If the edit made progress and every
   warning is an unused simp argument, Lean's own hint makes the better
   candidate: the same edit without those arguments replaces the head
   candidate, and the shell attempts it next. A flagged candidate is never
@@ -163,16 +212,27 @@ def Mending.step (m : Mending) (o : MendObs) : Except Refusal Mending :=
     | c :: _ =>
       -- `e` is the module's whole error count, residue sites included, so it
       -- is compared with unresolved plus residue.
-      if hfell : e < m.errors + m.residue.length then
+      if hp : e < m.errors + m.residue.length ∨
+          (e = m.errors + m.residue.length ∧ (c.exposes o₀.site (m.sites.drop 1) sites).isSome) then
         if hclean : c.clean = true ∧ lint = 0 then
-          if hwf : sites.length + m.residue.length ≤ e then
+          if hwf : (Candidate.reorder (c.exposes o₀.site (m.sites.drop 1) sites) sites).length + m.residue.length ≤ e then
             .ok { m with
               errors := e - m.residue.length
-              sites := sites
+              sites := Candidate.reorder (c.exposes o₀.site (m.sites.drop 1) sites) sites
               accepted :=
                 { candidate := c, errorsBefore := m.errors + m.residue.length, errorsAfter := e,
-                  fell := hfell, clean := hclean.1, lintAtEdit := lint,
-                  lintFree := hclean.2 } :: m.accepted
+                  reachBefore := o₀.site.reach,
+                  reachAfter := ((Candidate.reorder (c.exposes o₀.site (m.sites.drop 1) sites) sites).head?.map (·.site.reach)).getD 0,
+                  progress := by
+                    rcases hp with h | ⟨h1, h2⟩
+                    · exact Or.inl h
+                    · refine Or.inr ⟨h1, ?_⟩
+                      match hx : c.exposes o₀.site (m.sites.drop 1) sites, h2 with
+                      | some o', _ =>
+                        simp only [Candidate.reorder, List.head?_cons, Option.map_some,
+                          Option.getD_some]
+                        exact Candidate.exposes_reach hx
+                  clean := hclean.1, lintAtEdit := lint, lintFree := hclean.2 } :: m.accepted
               wf := by omega }
           else .error (.observationMismatch "more open sites than errors")
         else
@@ -191,16 +251,13 @@ def Mending.step (m : Mending) (o : MendObs) : Except Refusal Mending :=
       else .ok m.reject
   | [], _ => .error (.observationMismatch "no open site")
 
-/-- The same failure after an edit elsewhere in the file: byte positions
-move, so a site is identified by its declaration, class and message. -/
-def Site.sameAs (a b : Site) : Bool :=
-  a.decl == b.decl && a.diagnostic.kind == b.diagnostic.kind && a.diagnostic.text == b.diagnostic.text
-
 /-- The termination measure inside `Mending` (`docs/machine.md` § Termination):
-the unresolved errors, then the candidates left at the head site, then the
-length of the head candidate's replacement (a cleaning shortens it). -/
-def Mending.measure (m : Mending) : Nat × Nat × Nat :=
-  (m.errors, (m.sites.head?.map (·.candidates.length)).getD 0,
+the unresolved errors, then the head site's `Site.reach` (an exposing edit
+lowers it), then the candidates left at the head site, then the length of the
+head candidate's replacement (a cleaning shortens it). -/
+def Mending.measure (m : Mending) : Nat × Nat × Nat × Nat :=
+  (m.errors, (m.sites.head?.map (·.site.reach)).getD 0,
+   (m.sites.head?.map (·.candidates.length)).getD 0,
    ((m.sites.head?.bind (·.candidates.head?)).map (·.replacement.length)).getD 0)
 
 end LeanMend

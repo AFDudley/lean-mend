@@ -188,12 +188,27 @@ def forbiddenTokens : List String :=
 def Candidate.clean (c : Candidate) : Bool :=
   c.tokens.all (fun t => !forbiddenTokens.contains t)
 
+/-- How far a site's error lies from the end of its declaration, in bytes. An
+edit changes no byte after itself, so an error that it exposes later in the
+same declaration has a smaller reach (`docs/machine.md` § Termination). `0`
+when the declaration is not known. -/
+def Site.reach (s : Site) : Nat :=
+  match s.declText with
+  | some (a, t) => a + t.utf8ByteSize - s.start
+  | none => 0
+
 /-- An accepted patch. It cannot be built without its evidence (concept D4). -/
 structure Accepted where
   candidate : Candidate
   errorsBefore : Nat
   errorsAfter : Nat
-  fell : errorsAfter < errorsBefore
+  /-- `Site.reach` of the attempted site, and of the head site after the edit. -/
+  reachBefore : Nat
+  reachAfter : Nat
+  /-- The error count fell, or it did not change and the edit exposed one later
+  error in the same declaration (`Candidate.exposes`). -/
+  progress : errorsAfter < errorsBefore ∨
+    (errorsAfter = errorsBefore ∧ reachAfter < reachBefore)
   clean : candidate.clean = true
   /-- Linter warnings inside the replaced bytes, after the edit. -/
   lintAtEdit : Nat

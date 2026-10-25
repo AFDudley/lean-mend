@@ -7,8 +7,10 @@ The run stops (`docs/machine.md` § Termination, concept D5). There is no
 retry cap; these theorems are the reason the loops end.
 
 * Level 2: every successful `Mending.step` makes `Mending.measure` fall in the
-  lexicographic order on `Nat × Nat × Nat`. A cleaning by Lean's hint keeps
-  the first two components and shortens the head candidate's replacement.
+  lexicographic order on `Nat × Nat × Nat × Nat`. An exposing edit keeps the
+  error count and lowers the head site's `Site.reach`. A cleaning by Lean's
+  hint keeps the first three components and shortens the head candidate's
+  replacement.
 * Level 1: leaving `Mending` closes one open module, and a settled rebuild
   never opens a module. So `openCount` falls once per frontier module.
 -/
@@ -16,8 +18,8 @@ retry cap; these theorems are the reason the loops end.
 namespace LeanMend
 
 /-- The lexicographic order on the level-2 measure. -/
-abbrev MeasureLt : Nat × Nat × Nat → Nat × Nat × Nat → Prop :=
-  Prod.Lex (· < ·) (Prod.Lex (· < ·) (· < ·))
+abbrev MeasureLt : Nat × Nat × Nat × Nat → Nat × Nat × Nat × Nat → Prop :=
+  Prod.Lex (· < ·) (Prod.Lex (· < ·) (Prod.Lex (· < ·) (· < ·)))
 
 theorem Mending.reject_measure (m : Mending) (o₀ : Open) (rest : List Open)
     (hs : m.sites = o₀ :: rest) (hc : o₀.candidates ≠ []) :
@@ -29,9 +31,10 @@ theorem Mending.reject_measure (m : Mending) (o₀ : Open) (rest : List Open)
     rw [hs] at h
     injection h with h1 h2
     subst h1
+    simp only [h, List.head?_cons, Option.map_some, Option.getD_some, List.length_drop]
+    apply Prod.Lex.right
     apply Prod.Lex.right
     apply Prod.Lex.left
-    simp only [h, List.head?_cons, Option.map_some, Option.getD_some, List.length_drop]
     have : 0 < o₀.candidates.length := List.length_pos_iff.mpr hc
     omega
 
@@ -49,10 +52,11 @@ theorem Mending.refine_measure (m : Mending) (o₀ : Open) (rest : List Open)
     rw [hs] at h
     injection h with h1 h2
     subst h1
-    apply Prod.Lex.right
     have hlen : (c' :: List.drop 1 o₀.candidates).length = o₀.candidates.length := by
       simp [hc]
     simp only [h, List.head?_cons, Option.map_some, Option.getD_some, Option.bind_some, hlen]
+    apply Prod.Lex.right
+    apply Prod.Lex.right
     apply Prod.Lex.right
     simp [hc, hlt]
 
@@ -65,9 +69,9 @@ theorem Mending.step_measure (m m' : Mending) (o : MendObs)
     rename_i o₀ rest hs
     split at h
     · cases h
-      apply Prod.Lex.left
       have := m.wf
       simp only [hs, List.length_cons] at this
+      apply Prod.Lex.left
       show m.errors - 1 < m.errors
       omega
     · cases h
@@ -85,15 +89,26 @@ theorem Mending.step_measure (m m' : Mending) (o : MendObs)
     · rename_i c cs hc
       have hne : o₀.candidates ≠ [] := by simp [hc]
       split at h
-      · -- the error count fell
+      · -- progress: the error count fell, or the edit exposed a later error
         split at h
         · -- accept
           split at h
           · cases h
-            rename_i hfell _ _
-            apply Prod.Lex.left
-            show e - m.residue.length < m.errors
-            omega
+            rename_i hp _ _
+            rcases hp with hfell | ⟨heq, hx⟩
+            · apply Prod.Lex.left
+              show e - m.residue.length < m.errors
+              omega
+            · have he : e - m.residue.length = m.errors := by omega
+              unfold Mending.measure
+              simp only [he, hs, List.head?_cons, Option.map_some, Option.getD_some]
+              apply Prod.Lex.right
+              apply Prod.Lex.left
+              rw [hs] at hx
+              match hx' : c.exposes o₀.site (List.drop 1 (o₀ :: rest)) sites, hx with
+              | some o', _ =>
+                simp only [Candidate.reorder, List.head?_cons, Option.map_some, Option.getD_some]
+                exact Candidate.exposes_reach hx'
           · cases h
         · -- Lean's hint, or reject
           split at h

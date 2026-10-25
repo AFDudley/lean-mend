@@ -240,6 +240,39 @@ def run : IO Nat := do
       | .error _ => false
     IO.println s!"{if ok then "ok  " else "FAIL"} a flagged candidate is not accepted; Lean's hint replaces it"
     unless ok do failed := failed + 1
+  -- The Core step: an edit that removes the site's error and exposes the next
+  -- error of the same declaration, with an unchanged error count (EVMLean
+  -- ReturnDataBound 2528 → 2552). The declaration is [100, 400) before the
+  -- edit; the edit replaces [140, 160) with 12 bytes, so it is [100, 392) after.
+  do
+    let c : Candidate := { rule := "r", entrenchment := .proposed, target := .body "D.f",
+                           start := 140, stop := 160, replacement := "RBTree.RBSet", tokens := ["RBTree.RBSet"] }
+    let mkSite (decl : String) (start : Nat) (declLen : Nat) : Site :=
+      { diagnostic := { module := "M", line := 1, column := 0, endLine := 1, endColumn := 1,
+                        severity := .error, kind := "[anonymous]", text := s!"e{start}" },
+        decl := some decl, region := some .body, declStart := some 100,
+        declText := some (100, String.ofList (List.replicate declLen 'x')), start, stop := start + 1,
+        -- the file is 500 bytes before the edit and 492 after it
+        file := String.ofList (List.replicate (declLen + 200) 'x') }
+    -- `D.a` is an earlier declaration with its own open error (EVMLean
+    -- Semantics 288 while 1040 is attempted); Lean reports it second.
+    let other := mkSite "D.a" 20 300
+    let m : Mending := { module := "M", errors := 2, sites := [⟨mkSite "D.f" 150 300, [c]⟩, ⟨other, []⟩],
+                         residue := [], accepted := [], wf := by decide }
+    for (what, e, s', accept) in
+        [("a later error in the same declaration is exposed: accept", 2, [mkSite "D.f" 200 292, other], true),
+         ("the exposed error comes after the unrelated one in Lean's order: accept", 2, [other, mkSite "D.f" 200 292], true),
+         ("two later errors are exposed for one: reject", 3, [mkSite "D.f" 200 292, mkSite "D.f" 300 292, other], false),
+         ("the new error is inside the edited bytes: reject", 2, [mkSite "D.f" 145 292, other], false),
+         ("the new error is in another declaration: reject", 2, [mkSite "D.g" 200 292, other], false)] do
+      let got : Bool := match m.step (.rebuilt e 0 [] (s'.map (⟨·, []⟩))) with
+        | .ok m' => !m'.accepted.isEmpty &&
+            -- the exposed site becomes the head site
+            (m'.sites.head?.map (·.site.start)) == some 200
+        | .error _ => false
+      let ok := got == accept
+      IO.println s!"{if ok then "ok  " else "FAIL"} exposure: {what}"
+      unless ok do failed := failed + 1
   -- closeBullet: the innermost bullet (`Lean.cdot`) that holds the site, as
   -- the probe reports it at EVMLean GasLemmas 48.
   do
