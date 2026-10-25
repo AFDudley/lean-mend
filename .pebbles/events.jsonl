@@ -105,3 +105,8 @@
 {"type":"comment","timestamp":"2026-10-25T09:12:00.487841Z","issue_id":"lea-8ad","payload":{"body":"exophial-integration-attempt-started: at 61b7f4b2d5d1e9d797d135bd00603b2f2d628d95"}}
 {"type":"comment","timestamp":"2026-10-25T09:12:02.725585Z","issue_id":"lea-8ad","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
 {"type":"close","timestamp":"2026-10-25T09:12:02.726150Z","issue_id":"lea-8ad","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
+{"type":"create","timestamp":"2026-10-25T11:35:37.490040Z","issue_id":"lea-a21","payload":{"description":"Operator-authored branch `close-bullet`, landed via `exophial integrate --branch` — no pebble id already tracked it.","priority":"2","title":"land: close-bullet","type":"task"}}
+{"type":"comment","timestamp":"2026-10-25T11:35:37.493512Z","issue_id":"lea-a21","payload":{"body":"branch-identity: close-bullet"}}
+{"type":"comment","timestamp":"2026-10-25T11:41:24.379273Z","issue_id":"lea-a21","payload":{"body":"exophial-integration-attempt-started: at 1b200fdb017bfc3bc507fdab4e058895b66ac9b5"}}
+{"type":"comment","timestamp":"2026-10-25T11:41:26.492669Z","issue_id":"lea-a21","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
+{"type":"close","timestamp":"2026-10-25T11:41:26.493290Z","issue_id":"lea-a21","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
