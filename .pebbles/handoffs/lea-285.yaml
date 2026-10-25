@@ -1,0 +1,68 @@
+status: completed
+pebble_id: lea-285
+summary: >
+  Implemented S1c of docs/parallel.md (decision D12, X7): under
+  --follow-definition-changes, a valCompare body edit and the statement
+  follow it needs now go out as one candidate, tried in one rebuild.
+  LeanMend/Core/Ops.lean's ruleCandidates gained a `follow : Bool`
+  parameter; its valCompare arm now checks valCompareTouchesStatement
+  first, and when the declaration's statement also carries the pattern
+  and --follow-definition-changes is on, it emits one candidate (target
+  EditTarget.followStatement, spanning the whole declaration text) instead
+  of refusing to propose anything. Without the flag the arm still refuses,
+  unchanged. proposeAll, Shell/Target.lean's diagnose, and both of
+  Shell/Driver.lean's diagnose call sites thread the new `follow` flag
+  through. Before this change, a declaration whose body AND statement both
+  carried the valCompare pattern had zero candidates at either site (the
+  body arm's old unconditional guard refused it, and the deferred
+  followCandidates path never fires because it is keyed on a different
+  declaration's body rule having already been accepted this run) — the
+  declaration always became residue, flag or no flag. The existing
+  two-declaration follow fixture (tests/follow.sh, tests/fixtures/follow)
+  is unaffected: it still takes two separate attempts, since the body and
+  statement errors there sit in two different declarations that cannot
+  share one Candidate span. Added a new OpsTest.lean unit case exercising
+  ruleCandidates directly (follow=false gives no candidate, follow=true
+  gives exactly one followStatement candidate spanning the full
+  declaration with both edited spans in `changed`), a new fixture
+  tests/fixtures/follow-pair (one theorem whose statement and whose
+  tactic-mode body both match on a Fin-backed literal, needing `.val`
+  under v4.33.1), and tests/follow-pair.sh, which runs the real lean-mend
+  binary with --follow-definition-changes and reports
+  {"attempts": N, "ok": bool} from the ledger and the mend branch: ok
+  requires exactly one "rebuilt" ledger entry, exactly one commit on
+  lean-mend/mend, and that commit's diff touching both the statement line
+  and the body line. scripts/gate.sh runs it as the step "D12 body edit
+  and statement follow as one candidate".
+cost: ~115k tokens
+commits:
+  - "ff19b0e14b9202213805e256379160783a0897b4"
+verify_transcript:
+  hooks:
+    - name: lake build
+      outcome: passed
+      duration_s: 20
+    - name: lake test
+      outcome: passed
+      duration_s: 20
+    - name: tests/follow.sh (unchanged two-declaration case, still passes)
+      outcome: passed
+      duration_s: 15
+    - name: tests/follow-pair.sh tests/fixtures/follow-pair
+      outcome: passed
+      duration_s: 15
+    - name: red-before-green check (ruleCandidates reverted to the old unconditional guard; OpsTest D12 case and tests/follow-pair.sh both failed, {"attempts":0,"ok":false})
+      outcome: passed
+      duration_s: 20
+    - name: scripts/gate.sh (full gate, 14/14 steps)
+      outcome: passed
+      duration_s: 190
+    - name: pre-commit (all hooks)
+      outcome: passed
+      duration_s: 15
+e2e_gate:
+  spec: tests/follow-pair.sh
+  command: tests/follow-pair.sh tests/fixtures/follow-pair
+  result: passed
+  ran_at_sha: "ff19b0e14b9202213805e256379160783a0897b4"
+  mocks_in_path: false
