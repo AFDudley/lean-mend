@@ -64,4 +64,17 @@ to stderr. stdout carries one JSON object and nothing else:
 failed step is the last entry, with `"ok": false`. An exophial spec observes
 this object (`stdout_json`); an exit code alone is a vacuous check.
 
+### Check scripts
+
+Every check script prints one JSON object on stdout and nothing else; its other output goes to stderr.
+
+A runner under `tests/` sources `tests/lib/report.sh`, records each check
+with `pass NAME` or `failed NAME`, and ends with `report`. Its object is
+`{"runner": …, "checks": [{"name": …, "ok": …}, …], "passed": N, "failed": N}`.
+`tests/NoSorry.lean` prints `{"runner": "NoSorry", "checked": N,
+"sorry_dependents": [names]}`. A runner that stops early prints nothing on
+stdout, so a check over its JSON fails. An exophial spec observes these objects
+(`stdout_json`); an exit code alone is a vacuous check, and exophial's SPECIFY
+gate refuses it.
+
 The vocabulary check (stratum 0) is not in the gate yet.

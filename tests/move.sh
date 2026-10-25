@@ -3,6 +3,7 @@
 # every occurrence in one edit, including a declaration the app declares under
 # the moved prefix, and the run must end done, not invariantBroken.
 set -euo pipefail
+source "$(dirname "$0")/lib/report.sh"
 root="$(cd "$(dirname "$0")/.." && pwd)"
 bin="$root/.lake/build/bin/lean-mend"
 fx="$root/tests/fixtures/move"
@@ -10,7 +11,7 @@ work="$root/.scratch/move"
 tc="leanprover/lean4:v4.33.1"
 fail=0
 check() {  # check <description> <jq filter> <json>
-  if jq -e "$2" <<<"$3" >/dev/null; then echo "ok   $1"; else echo "FAIL $1"; echo "$3"; fail=1; fi
+  if jq -e "$2" <<<"$3" >/dev/null; then pass "$1"; else failed "$1"; echo "$3"; fail=1; fi
 }
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@lean-mend GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@lean-mend
 rm -rf "$work" && mkdir -p "$work"
@@ -27,8 +28,8 @@ out=$("$bin" run "$app" --adopt --rules "$fx/rules" || true)
 check "the run ends done: the declaration renamed by the move is found, not missing" \
   '.state == "done" and .residue == []' "$out"
 ! grep -q 'Old\.Map' "$app/App/Use.lean" && grep -q 'def New.Map.double' "$app/App/Use.lean" \
-  && echo "ok   every Old.Map name moved, the declared one included" || { echo "FAIL source"; cat "$app/App/Use.lean"; fail=1; }
+  && pass "every Old.Map name moved, the declared one included" || { failed "source"; cat "$app/App/Use.lean"; fail=1; }
 n=$(g rev-list --count main..lean-mend/mend)
-[ "$n" = 1 ] && echo "ok   one commit: the move is one edit" || { echo "FAIL commits: $n"; fail=1; }
-(cd "$app" && lake build -q >/dev/null) && echo "ok   the mended app builds" || { echo "FAIL build"; fail=1; }
-exit $fail
+[ "$n" = 1 ] && pass "one commit: the move is one edit" || { failed "commits: $n"; fail=1; }
+(cd "$app" && lake build -q >/dev/null) && pass "the mended app builds" || { failed "build"; fail=1; }
+report

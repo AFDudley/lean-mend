@@ -3,6 +3,7 @@
 # from foo_eq and adds it to bar_eq. Three proofs break in three classes; one
 # ratified rule per class repairs each (docs/rules.md § Edit operations).
 set -euo pipefail
+source "$(dirname "$0")/lib/report.sh"
 root="$(cd "$(dirname "$0")/.." && pwd)"
 bin="$root/.lake/build/bin/lean-mend"
 fx="$root/tests/fixtures/simpset"
@@ -10,7 +11,7 @@ work="$root/.scratch/simpset"
 tc="leanprover/lean4:v4.33.1"
 fail=0
 check() {  # check <description> <jq filter> <json>
-  if jq -e "$2" <<<"$3" >/dev/null; then echo "ok   $1"; else echo "FAIL $1"; echo "$3"; fail=1; fi
+  if jq -e "$2" <<<"$3" >/dev/null; then pass "$1"; else failed "$1"; echo "$3"; fail=1; fi
 }
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@lean-mend GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@lean-mend
 
@@ -42,28 +43,28 @@ check "App.Lint: the first candidate cleared the error with one unused simp argu
   '[.[] | select(.obs == "rebuilt" and (.detail.rule | startswith("no-progress")))] as $r
    | ($r | length) == 2 and $r[0].detail.errors == 0 and $r[0].detail.lint == 1 and $r[0].detail.unused == ["Nat.add_zero"]
      and $r[1].detail.lint == 0 and ($r[1].detail.rule | test("Lean.s hint"))' "$ledger"
-grep -q 'simp \[Dep.foo_eq\]$' "$app/App/Lint.lean" && echo "ok   App.Lint is simp [Dep.foo_eq]: the unused argument is gone" || { echo "FAIL App.Lint text"; cat "$app/App/Lint.lean"; fail=1; }
+grep -q 'simp \[Dep.foo_eq\]$' "$app/App/Lint.lean" && pass "App.Lint is simp [Dep.foo_eq]: the unused argument is gone" || { failed "App.Lint text"; cat "$app/App/Lint.lean"; fail=1; }
 src=$(cat "$app/App/Use.lean")
-grep -q 'simp \[Dep.foo_eq\]' <<<"$src" && echo "ok   a1: simp gained Dep.foo_eq" || { echo "FAIL a1"; fail=1; }
-grep -q 'exact h' <<<"$src" && echo "ok   a2: simpa became exact h" || { echo "FAIL a2"; fail=1; }
-! grep -qE '^\s+rfl\s*$' <<<"$src" && echo "ok   a3: the rfl after the closed goal is gone" || { echo "FAIL a3"; fail=1; }
+grep -q 'simp \[Dep.foo_eq\]' <<<"$src" && pass "a1: simp gained Dep.foo_eq" || { failed "a1"; fail=1; }
+grep -q 'exact h' <<<"$src" && pass "a2: simpa became exact h" || { failed "a2"; fail=1; }
+! grep -qE '^\s+rfl\s*$' <<<"$src" && pass "a3: the rfl after the closed goal is gone" || { failed "a3"; fail=1; }
 n=$(git -C "$app" rev-list --count main..lean-mend/mend)
-[ "$n" = 4 ] && echo "ok   four commits on lean-mend/mend" || { echo "FAIL commits: $n"; fail=1; }
-(cd "$app" && lake build -q >/dev/null) && echo "ok   the mended app builds" || { echo "FAIL build"; fail=1; }
+[ "$n" = 4 ] && pass "four commits on lean-mend/mend" || { failed "commits: $n"; fail=1; }
+(cd "$app" && lake build -q >/dev/null) && pass "the mended app builds" || { failed "build"; fail=1; }
 
 # The card loop: list the open card, read its evidence, accept it.
 cards=$("$bin" cards "$app")
-grep -q '^c-1 violation App.a3 ' <<<"$cards" && echo "ok   cards lists c-1, a violation card for App.a3" || { echo "FAIL cards: $cards"; fail=1; }
+grep -q '^c-1 violation App.a3 ' <<<"$cards" && pass "cards lists c-1, a violation card for App.a3" || { failed "cards: $cards"; fail=1; }
 grep -q 'baseline axioms: \[\]' "$app/.lean-mend/cards/c-1.md" && grep -q 'after axioms: \[propext\]' "$app/.lean-mend/cards/c-1.md" \
-  && echo "ok   the card shows the axiom evidence ([] -> [propext])" || { echo "FAIL card text"; cat "$app/.lean-mend/cards/c-1.md"; fail=1; }
+  && pass "the card shows the axiom evidence ([] -> [propext])" || { failed "card text"; cat "$app/.lean-mend/cards/c-1.md"; fail=1; }
 out=$("$bin" judge "$app" c-1 accept --by tester)
 check "accepting c-1 moves the run to done" '.state == "done" and .residue == []' "$out"
-[ -z "$("$bin" cards "$app")" ] && echo "ok   no open card is left" || { echo "FAIL open cards left"; fail=1; }
-if "$bin" judge "$app" c-1 accept --by tester >/dev/null; then echo "FAIL a second judgment on c-1 was accepted"; fail=1
-else echo "ok   a second judgment on c-1 is refused"; fi
+[ -z "$("$bin" cards "$app")" ] && pass "no open card is left" || { failed "open cards left"; fail=1; }
+if "$bin" judge "$app" c-1 accept --by tester >/dev/null; then failed "a second judgment on c-1 was accepted"; fail=1
+else pass "a second judgment on c-1 is refused"; fi
 
 # Without the rules, every site is residue.
 rm -rf "$app/.lean-mend" && g switch -q main && g branch -q -D lean-mend/mend
 out=$("$bin" run "$app" --adopt)
 check "without rules: done, App.Use residue" '.state == "done" and (.residue | index("App.Use") != null)' "$out"
-exit $fail
+report

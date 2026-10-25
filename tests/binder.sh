@@ -4,12 +4,13 @@
 # residue; with --annotate-binders it narrows the binders and reports the type
 # change as a warning.
 set -euo pipefail
+source "$(dirname "$0")/lib/report.sh"
 root="$(cd "$(dirname "$0")/.." && pwd)"
 bin="$root/.lake/build/bin/lean-mend"
 work="$root/.scratch/binder"
 fail=0
 check() {  # check <description> <jq filter> <json>
-  if jq -e "$2" <<<"$3" >/dev/null; then echo "ok   $1"; else echo "FAIL $1"; echo "$3"; fail=1; fi
+  if jq -e "$2" <<<"$3" >/dev/null; then pass "$1"; else failed "$1"; echo "$3"; fail=1; fi
 }
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@lean-mend GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@lean-mend
 
@@ -27,15 +28,15 @@ out=$("$bin" run "$app" --adopt)
 check "default: App.Rel is residue, and a warning names the narrowing it would apply" \
   '(.residue | index("App.Rel") != null) and (.warnings | any(test("would narrow") and test("--annotate-binders")))' "$out"
 n=$(g rev-list --count main..lean-mend/mend)
-[ "$n" = 0 ] && echo "ok   default: no commit" || { echo "FAIL default commits: $n"; fail=1; }
+[ "$n" = 0 ] && pass "default: no commit" || { failed "default commits: $n"; fail=1; }
 
 rm -rf "$app/.lean-mend" && g switch -q main && g branch -q -D lean-mend/mend
 out=$("$bin" run "$app" --adopt --annotate-binders)
 check "--annotate-binders: done, no residue; the narrowing and the type change are warnings" \
   '.state == "done" and .residue == [] and (.warnings | any(test("narrowed binders of type App.R"))) and (.warnings | any(test("type App.R") and test("changed")))' "$out"
 grep -q '| up {s t : _} : R a s (Nat.succ t) → R a s t$' "$app/App/Rel.lean" \
-  && echo "ok   --annotate-binders: the application (Nat.succ t) in a constructor's type is not touched" || { echo "FAIL type touched"; fail=1; }
+  && pass "--annotate-binders: the application (Nat.succ t) in a constructor's type is not touched" || { failed "type touched"; fail=1; }
 grep -q '| mk {s t : _} : R a s t' "$app/App/Rel.lean" && grep -q '| step {s t : _} :' "$app/App/Rel.lean" \
-  && echo "ok   --annotate-binders: both constructors narrowed in one edit" || { echo "FAIL source"; cat "$app/App/Rel.lean"; fail=1; }
-(cd "$app" && lake build -q >/dev/null) && echo "ok   the mended app builds at v4.33.1" || { echo "FAIL build"; fail=1; }
-exit $fail
+  && pass "--annotate-binders: both constructors narrowed in one edit" || { failed "source"; cat "$app/App/Rel.lean"; fail=1; }
+(cd "$app" && lake build -q >/dev/null) && pass "the mended app builds at v4.33.1" || { failed "build"; fail=1; }
+report

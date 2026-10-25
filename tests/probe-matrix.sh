@@ -4,6 +4,7 @@
 # See docs/architecture.md § The version boundary.
 # Usage: tests/probe-matrix.sh [toolchain…]   (default: the supported set)
 set -euo pipefail
+source "$(dirname "$0")/lib/report.sh"
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 toolchains=("$@")
@@ -32,8 +33,8 @@ for v in "${toolchains[@]}"; do
   uregions=$(run regions Fx/Uses.lean)
 
   check() {  # check <description> <jq filter> <input>
-    if jq -e -s "$2" <<<"$3" >/dev/null; then echo "ok   $v $1"
-    else echo "FAIL $v $1"; echo "$3"; fail=1; fi
+    if jq -e -s "$2" <<<"$3" >/dev/null; then pass "$v $1"
+    else failed "$v $1"; echo "$3"; fail=1; fi
   }
   check "imports of Fx.Uses" 'map(.imports) == [["Fx.Basic"]]' "$imports"
   check "kinds in Fx.Basic" \
@@ -61,4 +62,4 @@ for v in "${toolchains[@]}"; do
     'map(select(.name == "Fx.Old.f"))[0].newName == "Fx.New.f"' "$deprecated"
 done
 
-exit $fail
+report

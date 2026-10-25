@@ -3,6 +3,7 @@
 # moves dep from v1 (Dep.old) to v3 (Dep.new only); v2 is the release whose
 # @[deprecated] alias records the rename. See docs/rules.md (derived rules).
 set -euo pipefail
+source "$(dirname "$0")/lib/report.sh"
 root="$(cd "$(dirname "$0")/.." && pwd)"
 bin="$root/.lake/build/bin/lean-mend"
 fx="$root/tests/fixtures/rename"
@@ -10,7 +11,7 @@ work="$root/.scratch/rename"
 tc="leanprover/lean4:v4.33.1"
 fail=0
 check() {  # check <description> <jq filter> <json>
-  if jq -e "$2" <<<"$3" >/dev/null; then echo "ok   $1"; else echo "FAIL $1"; echo "$3"; fail=1; fi
+  if jq -e "$2" <<<"$3" >/dev/null; then pass "$1"; else failed "$1"; echo "$3"; fail=1; fi
 }
 
 rm -rf "$work" && mkdir -p "$work"
@@ -40,10 +41,10 @@ check "sites carry their declaration and region" \
 check "the statement that names Dep.old is unchanged after the alias map (no finding)" \
   'map(select(.obs == "certificate"))[0].state == "done"' "$ledger"
 n=$(git -C "$app" rev-list --count main..lean-mend/mend)
-[ "$n" = 2 ] && echo "ok   two commits on lean-mend/mend" || { echo "FAIL commits on lean-mend/mend: $n"; fail=1; }
+[ "$n" = 2 ] && pass "two commits on lean-mend/mend" || { failed "commits on lean-mend/mend: $n"; fail=1; }
 grep -q 'Dep.new 3' "$app/App/Use.lean" && ! grep -q 'Dep.old' "$app/App/Use.lean" \
-  && echo "ok   the source uses Dep.new only" || { echo "FAIL source"; cat "$app/App/Use.lean"; fail=1; }
-(cd "$app" && lake build -q >/dev/null) && echo "ok   the mended app builds" || { echo "FAIL build"; fail=1; }
+  && pass "the source uses Dep.new only" || { failed "source"; cat "$app/App/Use.lean"; fail=1; }
+(cd "$app" && lake build -q >/dev/null) && pass "the mended app builds" || { failed "build"; fail=1; }
 
 # Without the v2 alias source no rule matches: every site is residue.
 rm -rf "$app/.lean-mend" && g switch -q main && g branch -q -D lean-mend/mend
@@ -52,5 +53,5 @@ out=$(GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@lean-mend GIT_COMMITTER_NAME=t GIT_CO
 check "without the alias source: done, App.Use residue, App blocked behind it" \
   '.state == "done" and .residue == ["App.Use", "App"]' "$out"
 n=$(git -C "$app" rev-list --count main..lean-mend/mend)
-[ "$n" = 0 ] && echo "ok   no commit without an accepted patch" || { echo "FAIL commits: $n"; fail=1; }
-exit $fail
+[ "$n" = 0 ] && pass "no commit without an accepted patch" || { failed "commits: $n"; fail=1; }
+report
