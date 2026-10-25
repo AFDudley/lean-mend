@@ -53,6 +53,15 @@ merge. It runs, in order:
 2. `lake build`;
 3. `tests/NoSorry.lean`: no `LeanMend` constant depends on `sorryAx`;
 4. `lake test`: the tour;
-5. `tests/probe-matrix.sh`: the probe under every supported toolchain.
+5. `tests/probe-matrix.sh`: the probe under every supported toolchain;
+6. `tests/baseline.sh`, `tests/rename.sh`, `tests/simpset.sh`,
+   `tests/binder.sh`, `tests/follow.sh`, `tests/move.sh`: lean-mend runs on
+   real fixtures.
+
+The gate stops at the first failed step and exits 1. Each step's output goes
+to stderr. stdout carries one JSON object and nothing else:
+`{"steps": [{"name": …, "ok": …}, …], "passed": N, "failed": 0 or 1}`. A
+failed step is the last entry, with `"ok": false`. An exophial spec observes
+this object (`stdout_json`); an exit code alone is a vacuous check.
 
 The vocabulary check (stratum 0) is not in the gate yet.
