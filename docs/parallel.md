@@ -360,26 +360,33 @@ def Site.earlier (a b : Site) : Bool :=
 `Mending.sites` is kept sorted by `Site.earlier`, so the head is the earliest.
 `Mending` gains `decls : Nat`, the module's declaration count, which D10 fixes.
 
-The measure is a four-tuple on `Nat × Nat × Nat × Nat`, ordered by `Prod.Lex`
-(X5, X8):
+The measure is a five-tuple on `Nat × Nat × Nat × Nat × Nat`, ordered by
+`Prod.Lex` (X5, X8):
 
 ```
-def Mending.measure (m : Mending) : Nat × Nat × Nat × Nat :=
+def Mending.measure (m : Mending) : Nat × Nat × Nat × Nat × Nat :=
   match m.sites with
-  | [] => (0, 0, 0, 0)
+  | [] => (0, 0, 0, 0, 0)
   | o :: _ =>
     (m.decls - 1 - o.site.declIndex,   -- declarations after the head
      o.site.reach,                     -- head reach, bytes to the declaration end
+     m.sites.length,                   -- open sites
      o.candidates.length,              -- head candidates left
      (o.candidates.head?.map (·.replacement.length)).getD 0)  -- head replacement length
 ```
 
 Component 1 falls when the head moves to a later declaration. Component 2 falls
-when the head moves later inside one declaration. Component 3 falls on a
-reject. Component 4 falls on a cleaning by Lean's hint. The measure uses Lean
-core `Prod.Lex` only. It is not a multiset order. `Accepted.progress` becomes
-"the earliest open position advanced". `branchSound` is re-proved over the new
-field.
+when the head moves later inside one declaration. Component 3 falls when the
+head site becomes residue and the next head has the same position: Lean can
+report two errors at one position, and then components 1 and 2 do not change.
+Component 4 falls on a reject. Component 5 falls on a cleaning by Lean's hint.
+The measure uses Lean core `Prod.Lex` only. It is not a multiset order.
+`Accepted.progress` becomes "the earliest open position advanced".
+`branchSound` is re-proved over the new field.
+
+A first design had four components, without the open-site count. The first S1
+worker (lea-e1b) found that a give-up does not lower it when the next head has
+the same position, and added component 3.
 
 ### The D12 combined candidate
 
@@ -458,7 +465,7 @@ X1. A site position is the pair (declaration index in source order, bytes from t
 X2. The Core sorts the open sites by that position, so the head site is the earliest error.
 X3. An edit is accepted when the earliest open position moves strictly toward the end of the file.
 X4. An edit is rejected when it leaves or adds an error earlier than the old head.
-X5. The measure is the four-tuple (declarations after the head, head reach, head candidates, head replacement length).
+X5. The measure is the five-tuple (declarations after the head, head reach, open sites, head candidates, head replacement length).
 X6. D10 fixes the declaration set, so an earlier declaration's position never changes under a later edit.
 X7. A D12 statement follow and its body edit are one candidate, so the earliest error never moves back.
 X8. The measure uses Lean core Prod.Lex only, and it is not a multiset order.
@@ -470,91 +477,170 @@ acceptance check runs the real program. Every slice runs the gate
 (`scripts/gate.sh`). Each slice adds one fixture under `tests/` that shows the
 new behavior.
 
-### S1. The AST-coordinate measure and the D12 combined candidate
+A worker has at most one hour (`dispatcher.task_timeout`). One EVMLean run
+takes about two hours, so no slice names an EVMLean run as its check. The
+operator runs the EVMLean checks after the merges: the `Semantics` 1040 check
+after S1b, and the tree-equality check after S5. Each slice adds one named step
+to `scripts/gate.sh`, so its check is visible in the gate's JSON output.
 
-Implements X1, X2, X3, X4, X5, X6, X7, X8. This slice is first, because the
-measure is shared.
+The branch `s1-partial` (commit `5885691`) holds the first S1 worker's
+captured work. It builds, it has no `sorry`, and `lake test` reports 0 failed.
+It has the coordinates, the sort, acceptance by coordinate and the five-tuple
+measure, and part of the D12 combined candidate. It has no runner and no
+fixture.
 
-Files: `LeanMend/Core/Mend.lean`, `LeanMend/Core/Ops.lean`,
-`LeanMend/Spec/Types.lean`, `LeanMend/Spec/Termination.lean`,
-`LeanMend/Spec/Invariant.lean`, `LeanMend/Shell/Target.lean`,
-`LeanMend/Shell/Driver.lean`, the probe `regions` command if it lacks the
+### S1a. Declaration coordinates and the sorted site list
+
+Implements X1, X2, X6.
+
+Files: `LeanMend/Spec/Types.lean`, `LeanMend/Core/Mend.lean`,
+`LeanMend/Shell/Target.lean`, the probe `regions` command if it lacks the
 declaration index.
 
 Acceptance check:
-- `scripts/gate.sh` is green.
-- A new fixture `tests/fixtures/expose-two`: one edit exposes two later errors
-  in the same declaration, and the Core accepts the edit. A runner
-  `tests/expose.sh` asserts the accept.
+- A new fixture `tests/fixtures/order-first`: one module where Lean reports a
+  later error before an earlier one. A runner `tests/order.sh` runs lean-mend
+  on it and asserts that the first attempt in the ledger is at the
+  source-earliest site.
+- `scripts/gate.sh` runs `tests/order.sh` as the step `site order by
+  declaration coordinates`, and the gate's JSON reports every step passed.
+
+### S1b. Acceptance of any number of later errors, and the five-tuple measure
+
+Implements X3, X4, X5, X8. Depends on S1a.
+
+Files: `LeanMend/Core/Mend.lean`, `LeanMend/Spec/Types.lean`,
+`LeanMend/Spec/Termination.lean`, `LeanMend/Spec/Invariant.lean`,
+`LeanMend/Shell/Driver.lean`.
+
+Acceptance check:
+- A new fixture `tests/fixtures/expose-two`: one edit fixes the head error and
+  exposes two later errors in the same declaration. A runner `tests/expose.sh`
+  asserts that the Core accepts the edit.
 - A new fixture `tests/fixtures/expose-back`: one edit fixes the head error and
-  leaves an error earlier in the same declaration, and the Core rejects the
-  edit. The same runner asserts the reject.
+  leaves an error earlier than the old head. The same runner asserts that the
+  Core rejects the edit.
+- `Mending.step_measure` states the five-tuple decrease, and no LeanMend
+  constant depends on `sorryAx`.
+- `scripts/gate.sh` runs `tests/expose.sh` as the step `exposure of later
+  errors`, and the gate's JSON reports every step passed.
+
+### S1c. The D12 combined candidate
+
+Implements X7. Depends on S1b.
+
+Files: `LeanMend/Core/Ops.lean`, `LeanMend/Core/Propose.lean`,
+`LeanMend/Shell/Target.lean`.
+
+Acceptance check:
+- A new fixture `tests/fixtures/follow-pair`: a `valCompare` body edit whose
+  statement follow is needed. A runner `tests/follow-pair.sh` runs lean-mend
+  with `--follow-definition-changes` and asserts that the ledger holds one
+  attempt with both edits, and that the Core accepts it.
 - `tests/follow.sh` still passes.
-- An EVMLean v4.29.0 → v4.33.1 run mends the `Semantics` module. The ledger
-  shows the `valCompare` accept at `Semantics` 1040 and no wrong reject of site
-  288.
+- `scripts/gate.sh` runs `tests/follow-pair.sh` as the step `D12 body edit and
+  statement follow as one candidate`, and the gate's JSON reports every step
+  passed.
 
-### S2. Batch across declarations in one module
+### S2a. The batch step in the Core
 
-Implements P1, P2, P3, P4, P5, P6, P7. Depends on S1.
+Implements P1, P2, P3, P6, P7. Depends on S1c.
 
 Files: `LeanMend/Core/Mend.lean`, `LeanMend/Spec/Termination.lean`,
-`LeanMend/Shell/Target.lean`, `LeanMend/Shell/Driver.lean`.
+`tests/OpsTest.lean`.
 
 Acceptance check:
-- `scripts/gate.sh` is green.
+- `Mending.batch_distinct`, `Mending.batch_bodyOnly`,
+  `Mending.stepBatch_eq_fold` and `Mending.stepBatch_measure` exist with the
+  statements in the table above, and no LeanMend constant depends on
+  `sorryAx`.
+- `tests/OpsTest.lean` shows `Mending.batch` on a module state with three
+  failing theorem bodies and one failing `def` body: the batch holds the three
+  theorem sites and not the `def` site. It shows `stepBatch` with one accept
+  and two rejects, and the result equals the left fold of `Mending.step`.
+- The gate's JSON reports every step passed.
+
+### S2b. Batched attempts in the Shell
+
+Implements P4, P5. Depends on S2a.
+
+Files: `LeanMend/Shell/Target.lean`, `LeanMend/Shell/Driver.lean`,
+`scripts/gate.sh`.
+
+Acceptance check:
 - A new fixture `tests/fixtures/batch`: one module with several theorem bodies
-  broken by one rule. A runner `tests/batch.sh` asserts the ledger holds one
-  `rebuilt` observation that covers every site, and the branch commits each
-  accepted patch in source order.
-- The branch tree of the batch run equals the branch tree of a single-site run
-  of the same fixture.
+  broken by one rule. A runner `tests/batch.sh` asserts that the ledger holds
+  one `rebuilt` observation that covers every site, that the branch commits
+  each accepted patch in source order, and that the branch tree equals the
+  tree of a single-site run of the same fixture.
+- `scripts/gate.sh` runs `tests/batch.sh` as the step `batched attempts across
+  theorem bodies`, and the gate's JSON reports every step passed.
 
-### S3. Parallel frontier modules
+### S3a. The fleet of Mending states in the Core
 
-Implements P8, P9, P10, P11, P12, P13. Depends on S1.
+Implements P9, P13. Depends on S1c.
 
 Files: `LeanMend/Core/Run.lean`, `LeanMend/Spec/Termination.lean`,
-`LeanMend/Shell/Driver.lean`, `LeanMend/Shell/Target.lean`.
+`tests/OpsTest.lean`.
 
 Acceptance check:
-- `scripts/gate.sh` is green.
+- `frontier_pairwise_indep`, `openCount_finishAll` and `Fleet.step_wf` exist
+  with the statements in the table above, `openCount_settled` still holds, and
+  no LeanMend constant depends on `sorryAx`.
+- `tests/OpsTest.lean` shows a fleet of two `Mending` states that receive
+  observations in either order and reach the same final state.
+- The gate's JSON reports every step passed.
+
+### S3b. Parallel frontier modules in the Shell
+
+Implements P8, P10, P11, P12. Depends on S3a.
+
+Files: `LeanMend/Shell/Driver.lean`, `LeanMend/Shell/Target.lean`,
+`scripts/gate.sh`.
+
+Acceptance check:
 - A new fixture `tests/fixtures/fleet`: two independent frontier modules, each
-  with one break. A runner `tests/fleet.sh` asserts both modules mend in one
-  wave, and the driver commits them in module topological order.
-- The branch tree of the fleet run equals the branch tree of a sequential run
-  of the same fixture.
+  with one break. A runner `tests/fleet.sh` asserts that both modules mend in
+  one wave, that the driver commits them in module topological order, and that
+  the branch tree equals the tree of a sequential run of the same fixture.
+- `scripts/gate.sh` runs `tests/fleet.sh` as the step `parallel frontier
+  modules`, and the gate's JSON reports every step passed.
 
 ### S4. Speculation across the candidates of one site
 
-Implements P14, P15, P16. Depends on S1.
+Implements P14, P15, P16. Depends on S1c.
 
 Files: `LeanMend/Core/Mend.lean`, `LeanMend/Shell/Driver.lean`,
 `LeanMend/Shell/Target.lean`.
 
 Acceptance check:
-- `scripts/gate.sh` is green.
 - A new fixture `tests/fixtures/speculate`: one site whose accepted candidate
   is the third in rule order. A runner `tests/speculate.sh` asserts the ledger
   records the speculative attempts, and the branch commits the third candidate.
 - The committed candidate equals the candidate of a sequential run of the same
   fixture.
+- `scripts/gate.sh` runs `tests/speculate.sh` as the step `speculation across
+  candidates`, and the gate's JSON reports every step passed.
 
-### S5. The scheduler and the end-to-end EVMLean run
+### S5. The scheduler
 
-Implements P17, P18, P19. Depends on S1, S2, S3, S4.
+Implements P17, P18, P19. Depends on S2b, S3b, S4.
 
 Files: `LeanMend/Shell/Driver.lean`, `LeanMend/Shell/Target.lean`,
-`scripts/gate.sh` if the gate must run the new runners.
+`scripts/gate.sh`.
 
 Acceptance check:
-- `scripts/gate.sh` is green.
-- A sequential EVMLean v4.29.0 → v4.33.1 run and a parallel run of the same
-  target produce the same mend-branch tree. The check compares
-  `git rev-parse lean-mend/mend^{tree}` of both runs, or `git diff` between the
-  two final trees, and the diff is empty.
-- The runner records the wall time of each run. The parallel wall time is lower
-  than the sequential wall time. The report states both times.
+- A new fixture `tests/fixtures/sched`: three frontier modules and a memory
+  limit that admits two Lean processes. A runner `tests/sched.sh` asserts that
+  the ledger never shows more than two live attempts, and that the branch tree
+  equals the tree of a sequential run of the same fixture.
+- `scripts/gate.sh` runs `tests/sched.sh` as the step `memory-bounded
+  scheduler`, and the gate's JSON reports every step passed.
+
+The operator then runs the end-to-end check: a sequential and a parallel
+EVMLean v4.29.0 → v4.33.1 run of the same target produce the same mend-branch
+tree (`git rev-parse lean-mend/mend^{tree}`), and the parallel run takes less
+wall time. The report states both times.
 
 ## Risks
 
