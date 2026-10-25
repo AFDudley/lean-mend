@@ -124,6 +124,8 @@ structure Site where
   body : Option (Nat × String) := none
   /-- The whole text of the site's file. -/
   file : String := ""
+  /-- Byte offset and text of `decl`'s whole command, when known. -/
+  declText : Option (Nat × String) := none
   /-- Byte offset and text of `decl`'s statement region, when known. For a
   type, the whole command. -/
   statement : Option (Nat × String) := none
@@ -254,6 +256,11 @@ inductive EditOp where
   /-- `match x with` whose patterns are all numerals or `_` becomes
   `match x.val with`: the same arms, over the wrapped natural number. -/
   | matchOnVal
+  /-- The class of `matchOnVal`, declaration-wide: the variable `x` in Lean's
+  message `Decidable (x = n)` is compared by value everywhere in the
+  declaration. `match x with`, `x = n` and `x ≠ n` become `match x.val with`,
+  `x.val = n` and `x.val ≠ n`, in one edit. -/
+  | valCompare
   /-- Insert `tactic` after the node, on its own line at the node's column:
   close a goal that the node leaves open. -/
   | appendTactic (tactic : String)

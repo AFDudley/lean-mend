@@ -180,6 +180,27 @@ def run : IO Nat := do
       | _ => false
     IO.println s!"{if ok then "ok  " else "FAIL"} renamePrefix renames all 3 occurrences in one edit, from an `unknown`-class site"
     unless ok do failed := failed + 1
+  -- valCompare: the class of `match x with` over numerals, declaration-wide.
+  for (what, src, want) in
+      [("EVMLean precompile_dispatch_match_eq_if (match, if, have)",
+        "(match p with\n  | 1 => a1 | _ => d) =\n  (if p = 1 then a1 else d) := by\n  have h1 : p ≠ 1 := by assumption",
+        some "(match p.val with\n  | 1 => a1 | _ => d) =\n  (if p.val = 1 then a1 else d) := by\n  have h1 : p.val ≠ 1 := by assumption"),
+       ("another variable and a non-numeral comparison stay",
+        "if q = 1 then a else if p = q then b else if p = 2 then c else d",
+        some "if q = 1 then a else if p = q then b else if p.val = 2 then c else d"),
+       ("p == 1 and p.val = 1 stay", "if p == 1 then a else if p.val = 1 then b else c", none)] do
+    let got := (valOfLiterals "p" src).map (·.1)
+    let ok := got == want
+    IO.println s!"{if ok then "ok  " else "FAIL"} valOfLiterals, {what}"
+    unless ok do failed := failed + 1
+  do
+    let d : Diagnostic :=
+      { module := "M", line := 1, column := 0, endLine := 1, endColumn := 1,
+        severity := .error, kind := "[anonymous]",
+        text := "failed to synthesize\n  Decidable (p✝ = 1)\n\nHint: Additional diagnostic" }
+    let ok := decidableVar d == some "p"
+    IO.println ((if ok then "ok  " else "FAIL") ++ " decidableVar reads p from Decidable (p✝ = 1)")
+    unless ok do failed := failed + 1
   for (what, cls, op, accept) in
       [("deleteTactic for noGoals is loaded", "noGoals", "deleteTactic", true),
        ("deleteTactic for typeMismatch is refused", "typeMismatch", "deleteTactic", false),

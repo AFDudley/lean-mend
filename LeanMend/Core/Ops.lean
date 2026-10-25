@@ -126,7 +126,58 @@ def applyOp (op : EditOp) (n : Node) : Option String :=
   | .deleteTactic => some ""
   | .appendTactic t =>
     some (n.text ++ "\n" ++ String.ofList (List.replicate n.column ' ') ++ t)
-  | .rename _ _ | .renamePrefix _ _ | .replaceInBody _ _ _ | .heartbeats _ => none
+  | .rename _ _ | .renamePrefix _ _ | .replaceInBody _ _ _ | .heartbeats _ | .valCompare => none
+
+/-- The variable in Lean's message `Decidable (x✝ = n)`: `x`. -/
+def decidableVar (d : Diagnostic) : Option String :=
+  match d.text.splitOn "Decidable (" with
+  | _ :: rest :: _ =>
+    match rest.splitOn " = " with
+    | v :: _ :: _ =>
+      let v := (String.ofList (v.toList.filter (· != '✝'))).trimAscii.toString
+      if !v.isEmpty && v.all identChar then some v else none
+    | _ => none
+  | _ => none
+
+/-- `x` becomes `x.val` where `x` is matched (`match x with`) or compared with
+a numeral (`x = n`, `x ≠ n`), everywhere in `src`. Returns the new text and the
+byte spans of the rewritten names in it, or `none` if nothing changes. -/
+def valOfLiterals (x src : String) : Option (String × List (Nat × Nat)) :=
+  let rs := (runs src).toArray
+  let blank (r : String) := r.all Char.isWhitespace
+  let nextTok (i : Nat) : Option Nat :=
+    (List.range (rs.size - (i + 1))).findSome? fun k => if blank rs[i + 1 + k]! then none else some (i + 1 + k)
+  let prevTok (i : Nat) : Option Nat :=
+    (List.range i).findSome? fun k => if blank rs[i - 1 - k]! then none else some (i - 1 - k)
+  let numeral (j : Nat) := let t := rs[j]!; !t.isEmpty && t.all Char.isDigit
+  let hit (i : Nat) : Bool :=
+    rs[i]! == x &&
+    (((prevTok i).any (rs[·]! == "match") && (nextTok i).any (rs[·]! == "with")) ||
+     (match nextTok i with
+      | some j => let op := rs[j]!.trimAscii.toString
+                  (op == "=" || op == "≠") && (nextTok j).any numeral
+      | none => false))
+  let (out, spans, _, n) := (List.range rs.size).foldl (init := ("", ([] : List (Nat × Nat)), 0, 0))
+    fun (out, spans, pos, n) i =>
+      let r := rs[i]!
+      if hit i then
+        let r' := r ++ ".val"
+        (out ++ r', spans ++ [(pos, pos + r'.utf8ByteSize)], pos + r'.utf8ByteSize, n + 1)
+      else (out ++ r, spans, pos + r.utf8ByteSize, n)
+  if n == 0 then none else some (out, spans)
+
+/-- The `valCompare` edit for a site: the whole declaration, rewritten. -/
+def valCompareEdit (s : Site) : Option (Nat × String × String × List (Nat × Nat)) := do
+  let x ← decidableVar s.diagnostic
+  let (a, txt) ← s.declText
+  let (t, spans) ← valOfLiterals x txt
+  pure (a, txt, t, spans.map fun (p, q) => (a + p, a + q))
+
+/-- Whether the `valCompare` edit changes the declaration's statement. -/
+def valCompareTouchesStatement (s : Site) : Bool :=
+  match decidableVar s.diagnostic, s.statement with
+  | some x, some (_, st) => (valOfLiterals x st).isSome
+  | _, _ => false
 
 /-- Every name between backticks in a diagnostic's text. -/
 def namesIn (d : Diagnostic) : List String :=
@@ -198,6 +249,12 @@ def ruleCandidates (r : Rule) (nodes : List Node) (s : Site) : List Candidate :=
           let t ← n.tokens.find? (·.text == ns a)
           pure (mk (.aliasRename a b) t.start t.stop (ns b))
         else none
+    | .valCompare, some d, _ => do
+      -- body-only here; a statement edit goes through followCandidates (D12)
+      guard (!valCompareTouchesStatement s)
+      let (a, txt, t, spans) ← valCompareEdit s
+      pure { mk (.body d) a (a + txt.utf8ByteSize) t with
+             tokens := addedTokens txt t, changed := spans }
     | op, some d, some .body => do
       let n ← pickNode r.family nodes
       let repl ← applyOp op n
@@ -274,7 +331,14 @@ def followCandidates (rules : List Rule) (nodes : List Node) (s : Site) : List C
     rules.flatMap fun r =>
       if classify s.diagnostic != r.cls then [] else
       r.ops.filterMap fun op =>
-        if !(op == .matchOnVal || op == .matchToIf) then none else do
+        if op == .valCompare then do
+          guard (valCompareTouchesStatement s)
+          let (a, txt, t, spans) ← valCompareEdit s
+          pure { rule := s!"{r.name}: {repr op} (following a definition change)",
+                 entrenchment := r.entrenchment, target := .followStatement d,
+                 start := a, stop := a + txt.utf8ByteSize, replacement := t,
+                 tokens := addedTokens txt t, changed := spans }
+        else if !(op == .matchOnVal || op == .matchToIf) then none else do
         let n ← pickNode r.family nodes
         let repl ← applyOp op n
         pure { rule := s!"{r.name}: {repr op} (following a definition change)",

@@ -151,6 +151,7 @@ def editOp (j : Json) : Except String EditOp := do
   | "deleteTactic" => pure .deleteTactic
   | "matchToIf" => pure .matchToIf
   | "matchOnVal" => pure .matchOnVal
+  | "valCompare" => pure .valCompare
   | "appendTactic" => pure (.appendTactic (← field j "tactic"))
   | "heartbeats" => pure (.heartbeats (← field j "n"))
   | o => throw s!"unknown op '{o}'"

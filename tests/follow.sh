@@ -36,7 +36,7 @@ out=$("$bin" run "$app" --adopt --rules "$fx/rules" --follow-definition-changes)
 # waits on Violation cards; the statement change itself is no finding.
 check "--follow-definition-changes: no residue, no statement finding, the change is a warning" \
   '.state == "awaiting" and .residue == [] and ([.findings[].reason] | all(. == "LeanMend.Reason.axiomsDiffer")) and (.warnings | any(test("changed the statement of App.run_spec")))' "$out"
-grep -q '(match p.val with | 1 => 10' "$app/App/Pre.lean" \
+grep -q '(match p.val with | 1 => 10 | 2' "$app/App/Pre.lean" \
   && echo "ok   --follow-definition-changes: the statement follows the definition" || { echo "FAIL follow source"; cat "$app/App/Pre.lean"; fail=1; }
 (cd "$app" && lake build -q >/dev/null) && echo "ok   the mended app builds at v4.33.1" || { echo "FAIL build"; fail=1; }
 exit $fail
