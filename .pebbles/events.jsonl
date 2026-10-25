@@ -95,3 +95,8 @@
 {"type":"comment","timestamp":"2026-10-25T03:26:57.115119Z","issue_id":"lea-629","payload":{"body":"exophial-integration-attempt-started: at 440f37fc3be8d0f2327c3608ece945b618403136"}}
 {"type":"comment","timestamp":"2026-10-25T03:26:59.308912Z","issue_id":"lea-629","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
 {"type":"close","timestamp":"2026-10-25T03:26:59.309459Z","issue_id":"lea-629","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
+{"type":"create","timestamp":"2026-10-25T07:17:18.834830Z","issue_id":"lea-d36","payload":{"description":"Operator-authored branch `lint-hint`, landed via `exophial integrate --branch` — no pebble id already tracked it.","priority":"2","title":"land: lint-hint","type":"task"}}
+{"type":"comment","timestamp":"2026-10-25T07:17:18.835874Z","issue_id":"lea-d36","payload":{"body":"branch-identity: lint-hint"}}
+{"type":"comment","timestamp":"2026-10-25T07:21:26.723960Z","issue_id":"lea-d36","payload":{"body":"exophial-integration-attempt-started: at 91a7fa35d646af826cd968b57a57a225234f33b5"}}
+{"type":"comment","timestamp":"2026-10-25T07:21:29.038749Z","issue_id":"lea-d36","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
+{"type":"close","timestamp":"2026-10-25T07:21:29.039424Z","issue_id":"lea-d36","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
