@@ -151,7 +151,7 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
       pure next
     | m :: _ =>
       let done ← c.followed.get
-      let (_, decls, _, opens, nodesAt) ← diagnose c.target m (c.fileOf m) c.aliases c.rules c.annotate
+      let (_, decls, _, opens, nodesAt) ← diagnose c.target m (c.fileOf m) c.aliases c.rules c.annotate c.follow
         (if c.follow then done else [])
       warnFollow c m done nodesAt
       -- Decision D11: without --annotate-binders, report the type narrowing
@@ -191,7 +191,7 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
       -- machine ignores them. So a statement site sees a body edit at once.
       let done := (← c.followed.get) ++
         (match cand.target with | .body _ => [(cand.rule.splitOn ": ").head!] | _ => [])
-      let (e, _, lints, opens0, nodesAt) ← diagnose c.target mm.module file c.aliases c.rules c.annotate
+      let (e, _, lints, opens0, nodesAt) ← diagnose c.target mm.module file c.aliases c.rules c.annotate c.follow
         (if c.follow then done else [])
       -- Residue sites stay errors in the file; they are not tried again.
       let opens := opens0.filter fun o => !mm.residue.any (·.sameAs o.site)

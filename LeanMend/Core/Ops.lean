@@ -228,8 +228,10 @@ def addedTokens (old new : String) : List String :=
   (replacementTokens new).foldl (init := ([], replacementTokens old)) (fun (acc, rest) t =>
     if rest.contains t then (acc, rest.erase t) else (acc ++ [t], rest)) |>.1
 
-/-- Candidates from one rule for one site. -/
-def ruleCandidates (r : Rule) (nodes : List Node) (s : Site) : List Candidate :=
+/-- Candidates from one rule for one site. `follow` is
+`--follow-definition-changes` (decision D12, X7): it lets a `valCompare` edit
+that also touches the declaration's statement go out as one candidate. -/
+def ruleCandidates (follow : Bool) (r : Rule) (nodes : List Node) (s : Site) : List Candidate :=
   -- A namespace move answers any site whose message names a moved name,
   -- whatever its class ("Invalid pattern variable … `Batteries.RBNode.Stream.nil`").
   let moves := r.ops.any fun
@@ -276,11 +278,21 @@ def ruleCandidates (r : Rule) (nodes : List Node) (s : Site) : List Candidate :=
       let n ← nodes.find? (·.kind == "Lean.cdot")
       pure (mk (.body d) n.start n.stop s!"· {t}")
     | .valCompare, some d, _ => do
-      -- body-only here; a statement edit goes through followCandidates (D12)
-      guard (!valCompareTouchesStatement s)
       let (a, txt, t, spans) ← valCompareEdit s
-      pure { mk (.body d) a (a + txt.utf8ByteSize) t with
-             tokens := addedTokens txt t, changed := spans }
+      -- The pattern also occurs in `d`'s statement (X7): under
+      -- --follow-definition-changes the body edit and its statement follow
+      -- are one candidate, spanning the whole declaration, in one rebuild.
+      -- Without the flag, no candidate goes out here; `followCandidates`
+      -- gives the default run its warning.
+      if valCompareTouchesStatement s then
+        guard follow
+        pure { rule := s!"{r.name}: {repr op} (following a definition change)",
+               entrenchment := r.entrenchment, target := .followStatement d,
+               start := a, stop := a + txt.utf8ByteSize, replacement := t,
+               tokens := addedTokens txt t, changed := spans }
+      else
+        pure { mk (.body d) a (a + txt.utf8ByteSize) t with
+               tokens := addedTokens txt t, changed := spans }
     | op, some d, some .body => do
       let n ← pickNode r.family nodes
       let repl ← applyOp op n
@@ -377,13 +389,13 @@ def followCandidates (rules : List Rule) (nodes : List Node) (s : Site) : List C
 alias candidates, then ratified rules, then proposed rules, each in rule-list
 order. A candidate that an earlier one already proposed is dropped. -/
 def proposeAll (m : AliasMap) (rules : List Rule) (nodes : List Node)
-    (annotate : Bool) (followed : List String) (s : Site) : List Candidate :=
+    (annotate follow : Bool) (followed : List String) (s : Site) : List Candidate :=
   -- A rule that only closes bullets replaces the author's proof: the least
   -- preferred repair, so it runs after every other rule of its entrenchment.
   let closer (r : Rule) := r.ops.all fun | .closeBullet _ => true | _ => false
   let byE (e : Entrenchment) :=
     let rs := rules.filter (·.entrenchment == e)
-    (rs.filter (!closer ·) ++ rs.filter closer).flatMap (ruleCandidates · nodes s)
+    (rs.filter (!closer ·) ++ rs.filter closer).flatMap (ruleCandidates follow · nodes s)
   let all := propose m s ++ (if annotate then typeCandidates s else []) ++
     byE .ratified ++ byE .proposed ++
     followCandidates (rules.filter (followed.contains ·.name)) nodes s

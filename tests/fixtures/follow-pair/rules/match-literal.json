@@ -1,0 +1,14 @@
+{
+  "name": "match-literal",
+  "class": "missingDecidable",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "copy of rules/proposed/match-literal.json for the follow-pair fixture"
+  },
+  "node": "any",
+  "candidates": [
+    {
+      "op": "valCompare"
+    }
+  ]
+}

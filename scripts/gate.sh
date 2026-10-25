@@ -46,6 +46,8 @@ step "lean-mend run --adopt on the rename fixture" tests/rename.sh
 step "lean-mend run --adopt --rules on the simp-set fixture" tests/simpset.sh
 step "decision D11 on the binder fixture" tests/binder.sh
 step "decision D12 on the follow fixture" tests/follow.sh
+step "D12 body edit and statement follow as one candidate" \
+  tests/follow-pair.sh tests/fixtures/follow-pair
 step "site order by declaration coordinates" tests/order.sh tests/fixtures/order-first
 exposure() {
   [ "$(tests/expose.sh tests/fixtures/expose-two | jq -r .verdict)" = accepted ] &&

@@ -107,7 +107,7 @@ def run : IO Nat := do
       [("unique text in the body: replaced at its byte range", ":= by", some (50, 55, "by omega")),
        ("text that occurs twice: no candidate", "simp", none),
        ("text not in the body: no candidate", "rfl", none)] do
-    let got := (ruleCandidates (replaceRule old "by omega") [] bodySite).head?.map
+    let got := (ruleCandidates false (replaceRule old "by omega") [] bodySite).head?.map
       fun c => (c.start, c.stop, c.replacement)
     let ok := got == want
     IO.println s!"{if ok then "ok  " else "FAIL"} replaceInBody, {what}: {repr got}"
@@ -115,7 +115,7 @@ def run : IO Nat := do
   do
     let r : Rule := { name := "mv", cls := .unknownIdentifier, entrenchment := .proposed,
                       family := .any, ops := [.renamePrefix "Batteries.RBMap" "RBTree.RBMap"] }
-    let got := (ruleCandidates r [openNode] openSite).head?.map fun c => (c.start, c.stop, c.replacement)
+    let got := (ruleCandidates false r [openNode] openSite).head?.map fun c => (c.start, c.stop, c.replacement)
     let ok := got == some (205, 214, "RBTree")
     IO.println s!"{if ok then "ok  " else "FAIL"} renamePrefix in `open X (n …)` moves X: {repr got}"
     unless ok do failed := failed + 1
@@ -182,7 +182,7 @@ def run : IO Nat := do
         text := "Batteries.RBNode.Stream.nil", file := src }
     let r : Rule := { name := "mv", cls := .unknownIdentifier, entrenchment := .proposed,
                       family := .any, ops := [.renamePrefix "Batteries.RBNode" "RBTree.RBNode"] }
-    let ok := match ruleCandidates r [] site with
+    let ok := match ruleCandidates false r [] site with
       | [c] => c.start == 0 && c.replacement ==
           "def f (s : RBTree.RBNode.Stream α) := s\n| RBTree.RBNode.Stream.nil => RBTree.RBNode.all₂ x"
           && c.changed.length == 3 && c.clean
@@ -201,6 +201,33 @@ def run : IO Nat := do
     let got := (valOfLiterals "p" src).map (·.1)
     let ok := got == want
     IO.println s!"{if ok then "ok  " else "FAIL"} valOfLiterals, {what}"
+    unless ok do failed := failed + 1
+  -- D12 combined candidate (X7, docs/parallel.md § The D12 combined
+  -- candidate): a declaration whose body has the valCompare pattern and
+  -- whose statement has it too gives one `followStatement` candidate under
+  -- --follow-definition-changes, spanning the whole declaration, and none
+  -- without the flag.
+  do
+    let full := "(match p with\n  | 1 => a1 | _ => d) =\n  (if p = 1 then a1 else d) := by\n  have h1 : p ≠ 1 := by assumption"
+    let stmt := "(match p with\n  | 1 => a1 | _ => d) =\n  (if p = 1 then a1 else d)"
+    let wantRepl := "(match p.val with\n  | 1 => a1 | _ => d) =\n  (if p.val = 1 then a1 else d) := by\n  have h1 : p.val ≠ 1 := by assumption"
+    let d : Diagnostic := { module := "M", line := 1, column := 0, endLine := 1, endColumn := 1,
+                            severity := .error, kind := "[anonymous]",
+                            text := "failed to synthesize\n  Decidable (p✝ = 1)" }
+    let site : Site := { diagnostic := d, decl := some "D.f", region := some .body,
+                         declStart := some 1000, start := 1001, stop := 1010,
+                         declText := some (1000, full), statement := some (1000, stmt) }
+    let r : Rule := { name := "match-literal", cls := .missingDecidable, entrenchment := .proposed,
+                      family := .any, ops := [.valCompare] }
+    let noFollow := ruleCandidates false r [] site
+    let got := ruleCandidates true r [] site
+    let ok := noFollow.isEmpty &&
+      match got with
+      | [c] => c.target matches .followStatement "D.f" &&
+          c.start == 1000 && c.stop == 1000 + full.utf8ByteSize &&
+          c.replacement == wantRepl && c.changed.length == 3
+      | _ => false
+    IO.println s!"{if ok then "ok  " else "FAIL"} D12: a valCompare body edit and its statement follow are one candidate"
     unless ok do failed := failed + 1
   do
     let d : Diagnostic :=
@@ -296,14 +323,14 @@ def run : IO Nat := do
         start := 1372, stop := 1377 }
     let r : Rule := { name := "closer", cls := .tacticFailed, entrenchment := .proposed, family := .any,
                       ops := [.closeBullet "omega", .closeBullet "simp_all"] }
-    let got := (ruleCandidates r nodes site).map fun c => (c.start, c.stop, c.replacement)
+    let got := (ruleCandidates false r nodes site).map fun c => (c.start, c.stop, c.replacement)
     let ok := got == [(1369, 1387, "· omega"), (1369, 1387, "· simp_all")]
     IO.println s!"{if ok then "ok  " else "FAIL"} closeBullet replaces the innermost bullet, in rule order: {repr got}"
     unless ok do failed := failed + 1
     -- a closer rule runs after every other rule of its entrenchment
     let other : Rule := { name := "a-other", cls := .tacticFailed, entrenchment := .proposed, family := .any,
                           ops := [.deleteTactic] }
-    let order := (proposeAll ⟨[]⟩ [r, other] nodes false [] site).map (·.replacement)
+    let order := (proposeAll ⟨[]⟩ [r, other] nodes false false [] site).map (·.replacement)
     let ok2 := order == ["", "· omega", "· simp_all"]
     IO.println s!"{if ok2 then "ok  " else "FAIL"} a closer rule runs last: {repr order}"
     unless ok2 do failed := failed + 1

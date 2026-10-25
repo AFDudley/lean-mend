@@ -182,7 +182,7 @@ count, the module's declaration count (`docs/parallel.md` X6), the linter
 warnings (kind `linter.*`) with their byte offsets and, for an unused simp
 argument, its name, and the open sites. -/
 def diagnose (target : FilePath) (module : String) (file : FilePath)
-    (aliases : AliasMap) (rules : List Rule) (annotate : Bool) (followed : List String) :
+    (aliases : AliasMap) (rules : List Rule) (annotate follow : Bool) (followed : List String) :
     IO (Nat × Nat × List (Nat × Option String) × List Open × List (Site × List Node)) := do
   let (_, out, _) ← run target "lake" #["env", "lean", "--json", file.toString]
   let ds ← parseOrThrow s!"lean --json {file}" (Parse.lines (Parse.diagnostic module) out)
@@ -214,7 +214,7 @@ def diagnose (target : FilePath) (module : String) (file : FilePath)
   let nodes ← readNodes target file (wanted.flatMap fun s => [s.start, last s]).eraseDups
   let at_ (o : Nat) := (nodes.lookup o).getD []
   pure (errs.length, rs.length, lints,
-    sites.map (fun s => ⟨s, proposeAll aliases rules (at_ s.start ++ at_ (last s)) annotate followed s⟩),
+    sites.map (fun s => ⟨s, proposeAll aliases rules (at_ s.start ++ at_ (last s)) annotate follow followed s⟩),
     sites.map fun s => (s, at_ s.start ++ at_ (last s)))
 
 /-- Replace bytes `[c.start, c.stop)` of `file` with `c.replacement`. Returns
