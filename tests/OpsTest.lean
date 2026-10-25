@@ -232,43 +232,49 @@ def run : IO Nat := do
     let site : Site := { diagnostic := { module := "M", line := 1, column := 0, endLine := 1, endColumn := 1,
                                          severity := .error, kind := "[anonymous]", text := "t" },
                          decl := some "D.f", region := some .body, declStart := some 0, start := 0, stop := 1 }
-    let m : Mending := { module := "M", errors := 1, sites := [⟨site, [c]⟩], residue := [], accepted := [],
-                         wf := by decide }
+    let m : Mending := { module := "M", errors := 1, decls := 1, sites := [⟨site, [c]⟩],
+                         residue := [], accepted := [],
+                         wf := by decide, bounded := by decide, sorted := by decide }
     let ok : Bool := match m.step (.rebuilt 0 1 ["b"] []) with
       | .ok m' => m'.accepted.isEmpty &&
           ((m'.sites.head?.bind (·.candidates.head?)).map (·.replacement) == some "simp [a] at h ⊢")
       | .error _ => false
     IO.println s!"{if ok then "ok  " else "FAIL"} a flagged candidate is not accepted; Lean's hint replaces it"
     unless ok do failed := failed + 1
-  -- The Core step: an edit that removes the site's error and exposes the next
-  -- error of the same declaration, with an unchanged error count (EVMLean
-  -- ReturnDataBound 2528 → 2552). The declaration is [100, 400) before the
-  -- edit; the edit replaces [140, 160) with 12 bytes, so it is [100, 392) after.
+  -- X1-X4 (`docs/parallel.md`): the Core sorts open sites by the AST
+  -- coordinate (declaration index, then `Site.reach`), not by the shell's
+  -- message order, and accepts an edit only when the earliest open position
+  -- moves strictly toward the end of the file. `D.f` is declaration 1 of 2;
+  -- `D.a` is the earlier declaration 0 (EVMLean Semantics 1040 and 288).
   do
     let c : Candidate := { rule := "r", entrenchment := .proposed, target := .body "D.f",
                            start := 140, stop := 160, replacement := "RBTree.RBSet", tokens := ["RBTree.RBSet"] }
-    let mkSite (decl : String) (start : Nat) (declLen : Nat) : Site :=
+    let mkSite (decl : String) (declIdx start declLen : Nat) : Site :=
       { diagnostic := { module := "M", line := 1, column := 0, endLine := 1, endColumn := 1,
-                        severity := .error, kind := "[anonymous]", text := s!"e{start}" },
+                        severity := .error, kind := "[anonymous]", text := s!"e{decl}{start}" },
         decl := some decl, region := some .body, declStart := some 100,
         declText := some (100, String.ofList (List.replicate declLen 'x')), start, stop := start + 1,
-        -- the file is 500 bytes before the edit and 492 after it
-        file := String.ofList (List.replicate (declLen + 200) 'x') }
-    -- `D.a` is an earlier declaration with its own open error (EVMLean
-    -- Semantics 288 while 1040 is attempted); Lean reports it second.
-    let other := mkSite "D.a" 20 300
-    let m : Mending := { module := "M", errors := 2, sites := [⟨mkSite "D.f" 150 300, [c]⟩, ⟨other, []⟩],
-                         residue := [], accepted := [], wf := by decide }
-    for (what, e, s', accept) in
-        [("a later error in the same declaration is exposed: accept", 2, [mkSite "D.f" 200 292, other], true),
-         ("the exposed error comes after the unrelated one in Lean's order: accept", 2, [other, mkSite "D.f" 200 292], true),
-         ("two later errors are exposed for one: reject", 3, [mkSite "D.f" 200 292, mkSite "D.f" 300 292, other], false),
-         ("the new error is inside the edited bytes: reject", 2, [mkSite "D.f" 145 292, other], false),
-         ("the new error is in another declaration: reject", 2, [mkSite "D.g" 200 292, other], false)] do
+        declIndex := declIdx }
+    let head := mkSite "D.f" 1 150 300
+    let m : Mending := { module := "M", errors := 1, decls := 2, sites := [⟨head, [c]⟩],
+                         residue := [], accepted := [],
+                         wf := by decide, bounded := by decide, sorted := by decide }
+    for (what, e, s', accept, headStart) in
+        [("a later error in the same declaration is exposed: accept", 1,
+          [mkSite "D.f" 1 200 292], true, 200),
+         ("any number of later errors in the same declaration is exposed: accept", 2,
+          [mkSite "D.f" 1 200 292, mkSite "D.f" 1 300 292], true, 200),
+         ("the shell's message order does not decide the head: accept", 2,
+          [mkSite "D.f" 1 300 292, mkSite "D.f" 1 200 292], true, 200),
+         ("no progress, the same error persists: reject", 1, [head], false, 150),
+         ("an error earlier in the same declaration appears: reject", 2,
+          [mkSite "D.f" 1 100 300, head], false, 150),
+         ("an error in an earlier declaration appears: reject", 2,
+          [mkSite "D.a" 0 20 300, mkSite "D.f" 1 200 292], false, 150)] do
       let got : Bool := match m.step (.rebuilt e 0 [] (s'.map (⟨·, []⟩))) with
         | .ok m' => !m'.accepted.isEmpty &&
             -- the exposed site becomes the head site
-            (m'.sites.head?.map (·.site.start)) == some 200
+            (m'.sites.head?.map (·.site.start)) == some headStart
         | .error _ => false
       let ok := got == accept
       IO.println s!"{if ok then "ok  " else "FAIL"} exposure: {what}"

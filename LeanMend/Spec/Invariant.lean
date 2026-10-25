@@ -47,8 +47,8 @@ accepted patch. The mend branch is modelled as the list of its patches; the
 type `Accepted` carries the evidence, so this holds by construction. -/
 def BranchSound (branch : List Accepted) : Prop :=
   ∀ p ∈ branch,
-    (p.errorsAfter < p.errorsBefore ∨
-      (p.errorsAfter = p.errorsBefore ∧ p.reachAfter < p.reachBefore)) ∧
+    (p.declIndexBefore < p.declIndexAfter ∨
+      (p.declIndexBefore = p.declIndexAfter ∧ p.reachAfter < p.reachBefore)) ∧
     p.candidate.clean = true ∧ p.lintAtEdit = 0
 
 theorem branchSound (branch : List Accepted) : BranchSound branch :=

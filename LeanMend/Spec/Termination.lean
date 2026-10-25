@@ -7,10 +7,11 @@ The run stops (`docs/machine.md` § Termination, concept D5). There is no
 retry cap; these theorems are the reason the loops end.
 
 * Level 2: every successful `Mending.step` makes `Mending.measure` fall in the
-  lexicographic order on `Nat × Nat × Nat × Nat`. An exposing edit keeps the
-  error count and lowers the head site's `Site.reach`. A cleaning by Lean's
-  hint keeps the first three components and shortens the head candidate's
-  replacement.
+  lexicographic order on `Nat × Nat × Nat × Nat × Nat` (`docs/parallel.md`
+  X5, widened by the open-site count). An accepted edit moves the earliest
+  open position strictly later (X3); giving up on the head always removes
+  one open site, even when the newly-exposed head ties the old head's
+  position.
 * Level 1: leaving `Mending` closes one open module, and a settled rebuild
   never opens a module. So `openCount` falls once per frontier module.
 -/
@@ -18,47 +19,125 @@ retry cap; these theorems are the reason the loops end.
 namespace LeanMend
 
 /-- The lexicographic order on the level-2 measure. -/
-abbrev MeasureLt : Nat × Nat × Nat × Nat → Nat × Nat × Nat × Nat → Prop :=
-  Prod.Lex (· < ·) (Prod.Lex (· < ·) (Prod.Lex (· < ·) (· < ·)))
+abbrev MeasureLt : Nat × Nat × Nat × Nat × Nat → Nat × Nat × Nat × Nat × Nat → Prop :=
+  Prod.Lex (· < ·) (Prod.Lex (· < ·) (Prod.Lex (· < ·) (Prod.Lex (· < ·) (· < ·))))
 
-theorem Mending.reject_measure (m : Mending) (o₀ : Open) (rest : List Open)
-    (hs : m.sites = o₀ :: rest) (hc : o₀.candidates ≠ []) :
-    MeasureLt m.reject.measure m.measure := by
-  unfold Mending.reject Mending.measure
-  split
-  · simp_all
-  · rename_i o rest' h
-    rw [hs] at h
-    injection h with h1 h2
-    subst h1
-    simp only [h, List.head?_cons, Option.map_some, Option.getD_some, List.length_drop]
+/-- A strict decrease at the first component, or a tie there and a strict
+decrease at the second, closes a `MeasureLt` goal regardless of the
+remaining three components. -/
+theorem measureLt_of_lt_or_eq_lt {a1 b1 a2 b2 a3 b3 a4 b4 a5 b5 : Nat}
+    (h : a1 < b1 ∨ (a1 = b1 ∧ a2 < b2)) :
+    MeasureLt (a1, a2, a3, a4, a5) (b1, b2, b3, b4, b5) := by
+  rcases h with h | ⟨rfl, h⟩
+  · apply Prod.Lex.left; exact h
+  · apply Prod.Lex.right; apply Prod.Lex.left; exact h
+
+/-- A non-strict decrease at the first component (with a conditional
+non-strict decrease at the second, should the first tie) and an
+unconditional strict decrease at the third closes a `MeasureLt` goal: the
+third component is the fallback the first two cannot always deliver on
+their own (`Mending.gaveUp_measure`). -/
+theorem measureLt_of_le_le_lt {a1 b1 a2 b2 a3 b3 a4 b4 a5 b5 : Nat}
+    (h1 : a1 ≤ b1) (h2 : a1 = b1 → a2 ≤ b2) (h3 : a3 < b3) :
+    MeasureLt (a1, a2, a3, a4, a5) (b1, b2, b3, b4, b5) := by
+  by_cases heq1 : a1 = b1
+  · subst heq1
     apply Prod.Lex.right
-    apply Prod.Lex.right
-    apply Prod.Lex.left
-    have : 0 < o₀.candidates.length := List.length_pos_iff.mpr hc
+    by_cases heq2 : a2 = b2
+    · subst heq2
+      apply Prod.Lex.right
+      apply Prod.Lex.left
+      exact h3
+    · apply Prod.Lex.left
+      have := h2 rfl
+      omega
+  · apply Prod.Lex.left
     omega
+
+theorem Mending.reject_measure (m : Mending) {o₀ : Open} {rest : List Open}
+    (hs : m.sites = o₀ :: rest) (hc : o₀.candidates ≠ []) :
+    MeasureLt (m.reject hs).measure m.measure := by
+  simp only [Mending.measure, Mending.reject, hs, List.length_cons]
+  apply Prod.Lex.right
+  apply Prod.Lex.right
+  apply Prod.Lex.right
+  apply Prod.Lex.left
+  rw [List.length_drop]
+  have : 0 < o₀.candidates.length := List.length_pos_iff.mpr hc
+  omega
 
 /-- A cleaning (Lean's hint) keeps the error count and the candidate count, and
 shortens the head candidate's replacement. -/
-theorem Mending.refine_measure (m : Mending) (o₀ : Open) (rest : List Open)
-    (c : Candidate) (cs : List Candidate) (hs : m.sites = o₀ :: rest)
+theorem Mending.refine_measure (m : Mending) {o₀ : Open} {rest : List Open}
+    {c : Candidate} {cs : List Candidate} (hs : m.sites = o₀ :: rest)
     (hc : o₀.candidates = c :: cs) (c' : Candidate)
     (hlt : c'.replacement.length < c.replacement.length) :
-    MeasureLt (m.refine c').measure m.measure := by
-  unfold Mending.refine Mending.measure
-  split
-  · simp_all
-  · rename_i o rest' h
-    rw [hs] at h
-    injection h with h1 h2
-    subst h1
-    have hlen : (c' :: List.drop 1 o₀.candidates).length = o₀.candidates.length := by
-      simp [hc]
-    simp only [h, List.head?_cons, Option.map_some, Option.getD_some, Option.bind_some, hlen]
-    apply Prod.Lex.right
-    apply Prod.Lex.right
-    apply Prod.Lex.right
-    simp [hc, hlt]
+    MeasureLt (m.refine hs c').measure m.measure := by
+  have hlen : (c' :: List.drop 1 o₀.candidates).length = o₀.candidates.length := by
+    simp [hc]
+  simp only [Mending.measure, Mending.refine, hs, List.length_cons, hlen]
+  apply Prod.Lex.right
+  apply Prod.Lex.right
+  apply Prod.Lex.right
+  apply Prod.Lex.right
+  simp [hc, hlt]
+
+/-- Removing the head site to residue always lowers the open-site count, even
+when the newly-exposed head's position and candidate count do not improve on
+the old head's: giving up on a module's only open site, or on a site whose
+successor happens to share its position, still makes progress. -/
+theorem Mending.gaveUp_measure (m : Mending) {o₀ : Open} {rest : List Open}
+    (hs : m.sites = o₀ :: rest) :
+    MeasureLt (m.giveUp hs).measure m.measure := by
+  have hb0 : o₀.site.declIndex < m.decls := m.bounded o₀ (hs ▸ List.mem_cons_self ..)
+  have hsorted : List.Pairwise (fun a b => Open.le a b = true) (o₀ :: rest) := hs ▸ m.sorted
+  simp only [Mending.measure, Mending.giveUp, hs]
+  rcases rest with _ | ⟨o₁, rest'⟩
+  · apply measureLt_of_le_le_lt (a3 := 0) (b3 := (o₀ :: ([] : List Open)).length)
+    · omega
+    · intro _; omega
+    · simp
+  · have hb1 : o₁.site.declIndex < m.decls :=
+      m.bounded o₁ (hs ▸ List.mem_cons_of_mem _ (List.mem_cons_self ..))
+    have hle := (List.pairwise_cons.mp hsorted).1 o₁ (List.mem_cons_self ..)
+    simp only [Open.le_iff, Site.earlier, Site.key, keyLt_iff] at hle
+    apply measureLt_of_le_le_lt
+      (a3 := (o₁ :: rest').length) (b3 := (o₀ :: o₁ :: rest').length)
+    · omega
+    · intro heq; omega
+    · simp
+
+/-- An accepted candidate moves the earliest open position strictly later
+(`docs/parallel.md` X3): a later declaration, or the same declaration with a
+smaller `Site.reach`. When every error is resolved, the open-site count
+drops to zero and that alone is enough, whatever the old head's position. -/
+theorem Mending.accept_measure (m : Mending) {o₀ : Open} {rest : List Open}
+    (hs : m.sites = o₀ :: rest) (c : Candidate) (e lint : Nat) (sites : List Open)
+    (hBound : ∀ o ∈ sites, o.site.declIndex < m.decls)
+    (hp : o₀.site.declIndex < (Mending.afterCoord o₀ sites).1 ∨
+      (o₀.site.declIndex = (Mending.afterCoord o₀ sites).1 ∧
+        (Mending.afterCoord o₀ sites).2 < o₀.site.reach))
+    (hclean : c.clean = true ∧ lint = 0)
+    (hwf : (Mending.sortOpens sites).length + m.residue.length ≤ e) :
+    MeasureLt (m.accept hs c e lint sites hBound hp hclean hwf).measure m.measure := by
+  have hb0 : o₀.site.declIndex < m.decls := m.bounded o₀ (hs ▸ List.mem_cons_self ..)
+  simp only [Mending.measure, Mending.accept, hs]
+  rcases hsort : Mending.sortOpens sites with _ | ⟨o', t'⟩
+  · apply measureLt_of_le_le_lt (a1 := 0) (a2 := 0) (a3 := 0)
+      (b3 := (o₀ :: rest).length)
+    · omega
+    · intro _; omega
+    · simp
+  · simp only [hsort, Mending.afterCoord, List.head?_cons, Option.map_some,
+      Option.getD_some] at hp
+    have ho' : o' ∈ sites := by
+      have hmem : o' ∈ Mending.sortOpens sites := by rw [hsort]; exact List.mem_cons_self ..
+      exact List.mem_mergeSort.mp hmem
+    have hb1 : o'.site.declIndex < m.decls := hBound o' ho'
+    apply measureLt_of_lt_or_eq_lt
+    rcases hp with hlt | ⟨heq, hlt⟩
+    · left; omega
+    · right; exact ⟨by omega, hlt⟩
 
 /-- Level 2 ends: every successful step lowers the measure. -/
 theorem Mending.step_measure (m m' : Mending) (o : MendObs)
@@ -69,11 +148,7 @@ theorem Mending.step_measure (m m' : Mending) (o : MendObs)
     rename_i o₀ rest hs
     split at h
     · cases h
-      have := m.wf
-      simp only [hs, List.length_cons] at this
-      apply Prod.Lex.left
-      show m.errors - 1 < m.errors
-      omega
+      exact Mending.gaveUp_measure m hs
     · cases h
   · -- unparsable: reject
     rename_i o₀ rest hs
@@ -81,46 +156,33 @@ theorem Mending.step_measure (m m' : Mending) (o : MendObs)
     · cases h
     · cases h
       rename_i hne
-      exact Mending.reject_measure m o₀ rest hs (by simpa using hne)
+      exact Mending.reject_measure m hs (by simpa using hne)
   · -- rebuilt
     rename_i o₀ rest e lint unused sites hs
     split at h
     · cases h
     · rename_i c cs hc
       have hne : o₀.candidates ≠ [] := by simp [hc]
-      split at h
-      · -- progress: the error count fell, or the edit exposed a later error
-        split at h
-        · -- accept
-          split at h
-          · cases h
-            rename_i hp _ _
-            rcases hp with hfell | ⟨heq, hx⟩
-            · apply Prod.Lex.left
-              show e - m.residue.length < m.errors
-              omega
-            · have he : e - m.residue.length = m.errors := by omega
-              unfold Mending.measure
-              simp only [he, hs, List.head?_cons, Option.map_some, Option.getD_some]
-              apply Prod.Lex.right
-              apply Prod.Lex.left
-              rw [hs] at hx
-              match hx' : c.exposes o₀.site (List.drop 1 (o₀ :: rest)) sites, hx with
-              | some o', _ =>
-                simp only [Candidate.reorder, List.head?_cons, Option.map_some, Option.getD_some]
-                exact Candidate.exposes_reach hx'
-          · cases h
-        · -- Lean's hint, or reject
-          split at h
-          · split at h
-            · split at h
-              · cases h
-                rename_i r _ hlt
-                exact Mending.refine_measure m o₀ rest c cs hs hc _ hlt
-              · cases h; exact Mending.reject_measure m o₀ rest hs hne
-            · cases h; exact Mending.reject_measure m o₀ rest hs hne
-          · cases h; exact Mending.reject_measure m o₀ rest hs hne
-      · cases h; exact Mending.reject_measure m o₀ rest hs hne
+      split at h  -- hBound
+      · split at h  -- hp
+        · split at h  -- hclean
+          · split at h  -- hwf: accept
+            · cases h
+              rename_i hBound hp hclean hwf
+              exact Mending.accept_measure m hs c e lint sites hBound hp hclean hwf
+            · cases h
+          · -- hclean false: Lean's hint, or reject
+            split at h  -- the unused-simp-args check
+            · split at h  -- dropSimpArgs
+              · split at h  -- the replacement-length check
+                · cases h
+                  rename_i r _ hlt
+                  exact Mending.refine_measure m hs hc _ hlt
+                · cases h; exact Mending.reject_measure m hs hne
+              · cases h; exact Mending.reject_measure m hs hne
+            · cases h; exact Mending.reject_measure m hs hne
+        · cases h; exact Mending.reject_measure m hs hne
+      · cases h
   · cases h
 
 private theorem countP_le_of_imp {α} (l : List α) (p q : α → Bool)

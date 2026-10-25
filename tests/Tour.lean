@@ -39,7 +39,7 @@ def tour : List (String × RunObs) :=
   [ ("baselined", .baseline ⟨tc "v4.29.0", ["A", "B"], [declA "b1", declB], []⟩ []),
     ("built", .bumped mods ⟨[("Old.f", "Mid.f"), ("Mid.f", "New.f")]⟩),
     ("built", .build (statuses .failing .blocked)),
-    ("mending", .diagnosed "A" [⟨site "A", [cand ["sorry"], cand ["New.f", "("], cand ["New.f", "unused"], cand ["New.f"]]⟩]),
+    ("mending", .diagnosed "A" 1 [⟨site "A", [cand ["sorry"], cand ["New.f", "("], cand ["New.f", "unused"], cand ["New.f"]]⟩]),
     -- the first candidate adds `sorry`: the core rejects it even though the error count fell
     ("mending", .mend (.rebuilt 0 0 [] [])),
     ("mending", .mend .unparsable),
@@ -48,7 +48,7 @@ def tour : List (String × RunObs) :=
     ("mending", .mend (.rebuilt 0 0 [] [])),
     ("built", .mended),
     ("built", .build (statuses .built .failing)),
-    ("mending", .diagnosed "B" [⟨site "B", []⟩]),
+    ("mending", .diagnosed "B" 1 [⟨site "B", []⟩]),
     ("mending", .mend .gaveUp),
     ("built", .mended),
     -- `A.f` is a `def` whose body changed: a Behavior card
@@ -64,8 +64,9 @@ a candidate at the next site that lowers the module's whole error count from
 (1) and rejected it. -/
 def residueThenAccept : IO Nat := do
   let m : Mending :=
-    { module := "W", errors := 2, sites := [⟨site "W", []⟩, ⟨site "W", [cand ["New.f"]]⟩],
-      residue := [], accepted := [], wf := by decide }
+    { module := "W", errors := 2, decls := 1,
+      sites := [⟨site "W", []⟩, ⟨site "W", [cand ["New.f"]]⟩],
+      residue := [], accepted := [], wf := by decide, bounded := by decide, sorted := by decide }
   let r := do
     let m ← m.step .gaveUp
     m.step (.rebuilt 1 0 [] [])

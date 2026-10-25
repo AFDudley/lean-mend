@@ -87,8 +87,9 @@ inductive RunObs where
   | bumped (mods : List Module) (aliases : AliasMap)
   /-- The status of every module after `lake build`. -/
   | build (st : Statuses)
-  /-- The diagnostics of one frontier module, as open sites with candidates. -/
-  | diagnosed (module : String) (sites : List Open)
+  /-- The diagnostics of one frontier module, as open sites with candidates.
+  `decls` is the module's declaration count (`docs/parallel.md` X6). -/
+  | diagnosed (module : String) (decls : Nat) (sites : List Open)
   /-- One level-2 observation. -/
   | mend (o : MendObs)
   /-- The shell saw `Mending.next = .finish` and left `Mending`. -/
@@ -115,11 +116,16 @@ def RunState.step : RunState → RunObs → RunState
   | .built c st, .build st' =>
     if decide (Settled c.mods st st') then .built c st'
     else .halted (.observationMismatch "a closed module changed status")
-  | .built c st, .diagnosed name sites =>
+  | .built c st, .diagnosed name decls sites =>
     if name ∈ frontier c.mods st then
-      .mending c st
-        { module := name, errors := sites.length, sites := sites, residue := [],
-          accepted := [], wf := Nat.le_refl _ }
+      if hBound : ∀ o ∈ sites, o.site.declIndex < decls then
+        .mending c st
+          { module := name, errors := sites.length, decls, sites := Mending.sortOpens sites,
+            residue := [], accepted := [],
+            wf := by simp [Mending.sortOpens_length]
+            bounded := Mending.sortOpens_bounded hBound
+            sorted := Mending.sortOpens_sorted sites }
+      else .halted (.observationMismatch s!"{name}: a site names a declaration outside the module")
     else .halted (.observationMismatch s!"{name} is not a frontier module")
   | .mending c st m, .mended =>
     match m.next with

@@ -134,6 +134,9 @@ structure Site where
   /-- Byte range of the smallest syntax node that contains the error. -/
   start : Nat
   stop : Nat
+  /-- `decl`'s index among the module's declarations, in source order
+  (`docs/parallel.md` X1). `0` when the declaration is not known. -/
+  declIndex : Nat := 0
   deriving Repr
 
 inductive Entrenchment where
@@ -197,18 +200,75 @@ def Site.reach (s : Site) : Nat :=
   | some (a, t) => a + t.utf8ByteSize - s.start
   | none => 0
 
+/-- A site's AST coordinate (`docs/parallel.md` X1): its declaration's index
+in source order, then its `reach`. -/
+def Site.key (s : Site) : Nat × Nat := (s.declIndex, s.reach)
+
+/-- `x` orders before `y`: a smaller declaration index, or the same
+declaration index and a larger reach (farther from the declaration's end, so
+earlier in it). This is a strict total order on `Nat × Nat`
+(`keyLt_irrefl`, `keyLt_trans`, `keyLt_total`). -/
+def keyLt (x y : Nat × Nat) : Bool :=
+  decide (x.1 < y.1) || (decide (x.1 = y.1) && decide (y.2 < x.2))
+
+theorem keyLt_iff (x y : Nat × Nat) :
+    keyLt x y = true ↔ x.1 < y.1 ∨ (x.1 = y.1 ∧ y.2 < x.2) := by
+  unfold keyLt; simp [Bool.or_eq_true, Bool.and_eq_true, decide_eq_true_eq]
+
+theorem keyLt_irrefl (x : Nat × Nat) : ¬ keyLt x x = true := by
+  rw [keyLt_iff]; omega
+
+theorem keyLt_asymm {x y : Nat × Nat} (h : keyLt x y = true) : ¬ keyLt y x = true := by
+  intro h'; rw [keyLt_iff] at h h'; omega
+
+theorem keyLt_trans {x y z : Nat × Nat} (hxy : keyLt x y = true) (hyz : keyLt y z = true) :
+    keyLt x z = true := by
+  rw [keyLt_iff] at hxy hyz ⊢; omega
+
+/-- Trichotomy: any two keys compare one way, the other way, or are equal. -/
+theorem keyLt_total (x y : Nat × Nat) : keyLt x y = true ∨ keyLt y x = true ∨ x = y := by
+  simp only [keyLt_iff]
+  obtain ⟨a1, a2⟩ := x
+  obtain ⟨b1, b2⟩ := y
+  simp only [Prod.mk.injEq]
+  omega
+
+/-- `a`'s position is strictly before `b`'s (`docs/parallel.md` X1, X2). -/
+def Site.earlier (a b : Site) : Bool := keyLt a.key b.key
+
+theorem Site.earlier_irrefl (a : Site) : ¬ a.earlier a = true := keyLt_irrefl a.key
+
+theorem Site.earlier_asymm {a b : Site} (h : a.earlier b = true) : ¬ b.earlier a = true :=
+  keyLt_asymm h
+
+theorem Site.earlier_trans {a b c : Site} (hab : a.earlier b = true) (hbc : b.earlier c = true) :
+    a.earlier c = true := keyLt_trans hab hbc
+
+theorem Site.earlier_total (a b : Site) :
+    a.earlier b = true ∨ b.earlier a = true ∨ a.key = b.key := keyLt_total a.key b.key
+
+/-- `earlier`'s second argument depends only on its key: a site that ties
+`b`'s key is interchangeable with `b` on the right. -/
+theorem Site.earlier_congr_right {a b c : Site} (h : b.key = c.key) :
+    a.earlier b = a.earlier c := by unfold Site.earlier; rw [h]
+
 /-- An accepted patch. It cannot be built without its evidence (concept D4). -/
 structure Accepted where
   candidate : Candidate
   errorsBefore : Nat
   errorsAfter : Nat
+  /-- The attempted site's declaration index, and the head site's declaration
+  index after the edit (`docs/parallel.md` X1). -/
+  declIndexBefore : Nat
+  declIndexAfter : Nat
   /-- `Site.reach` of the attempted site, and of the head site after the edit. -/
   reachBefore : Nat
   reachAfter : Nat
-  /-- The error count fell, or it did not change and the edit exposed one later
-  error in the same declaration (`Candidate.exposes`). -/
-  progress : errorsAfter < errorsBefore ∨
-    (errorsAfter = errorsBefore ∧ reachAfter < reachBefore)
+  /-- The earliest open position moved strictly toward the end of the file
+  (`docs/parallel.md` X3): a later declaration, or the same declaration and a
+  smaller reach. -/
+  progress : declIndexBefore < declIndexAfter ∨
+    (declIndexBefore = declIndexAfter ∧ reachAfter < reachBefore)
   clean : candidate.clean = true
   /-- Linter warnings inside the replaced bytes, after the edit. -/
   lintAtEdit : Nat

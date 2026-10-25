@@ -153,18 +153,19 @@ def readRegions (target : FilePath) (file : FilePath) : IO (List DeclRegion) := 
     pure { name := ← j.getObjValAs? String "name", range := ← pair j "range",
            statement := ← pair j "statementRange", body := ← pair j "bodyRange" }) out
 
-/-- The declaration and region that hold byte offset `pos`. -/
+/-- The declaration and region that hold byte offset `pos`, with the
+declaration's index among `rs` in source order (`docs/parallel.md` X1). -/
 def locate (rs : List DeclRegion) (pos : Nat) :
     Option String × Option SiteRegion × Option Nat × Option (Nat × Nat) × Option (Nat × Nat) ×
-      Option (Nat × Nat) :=
+      Option (Nat × Nat) × Option Nat :=
   let inside (r : Nat × Nat) := r.1 ≤ pos && pos < r.2
-  match rs.find? (inside ·.range) with
-  | none => (none, none, none, none, none, none)
-  | some d =>
+  match rs.zipIdx.find? (inside ·.1.range) with
+  | none => (none, none, none, none, none, none, none)
+  | some (d, i) =>
     let name := if d.name.isEmpty then none else some d.name
     (name, (if inside d.body then some .body
             else if inside d.statement then some .statement else none), some d.range.1,
-     some d.body, some d.statement, some d.range)
+     some d.body, some d.statement, some d.range, some i)
 
 /-- The probe's `node` output for some offsets of one file, in one process. -/
 def readNodes (target : FilePath) (file : FilePath) (offsets : List Nat) :
@@ -177,11 +178,12 @@ def readNodes (target : FilePath) (file : FilePath) (offsets : List Nat) :
 /-- Compile one module with `lake env lean --json` and read its errors as
 sites, each with its declaration, region and candidates. The probe reads the
 syntax nodes only at sites whose class some rule answers. Returns the error
-count, the linter warnings (kind `linter.*`) with their byte offsets and, for
-an unused simp argument, its name, and the open sites. -/
+count, the module's declaration count (`docs/parallel.md` X6), the linter
+warnings (kind `linter.*`) with their byte offsets and, for an unused simp
+argument, its name, and the open sites. -/
 def diagnose (target : FilePath) (module : String) (file : FilePath)
     (aliases : AliasMap) (rules : List Rule) (annotate : Bool) (followed : List String) :
-    IO (Nat × List (Nat × Option String) × List Open × List (Site × List Node)) := do
+    IO (Nat × Nat × List (Nat × Option String) × List Open × List (Site × List Node)) := do
   let (_, out, _) ← run target "lake" #["env", "lean", "--json", file.toString]
   let ds ← parseOrThrow s!"lean --json {file}" (Parse.lines (Parse.diagnostic module) out)
   let errs := ds.filter (·.severity == .error)
@@ -196,21 +198,22 @@ def diagnose (target : FilePath) (module : String) (file : FilePath)
   let rs ← if errs.isEmpty then pure [] else readRegions target file
   let sites := errs.map fun d =>
     let start := byteOffset src d.line d.column
-    let (decl, region, declStart, bodyR, stmtR, declR) := locate rs start
+    let (decl, region, declStart, bodyR, stmtR, declR, declIdx) := locate rs start
     let stop := byteOffset src d.endLine d.endColumn
     let bytes := src.toUTF8
     { diagnostic := d, decl, region, declStart, start, stop, file := src,
       text := String.fromUTF8! (bytes.extract start stop),
       body := bodyR.map fun (a, b) => (a, String.fromUTF8! (bytes.extract a b)),
       statement := stmtR.map fun (a, b) => (a, String.fromUTF8! (bytes.extract a b)),
-      declText := declR.map fun (a, b) => (a, String.fromUTF8! (bytes.extract a b)) : Site }
+      declText := declR.map fun (a, b) => (a, String.fromUTF8! (bytes.extract a b)),
+      declIndex := declIdx.getD 0 : Site }
   -- An error range can cover a whole tactic block (`unsolved goals` is reported
   -- at `by`), so the probe reads the nodes at the range's start and its end.
   let last (s : Site) := if s.stop > s.start then s.stop - 1 else s.start
   let wanted := sites.filter fun s => rules.any (·.cls == classify s.diagnostic)
   let nodes ← readNodes target file (wanted.flatMap fun s => [s.start, last s]).eraseDups
   let at_ (o : Nat) := (nodes.lookup o).getD []
-  pure (errs.length, lints,
+  pure (errs.length, rs.length, lints,
     sites.map (fun s => ⟨s, proposeAll aliases rules (at_ s.start ++ at_ (last s)) annotate followed s⟩),
     sites.map fun s => (s, at_ s.start ++ at_ (last s)))
 

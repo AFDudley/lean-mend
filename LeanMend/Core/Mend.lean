@@ -17,16 +17,56 @@ structure Open where
   candidates : List Candidate
   deriving Repr
 
+/-- The same failure after an edit elsewhere in the file: byte positions
+move, so a site is identified by its declaration, class and message. -/
+def Site.sameAs (a b : Site) : Bool :=
+  a.decl == b.decl && a.diagnostic.kind == b.diagnostic.kind && a.diagnostic.text == b.diagnostic.text
+
+/-- `a` may sit before `b` in the sorted order: `b`'s position is not
+strictly before `a`'s (`docs/parallel.md` X2). -/
+def Open.le (a b : Open) : Bool := !(b.site.earlier a.site)
+
+theorem Open.le_iff (a b : Open) : Open.le a b = true ↔ ¬ b.site.earlier a.site = true := by
+  unfold Open.le
+  cases b.site.earlier a.site <;> simp
+
+theorem Open.le_trans (a b c : Open) (hab : Open.le a b = true) (hbc : Open.le b c = true) :
+    Open.le a c = true := by
+  rw [Open.le_iff] at hab hbc ⊢
+  intro hca
+  rcases Site.earlier_total b.site a.site with h1 | h2 | h3
+  · exact absurd h1 hab
+  · exact hbc (Site.earlier_trans hca h2)
+  · rw [Site.earlier_congr_right h3.symm] at hca; exact hbc hca
+
+theorem Open.le_total (a b : Open) : Open.le a b || Open.le b a := by
+  rw [Bool.or_eq_true, Open.le_iff, Open.le_iff]
+  rcases Site.earlier_total b.site a.site with h | h | h
+  · exact Or.inr (Site.earlier_asymm h)
+  · exact Or.inl (Site.earlier_asymm h)
+  · refine Or.inl fun h2 => ?_
+    unfold Site.earlier at h2
+    rw [h] at h2
+    exact keyLt_irrefl _ h2
+
 /-- The state of one module in `Mending`. -/
 structure Mending where
   module : String
   /-- Error sites in the module that are not marked residue. -/
   errors : Nat
+  /-- The module's declaration count, fixed by decision D10
+  (`docs/parallel.md` X6). -/
+  decls : Nat
   sites : List Open
   residue : List Site
   accepted : List Accepted
   /-- Each open site is one unresolved error. -/
   wf : sites.length ≤ errors
+  /-- Every open site's declaration index is one of the module's declarations. -/
+  bounded : ∀ o ∈ sites, o.site.declIndex < decls
+  /-- The open sites are kept in source-position order: the head is never
+  strictly after another open site (`docs/parallel.md` X2). -/
+  sorted : List.Pairwise (fun a b => Open.le a b = true) sites
 
 /-- What the shell must do next. -/
 inductive MendAction where
@@ -61,14 +101,48 @@ def Mending.next (m : Mending) : MendAction :=
     | [] => .giveUp o.site
     | c :: _ => .attempt c
 
-/-- Drop the head candidate of the head site. -/
-def Mending.reject (m : Mending) : Mending :=
-  match h : m.sites with
-  | [] => m
-  | o :: rest =>
-    { m with
-      sites := { o with candidates := o.candidates.drop 1 } :: rest
-      wf := by have := m.wf; simp_all }
+/-- Changing a site's candidates keeps every site's declaration index the
+same, so a declaration bound on the old list transfers to the new one. -/
+theorem Mending.bounded_setHead {decls : Nat} {o : Open} {rest : List Open} (cs : List Candidate)
+    (h : ∀ x ∈ o :: rest, x.site.declIndex < decls) :
+    ∀ x ∈ { o with candidates := cs } :: rest, x.site.declIndex < decls := by
+  intro x hx
+  rcases List.mem_cons.mp hx with hx | hx
+  · subst hx; exact h o (List.mem_cons_self ..)
+  · exact h x (List.mem_cons_of_mem _ hx)
+
+/-- Changing a site's candidates keeps every site's position the same, so a
+sortedness fact on the old list transfers to the new one. -/
+theorem Mending.sorted_setHead {o : Open} {rest : List Open} (cs : List Candidate)
+    (h : List.Pairwise (fun a b => Open.le a b = true) (o :: rest)) :
+    List.Pairwise (fun a b => Open.le a b = true) ({ o with candidates := cs } :: rest) := by
+  rw [List.pairwise_cons] at h ⊢
+  exact h
+
+/-- Give up on the head site: it becomes residue. Takes the split of
+`m.sites` explicitly; see `Mending.reject`. -/
+def Mending.giveUp (m : Mending) {o₀ : Open} {rest : List Open} (hs : m.sites = o₀ :: rest) :
+    Mending :=
+  { m with
+    errors := m.errors - 1
+    sites := rest
+    residue := o₀.site :: m.residue
+    wf := by have := m.wf; rw [hs] at this; simp_all; omega
+    bounded := fun x hx => m.bounded x (hs ▸ List.mem_cons_of_mem _ hx)
+    sorted := (List.pairwise_cons.mp (hs ▸ m.sorted)).2 }
+
+/-- Drop the head candidate of the head site. Takes the split of `m.sites`
+explicitly (rather than re-matching it internally) so a caller that already
+has `o₀`, `rest` and `hs` on hand (`Mending.step`) gets back a result whose
+`sites` field is `rfl`-transparent in them, which `Mending.reject_measure`
+relies on. -/
+def Mending.reject (m : Mending) {o₀ : Open} {rest : List Open} (hs : m.sites = o₀ :: rest) :
+    Mending :=
+  { m with
+    sites := { o₀ with candidates := o₀.candidates.drop 1 } :: rest
+    wf := by have := m.wf; rw [hs] at this; simpa using this
+    bounded := Mending.bounded_setHead _ (hs ▸ m.bounded)
+    sorted := Mending.sorted_setHead _ (hs ▸ m.sorted) }
 
 /-- One simp list's items, split at the commas outside brackets. -/
 private def splitItems (cs : List Char) : List (List Char) :=
@@ -123,141 +197,148 @@ def dropSimpArgs (repl : String) (args : List String) : Option String := do
       if acc.isEmpty then it else acc ++ [','] ++ it
     pure (String.ofList (before ++ ['['] ++ inner ++ [']'] ++ after))
 
-/-- Replace the head candidate of the head site with its cleaned form. -/
-def Mending.refine (m : Mending) (c' : Candidate) : Mending :=
-  match h : m.sites with
-  | [] => m
-  | o :: rest =>
-    { m with
-      sites := { o with candidates := c' :: o.candidates.drop 1 } :: rest
-      wf := by have := m.wf; simp_all }
+/-- Replace the head candidate of the head site with its cleaned form.
+Takes the split of `m.sites` explicitly; see `Mending.reject`. -/
+def Mending.refine (m : Mending) {o₀ : Open} {rest : List Open} (hs : m.sites = o₀ :: rest)
+    (c' : Candidate) : Mending :=
+  { m with
+    sites := { o₀ with candidates := c' :: o₀.candidates.drop 1 } :: rest
+    wf := by have := m.wf; rw [hs] at this; simpa using this
+    bounded := Mending.bounded_setHead _ (hs ▸ m.bounded)
+    sorted := Mending.sorted_setHead _ (hs ▸ m.sorted) }
 
-/-- The same failure after an edit elsewhere in the file: byte positions
-move, so a site is identified by its declaration, class and message. -/
-def Site.sameAs (a b : Site) : Bool :=
-  a.decl == b.decl && a.diagnostic.kind == b.diagnostic.kind && a.diagnostic.text == b.diagnostic.text
+/-- The open sites in source-position order (`docs/parallel.md` X2): the head
+is the earliest error, not the first in the shell's (Lean message) order. -/
+def Mending.sortOpens (os : List Open) : List Open := os.mergeSort Open.le
 
-/-- The one site that the edit exposed, if there is one (`Candidate.exposes`). The new open sites
-hold exactly one site that matches no other old site (`Site.sameAs`; `others`
-are the old open sites without the attempted one). That site is in the
-attempted site's declaration, after every byte the edit changed there, and
-nearer the declaration's end (`Site.reach`). The shell reports sites in
-Lean's message order, not source order, so the check reads every site, not
-the head. A changed span in a later declaration cannot change this one. -/
-def Candidate.exposedSite (c : Candidate) (s : Site) (others sites : List Open) : Option Open :=
-  let spans := if c.changed.isEmpty then [(c.start, c.start + c.replacement.utf8ByteSize)]
-    else c.changed
-  match sites.filter (fun o => !others.any (·.site.sameAs o.site)) with
-  | [o'] =>
-    match o'.site.declText with
-    | none => none
-    | some (a, t) =>
-      if o'.site.decl.isSome && o'.site.decl == s.decl &&
-          spans.all (fun (x, y) => decide (a + t.utf8ByteSize ≤ x) || decide (y ≤ o'.site.start))
-      then some o' else none
-  | _ => none
+/-- The head of `Mending.sortOpens` is earlier than, or ties, every open site:
+no site of `os` is strictly before it (`Mending.sort_head_earliest`,
+`docs/parallel.md`). -/
+theorem Mending.sortOpens_head_min (os : List Open) (h : Open) (t : List Open)
+    (heq : Mending.sortOpens os = h :: t) (o : Open) (ho : o ∈ os) :
+    ¬ o.site.earlier h.site = true := by
+  have hp := List.pairwise_mergeSort Open.le_trans Open.le_total os
+  have hmem : o ∈ Mending.sortOpens os := List.mem_mergeSort.mpr ho
+  have heq' : os.mergeSort Open.le = h :: t := heq
+  rw [heq'] at hp
+  rw [heq] at hmem
+  rcases List.mem_cons.mp hmem with rfl | hmem'
+  · exact Site.earlier_irrefl _
+  · rw [← Open.le_iff]; exact (List.pairwise_cons.mp hp).1 o hmem'
 
-@[inherit_doc Candidate.exposedSite]
-def Candidate.exposes (c : Candidate) (s : Site) (others sites : List Open) : Option Open :=
-  (c.exposedSite s others sites).filter fun o' => decide (o'.site.reach < s.reach)
+theorem Mending.sortOpens_length (os : List Open) : (Mending.sortOpens os).length = os.length :=
+  List.length_mergeSort os
 
-theorem Candidate.exposes_reach {c : Candidate} {s : Site} {others sites : List Open} {o' : Open}
-    (h : c.exposes s others sites = some o') : o'.site.reach < s.reach := by
-  unfold Candidate.exposes at h
-  cases hx : c.exposedSite s others sites with
-  | none => simp [hx] at h
-  | some o =>
-    rw [hx] at h
-    simp only [Option.filter] at h
-    split at h <;> simp_all
+theorem Mending.sortOpens_bounded {decls : Nat} {os : List Open}
+    (h : ∀ o ∈ os, o.site.declIndex < decls) :
+    ∀ o ∈ Mending.sortOpens os, o.site.declIndex < decls :=
+  fun o ho => h o (List.mem_mergeSort.mp ho)
 
-/-- The new open sites, with the exposed site first: the next attempt is at the
-error the edit exposed. -/
-def Candidate.reorder (x : Option Open) (sites : List Open) : List Open :=
-  match x with
-  | some o' => o' :: sites.filter (fun o => !(o.site.sameAs o'.site))
-  | none => sites
+theorem Mending.sortOpens_sorted (os : List Open) :
+    List.Pairwise (fun a b => Open.le a b = true) (Mending.sortOpens os) := by
+  unfold Mending.sortOpens
+  exact List.pairwise_mergeSort Open.le_trans Open.le_total os
 
-/-- The transition function (`docs/machine.md` § Transitions).
+/-- The head candidate's position-coordinate progress after a `rebuilt`
+observation: the declaration index and `Site.reach` of the new sorted head,
+or a strictly-later sentinel when every error in `sites` is resolved. -/
+def Mending.afterCoord (o₀ : Open) (sites : List Open) : Nat × Nat :=
+  let sorted := Mending.sortOpens sites
+  ((sorted.head?.map (·.site.declIndex)).getD (o₀.site.declIndex + 1),
+   (sorted.head?.map (·.site.reach)).getD 0)
+
+/-- Accept a `rebuilt` candidate: commit it, and move the head to the sorted
+open sites the shell reported (`docs/parallel.md` X1-X4). Factored out of
+`Mending.step` so `Mending.accept_measure` can be proved on its own. -/
+def Mending.accept (m : Mending) {o₀ : Open} {rest : List Open} (_hs : m.sites = o₀ :: rest)
+    (c : Candidate) (e lint : Nat) (sites : List Open)
+    (hBound : ∀ o ∈ sites, o.site.declIndex < m.decls)
+    (hp : o₀.site.declIndex < (Mending.afterCoord o₀ sites).1 ∨
+      (o₀.site.declIndex = (Mending.afterCoord o₀ sites).1 ∧
+        (Mending.afterCoord o₀ sites).2 < o₀.site.reach))
+    (hclean : c.clean = true ∧ lint = 0)
+    (hwf : (Mending.sortOpens sites).length + m.residue.length ≤ e) : Mending :=
+  { m with
+    errors := e - m.residue.length
+    sites := Mending.sortOpens sites
+    accepted :=
+      { candidate := c, errorsBefore := m.errors + m.residue.length, errorsAfter := e,
+        declIndexBefore := o₀.site.declIndex, declIndexAfter := (Mending.afterCoord o₀ sites).1,
+        reachBefore := o₀.site.reach, reachAfter := (Mending.afterCoord o₀ sites).2,
+        progress := hp, clean := hclean.1, lintAtEdit := lint, lintFree := hclean.2 } :: m.accepted
+    wf := by omega
+    bounded := Mending.sortOpens_bounded hBound
+    sorted := Mending.sortOpens_sorted sites }
+
+/-- The transition function (`docs/machine.md` § Transitions, `docs/parallel.md`
+X1-X8).
 
 * `attempt` then `rebuilt`: accept if the edit made progress, the candidate is
-  clean, and it caused no linter warning. Progress is a fall in the error
-  count, or an unchanged count where the edit exposed one later error of the
-  same declaration (`Candidate.exposes`); the exposed site becomes the head
-  site. If the edit made progress and every
-  warning is an unused simp argument, Lean's own hint makes the better
-  candidate: the same edit without those arguments replaces the head
-  candidate, and the shell attempts it next. A flagged candidate is never
-  accepted. Otherwise reject (`docs/rules.md` § Entrenchment and order).
+  clean, and it caused no linter warning. Progress is the earliest open
+  position moving strictly toward the end of the file: a later declaration,
+  or the same declaration with a smaller `Site.reach` (X3). The Core sorts
+  every open site the shell reports, in source-position order, not the
+  shell's message order (`Mending.sortOpens`, X2); the new head is the
+  earliest of them, so any number of later errors in the attempted site's
+  declaration may appear and still be accepted. An edit that leaves or adds
+  an error earlier than the old head is rejected (X4). If the edit made
+  progress and every warning is an unused simp argument, Lean's own hint
+  makes the better candidate: the same edit without those arguments replaces
+  the head candidate, and the shell attempts it next. A flagged candidate is
+  never accepted. Otherwise reject (`docs/rules.md` § Entrenchment and order).
 * `attempt` then `unparsable`: reject.
 * `giveUp` then `gaveUp`: the head site becomes residue.
 
 Any other pair is an observation that does not fit the state. -/
 def Mending.step (m : Mending) (o : MendObs) : Except Refusal Mending :=
   match hs : m.sites, o with
-  | o₀ :: rest, .gaveUp =>
-    if o₀.candidates.isEmpty then
-      .ok { m with
-        errors := m.errors - 1
-        sites := rest
-        residue := o₀.site :: m.residue
-        wf := by have := m.wf; simp_all; omega }
+  | o₀ :: _rest, .gaveUp =>
+    if o₀.candidates.isEmpty then .ok (m.giveUp hs)
     else .error (.observationMismatch "gaveUp with candidates left")
-  | o₀ :: _, .unparsable =>
+  | o₀ :: _rest, .unparsable =>
     if o₀.candidates.isEmpty then .error (.observationMismatch "no candidate was attempted")
-    else .ok m.reject
-  | o₀ :: _, .rebuilt e lint unused sites =>
+    else .ok (m.reject hs)
+  | o₀ :: _rest, .rebuilt e lint unused sites =>
     match o₀.candidates with
     | [] => .error (.observationMismatch "no candidate was attempted")
     | c :: _ =>
-      -- `e` is the module's whole error count, residue sites included, so it
-      -- is compared with unresolved plus residue.
-      if hp : e < m.errors + m.residue.length ∨
-          (e = m.errors + m.residue.length ∧ (c.exposes o₀.site (m.sites.drop 1) sites).isSome) then
-        if hclean : c.clean = true ∧ lint = 0 then
-          if hwf : (Candidate.reorder (c.exposes o₀.site (m.sites.drop 1) sites) sites).length + m.residue.length ≤ e then
-            .ok { m with
-              errors := e - m.residue.length
-              sites := Candidate.reorder (c.exposes o₀.site (m.sites.drop 1) sites) sites
-              accepted :=
-                { candidate := c, errorsBefore := m.errors + m.residue.length, errorsAfter := e,
-                  reachBefore := o₀.site.reach,
-                  reachAfter := ((Candidate.reorder (c.exposes o₀.site (m.sites.drop 1) sites) sites).head?.map (·.site.reach)).getD 0,
-                  progress := by
-                    rcases hp with h | ⟨h1, h2⟩
-                    · exact Or.inl h
-                    · refine Or.inr ⟨h1, ?_⟩
-                      match hx : c.exposes o₀.site (m.sites.drop 1) sites, h2 with
-                      | some o', _ =>
-                        simp only [Candidate.reorder, List.head?_cons, Option.map_some,
-                          Option.getD_some]
-                        exact Candidate.exposes_reach hx
-                  clean := hclean.1, lintAtEdit := lint, lintFree := hclean.2 } :: m.accepted
-              wf := by omega }
-          else .error (.observationMismatch "more open sites than errors")
-        else
-          -- Lean's hint: the same edit without the unused simp arguments. Only
-          -- for an edit of one node (a file-wide edit has `changed` spans).
-          if c.clean && lint > 0 && unused.length == lint && c.changed.isEmpty then
-            match dropSimpArgs c.replacement unused with
-            | some r =>
-              if r.length < c.replacement.length then
-                .ok (m.refine { c with
-                  rule := s!"{c.rule} (Lean's hint: without {unused})"
-                  replacement := r })
-              else .ok m.reject
-            | none => .ok m.reject
-          else .ok m.reject
-      else .ok m.reject
+      if hBound : ∀ o ∈ sites, o.site.declIndex < m.decls then
+        if hp : o₀.site.declIndex < (Mending.afterCoord o₀ sites).1 ∨
+            (o₀.site.declIndex = (Mending.afterCoord o₀ sites).1 ∧
+              (Mending.afterCoord o₀ sites).2 < o₀.site.reach) then
+          if hclean : c.clean = true ∧ lint = 0 then
+            if hwf : (Mending.sortOpens sites).length + m.residue.length ≤ e then
+              .ok (m.accept hs c e lint sites hBound hp hclean hwf)
+            else .error (.observationMismatch "more open sites than errors")
+          else
+            -- Lean's hint: the same edit without the unused simp arguments. Only
+            -- for an edit of one node (a file-wide edit has `changed` spans).
+            if c.clean && lint > 0 && unused.length == lint && c.changed.isEmpty then
+              match dropSimpArgs c.replacement unused with
+              | some r =>
+                if r.length < c.replacement.length then
+                  .ok (m.refine hs { c with
+                    rule := s!"{c.rule} (Lean's hint: without {unused})"
+                    replacement := r })
+                else .ok (m.reject hs)
+              | none => .ok (m.reject hs)
+            else .ok (m.reject hs)
+        else .ok (m.reject hs)
+      else .error (.observationMismatch "a reported site names a declaration outside the module")
   | [], _ => .error (.observationMismatch "no open site")
 
-/-- The termination measure inside `Mending` (`docs/machine.md` § Termination):
-the unresolved errors, then the head site's `Site.reach` (an exposing edit
-lowers it), then the candidates left at the head site, then the length of the
-head candidate's replacement (a cleaning shortens it). -/
-def Mending.measure (m : Mending) : Nat × Nat × Nat × Nat :=
-  (m.errors, (m.sites.head?.map (·.site.reach)).getD 0,
-   (m.sites.head?.map (·.candidates.length)).getD 0,
-   ((m.sites.head?.bind (·.candidates.head?)).map (·.replacement.length)).getD 0)
+/-- The termination measure inside `Mending` (`docs/parallel.md` X5, widened
+by one component): the declarations after the head, then the head site's
+`Site.reach` (an exposing edit lowers it), then the number of open sites (a
+`giveUp` always lowers it, even when the position and the candidate count of
+the newly-exposed head do not — the head may tie the position it replaces),
+then the candidates left at the head site, then the length of the head
+candidate's replacement (a cleaning shortens it). -/
+def Mending.measure (m : Mending) : Nat × Nat × Nat × Nat × Nat :=
+  match m.sites with
+  | [] => (0, 0, m.sites.length, 0, 0)
+  | o :: _ =>
+    (m.decls - 1 - o.site.declIndex, o.site.reach, m.sites.length, o.candidates.length,
+     (o.candidates.head?.map (·.replacement.length)).getD 0)
 
 end LeanMend
