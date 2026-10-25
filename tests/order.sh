@@ -8,7 +8,7 @@
 # {"first_attempt_is_source_earliest": true|false}.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
-bin="$root/.lake/build/bin/lean-mend"
+source "$root/tests/lib/lean-mend.sh"
 fx="${1:?usage: tests/order.sh <fixture>}"
 work="$root/.scratch/order"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@lean-mend GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@lean-mend
