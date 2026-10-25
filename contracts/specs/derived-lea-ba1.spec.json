@@ -1,0 +1,261 @@
+{
+  "id": "derived-lea-ba1",
+  "original_statement": "What must hold? State the invariant or expectation this concerns. The Core accepts an edit when the earliest open position moves strictly toward the end of the file, for any number of exposed later errors, and rejects an edit that leaves or adds an error earlier than the old head. Mending.step_measure states the decrease of the five-tuple measure. Decisions X3, X4, X5 and X8 and the S1b acceptance check of docs/parallel.md hold.\nWhat holds now? Describe the current, observed state. LeanMend/Core/Mend.lean accepts an edit when the module error count falls, or when the count is unchanged and Candidate.exposes finds exactly one new site. An edit that exposes two later errors is rejected. The branch s1-partial (commit 5885691) holds the captured work of the first S1 worker (lea-e1b), killed at the 3600-second task timeout. It builds, it has no sorry, and lake test reports 0 failed. It has Site.declIndex, Site.key, keyLt with its order theorems, Mending.sortOpens with its proofs, Mending.afterCoord, and a five-tuple Mending.measure. It has no tests/order.sh, no tests/expose.sh and no fixture.\nHow do you see it? Describe exactly how to observe this for yourself \u2014 the steps to reproduce, or how you would demo it. Run tests/expose.sh on tests/fixtures/expose-two (accepted) and tests/fixtures/expose-back (rejected), as docs/parallel.md S1b states. Run lake env lean tests/NoSorry.lean. Run scripts/gate.sh: stdout is one JSON object; its steps list holds a step named 'exposure of later errors' with ok true, and failed is 0.\nWhat constraints apply? State them in plain prose. Spec and Core import no Shell module (scripts/gate.sh checks it). Termination stays a theorem in LeanMend/Spec/Termination.lean, with no retry cap and no timeout as a control. Decision D10 holds: lean-mend adds no declaration to a target. lean-mend depends on Lean core only, not on Mathlib. Every committed text is in ASD-STE100 Simplified Technical English. Run export PATH=\"$HOME/.elan/bin:$PATH\" before a lean or lake command. Scratch files go in the gitignored .scratch/ directory, not /tmp. The worker task timeout is 3600 seconds. Do not run lean-mend on EVMLean: one EVMLean run takes about 2 hours, and the operator runs it after the merge.\nWhere does this apply? (e.g. gateway route, mobile screen, CLI verb) LeanMend/Core/Mend.lean, LeanMend/Spec/Types.lean, LeanMend/Spec/Termination.lean, LeanMend/Spec/Invariant.lean, LeanMend/Shell/Driver.lean",
+  "restatement": "The mending core must accept any edit that moves the earliest open error position strictly toward the end of the file, however many later errors the edit exposes. It must reject any edit that leaves or adds an error earlier than the old earliest one. The proof of termination must state this as a decrease of a five-part measure (declarations after the head, head reach, open sites, head candidates, head replacement length). The measure uses Lean core lexicographic order only. The work keeps the layering, Lean-core-only and no-sorry rules, and the gate script reports a passing 'exposure of later errors' step.",
+  "restatement_clauses": [
+    {
+      "id": "c1",
+      "text": "Running tests/expose.sh on tests/fixtures/expose-two (an edit that exposes two later errors) reports the edit as accepted."
+    },
+    {
+      "id": "c2",
+      "text": "Running tests/expose.sh on tests/fixtures/expose-back (an edit that leaves or adds an error earlier than the old head) reports the edit as rejected."
+    },
+    {
+      "id": "c3",
+      "text": "Mending.step_measure is a theorem in LeanMend/Spec/Termination.lean that states the decrease of the five-tuple measure (declarations after the head, head reach, open sites, head candidates, head replacement length)."
+    },
+    {
+      "id": "c4",
+      "text": "The measure uses Lean core Prod.Lex only, and it is not a multiset order."
+    },
+    {
+      "id": "c5",
+      "text": "Spec and Core import no Shell module."
+    },
+    {
+      "id": "c6",
+      "text": "lean-mend depends on Lean core only, not on Mathlib."
+    },
+    {
+      "id": "c7",
+      "text": "scripts/gate.sh prints one JSON object with failed equal to 0, and it has a step named 'exposure of later errors'. No sorry remains (lake env lean tests/NoSorry.lean)."
+    },
+    {
+      "id": "c8",
+      "text": "Termination stays a theorem in LeanMend/Spec/Termination.lean, with no retry cap and no timeout as a control."
+    }
+  ],
+  "goal": "Make lean-mend accept an edit that exposes any number of later errors, reject an edit that leaves or adds an earlier error, and prove termination by a five-part measure.",
+  "acceptance_criteria": [
+    "The check script is run on the fixture where an edit exposes two later errors. It reports that the edit is accepted.",
+    "The check script is run on the fixture where an edit leaves an error earlier than the old first error. It reports that the edit is rejected.",
+    "The termination file contains a theorem named step_measure for the Mending namespace.",
+    "The measure definition uses Prod.Lex from Lean core.",
+    "No file in the Spec or Core folders imports a Shell module.",
+    "No source file imports Mathlib.",
+    "The full gate script runs and prints one result object that shows zero failed steps.",
+    "The gate script declares a step named 'exposure of later errors'.",
+    "The termination file has no retry cap, no maximum loop count and no timeout used as a control."
+  ],
+  "request_clauses": [
+    {
+      "id": "c1",
+      "text": "The check script is run on the fixture where an edit exposes two later errors. It reports that the edit is accepted."
+    },
+    {
+      "id": "c2",
+      "text": "The check script is run on the fixture where an edit leaves an error earlier than the old first error. It reports that the edit is rejected."
+    },
+    {
+      "id": "c3",
+      "text": "The termination file contains a theorem named step_measure for the Mending namespace."
+    },
+    {
+      "id": "c4",
+      "text": "The measure definition uses Prod.Lex from Lean core."
+    },
+    {
+      "id": "c5",
+      "text": "No file in the Spec or Core folders imports a Shell module."
+    },
+    {
+      "id": "c6",
+      "text": "No source file imports Mathlib."
+    },
+    {
+      "id": "c7",
+      "text": "The full gate script runs and prints one result object that shows zero failed steps."
+    },
+    {
+      "id": "c8",
+      "text": "The gate script declares a step named 'exposure of later errors'."
+    },
+    {
+      "id": "c9",
+      "text": "The termination file has no retry cap, no maximum loop count and no timeout used as a control."
+    }
+  ],
+  "acceptance_tests": [
+    {
+      "type": "behavior",
+      "description": "The check script is run on the fixture where an edit exposes two later errors. It reports that the edit is accepted.",
+      "proves": "The core accepts an edit that exposes more than one later error.",
+      "restatement_clause_id": "c1",
+      "when": {
+        "interpreter": "",
+        "script": "tests/expose.sh",
+        "args": [
+          "tests/fixtures/expose-two"
+        ],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "exit_code",
+          "field": "",
+          "op": "eq",
+          "value": 0
+        },
+        {
+          "observe": "stdout_json",
+          "field": "verdict",
+          "op": "eq",
+          "value": "accepted"
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 1800,
+      "clause_id": "c1"
+    },
+    {
+      "type": "behavior",
+      "description": "The check script is run on the fixture where an edit leaves an error earlier than the old first error. It reports that the edit is rejected.",
+      "proves": "The core still rejects an edit that leaves or adds an earlier error.",
+      "restatement_clause_id": "c2",
+      "when": {
+        "interpreter": "",
+        "script": "tests/expose.sh",
+        "args": [
+          "tests/fixtures/expose-back"
+        ],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "exit_code",
+          "field": "",
+          "op": "eq",
+          "value": 0
+        },
+        {
+          "observe": "stdout_json",
+          "field": "verdict",
+          "op": "eq",
+          "value": "rejected"
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 1800,
+      "clause_id": "c2"
+    },
+    {
+      "type": "grep",
+      "description": "The termination file contains a theorem named step_measure for the Mending namespace.",
+      "proves": "The decrease of the measure is stated as a theorem.",
+      "restatement_clause_id": "c3",
+      "pattern": "theorem\\s+(Mending\\.)?step_measure",
+      "files": [
+        "LeanMend/Spec/Termination.lean"
+      ],
+      "clause_id": "c3"
+    },
+    {
+      "type": "grep",
+      "description": "The measure definition uses Prod.Lex from Lean core.",
+      "proves": "The measure is a lexicographic order over a tuple.",
+      "restatement_clause_id": "c4",
+      "pattern": "Prod\\.Lex",
+      "files": [
+        "LeanMend/Spec/Types.lean",
+        "LeanMend/Spec/Termination.lean",
+        "LeanMend/Spec/Invariant.lean"
+      ],
+      "clause_id": "c4"
+    },
+    {
+      "type": "grep_absent",
+      "description": "No file in the Spec or Core folders imports a Shell module.",
+      "proves": "The layering rule holds: Spec and Core do not depend on Shell.",
+      "restatement_clause_id": "c5",
+      "pattern": "import\\s+LeanMend\\.Shell",
+      "files": [
+        "LeanMend/Spec/Types.lean",
+        "LeanMend/Spec/Termination.lean",
+        "LeanMend/Spec/Invariant.lean",
+        "LeanMend/Core/Mend.lean"
+      ],
+      "clause_id": "c5"
+    },
+    {
+      "type": "grep_absent",
+      "description": "No source file imports Mathlib.",
+      "proves": "The project depends on Lean core only.",
+      "restatement_clause_id": "c6",
+      "pattern": "import\\s+Mathlib",
+      "files": [
+        "LeanMend/Spec/Types.lean",
+        "LeanMend/Spec/Termination.lean",
+        "LeanMend/Spec/Invariant.lean",
+        "LeanMend/Core/Mend.lean",
+        "LeanMend/Shell/Driver.lean"
+      ],
+      "clause_id": "c6"
+    },
+    {
+      "type": "behavior",
+      "description": "The full gate script runs and prints one result object that shows zero failed steps.",
+      "proves": "The whole build, the tests and the no-sorry check pass, including the exposure step.",
+      "restatement_clause_id": "c7",
+      "when": {
+        "interpreter": "",
+        "script": "scripts/gate.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "exit_code",
+          "field": "",
+          "op": "eq",
+          "value": 0
+        },
+        {
+          "observe": "stdout_json",
+          "field": "failed",
+          "op": "eq",
+          "value": 0
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 3000,
+      "clause_id": "c7"
+    },
+    {
+      "type": "grep",
+      "description": "The gate script declares a step named 'exposure of later errors'.",
+      "proves": "The gate checks acceptance of later errors as its own step.",
+      "restatement_clause_id": "c7",
+      "pattern": "exposure of later errors",
+      "files": [
+        "scripts/gate.sh"
+      ],
+      "clause_id": "c8"
+    },
+    {
+      "type": "grep_absent",
+      "description": "The termination file has no retry cap, no maximum loop count and no timeout used as a control.",
+      "proves": "Termination rests on the theorem, not on a cap or a timeout.",
+      "restatement_clause_id": "c8",
+      "pattern": "(?i)max_?retries|max_?loops|max_?iter|timeout",
+      "files": [
+        "LeanMend/Spec/Termination.lean"
+      ],
+      "clause_id": "c9"
+    }
+  ],
+  "declared_new_entrypoints": [
+    "scripts/gate.sh",
+    "tests/expose.sh"
+  ]
+}
