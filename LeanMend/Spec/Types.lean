@@ -245,7 +245,8 @@ inductive EditOp where
   | simpArgAdd (lemma : String)
   | simpaToExact
   /-- `simpa [L] using h` (h a hypothesis name) becomes `simp [L] at h ⊢` then
-  `exact h`. `exact` accepts the two sides up to definitional equality, so a
+  `exact h`; `simpa [L] using T` (T a term) becomes `have := T`, then
+  `simp [L] at this ⊢`, then `exact this`. `exact` accepts the two sides up to definitional equality, so a
   hidden difference that `simpa` rejects, such as two different `Decidable`
   instances in an `if`, no longer blocks the proof. -/
   | simpaSplit

@@ -86,15 +86,24 @@ def applyOp (op : EditOp) (n : Node) : Option String :=
       | none => none
     | [] => none
   | .simpaSplit =>
+    let pad := String.ofList (List.replicate n.column ' ')
     match n.tokens with
     | k :: _ =>
       if k.text != "simpa" then none else
       match n.tokens.dropWhile (·.text != "using") with
-      | [u, h] =>
-        -- exactly one token after `using`: a hypothesis name
-        if !(h.text.all identChar) then none else
+      | u :: rest@(_ :: _) =>
         let before := String.fromUTF8! (n.text.toUTF8.extract (k.stop - n.start) (u.start - n.start))
-        some s!"simp{before.trimAsciiEnd.toString} at {h.text} ⊢\n{String.ofList (List.replicate n.column ' ')}exact {h.text}"
+        let simpPart := s!"simp{before.trimAsciiEnd.toString}"
+        match rest with
+        | [h] =>
+          -- a hypothesis name: simplify it in place
+          if !(h.text.all identChar) then none else
+          some s!"{simpPart} at {h.text} ⊢\n{pad}exact {h.text}"
+        | _ =>
+          -- a term: name it first. A `have` inside a proof is not a
+          -- declaration (decision D10).
+          let term := String.fromUTF8! (n.text.toUTF8.extract (u.stop - n.start) n.text.utf8ByteSize)
+          some s!"have := {term.trimAscii.toString}\n{pad}{simpPart} at this ⊢\n{pad}exact this"
       | _ => none
     | [] => none
   | .keywordSwap a b =>
