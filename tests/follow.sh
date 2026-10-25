@@ -6,7 +6,7 @@
 set -euo pipefail
 source "$(dirname "$0")/lib/report.sh"
 root="$(cd "$(dirname "$0")/.." && pwd)"
-bin="$root/.lake/build/bin/lean-mend"
+source "$root/tests/lib/lean-mend.sh"
 fx="$root/tests/fixtures/follow"
 work="$root/.scratch/follow-fixture"
 fail=0

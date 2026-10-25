@@ -5,7 +5,7 @@
 set -euo pipefail
 source "$(dirname "$0")/lib/report.sh"
 root="$(cd "$(dirname "$0")/.." && pwd)"
-bin="$root/.lake/build/bin/lean-mend"
+source "$root/tests/lib/lean-mend.sh"
 work="$root/.scratch/baseline"
 fail=0
 check() {  # check <description> <jq filter> <json>
