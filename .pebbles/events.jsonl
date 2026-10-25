@@ -110,3 +110,8 @@
 {"type":"comment","timestamp":"2026-10-25T11:41:24.379273Z","issue_id":"lea-a21","payload":{"body":"exophial-integration-attempt-started: at 1b200fdb017bfc3bc507fdab4e058895b66ac9b5"}}
 {"type":"comment","timestamp":"2026-10-25T11:41:26.492669Z","issue_id":"lea-a21","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
 {"type":"close","timestamp":"2026-10-25T11:41:26.493290Z","issue_id":"lea-a21","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
+{"type":"create","timestamp":"2026-10-25T13:55:05.318094Z","issue_id":"lea-7ff","payload":{"description":"Operator-authored branch `simp-set-id-run`, landed via `exophial integrate --branch` — no pebble id already tracked it.","priority":"2","title":"land: simp-set-id-run","type":"task"}}
+{"type":"comment","timestamp":"2026-10-25T13:55:05.319343Z","issue_id":"lea-7ff","payload":{"body":"branch-identity: simp-set-id-run"}}
+{"type":"comment","timestamp":"2026-10-25T13:59:01.019471Z","issue_id":"lea-7ff","payload":{"body":"exophial-integration-attempt-started: at 3e3afec6c45460f2f490c919d8d9cdec84065eeb"}}
+{"type":"comment","timestamp":"2026-10-25T13:59:03.246121Z","issue_id":"lea-7ff","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
+{"type":"close","timestamp":"2026-10-25T13:59:03.246718Z","issue_id":"lea-7ff","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
