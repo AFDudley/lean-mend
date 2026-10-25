@@ -128,6 +128,7 @@ def errorClass : String → Except String ErrorClass
   | "typeMismatch" => .ok .typeMismatch
   | "simpNoProgress" => .ok .simpNoProgress
   | "unsolvedGoals" => .ok .unsolvedGoals
+  | "tacticFailed" => .ok .tacticFailed
   | "binderOverride" => .ok .binderOverride
   | "noGoals" => .ok .noGoals
   | "heartbeat" => .ok .heartbeat
@@ -154,6 +155,7 @@ def editOp (j : Json) : Except String EditOp := do
   | "matchOnVal" => pure .matchOnVal
   | "valCompare" => pure .valCompare
   | "appendTactic" => pure (.appendTactic (← field j "tactic"))
+  | "closeBullet" => pure (.closeBullet (← field j "tactic"))
   | "heartbeats" => pure (.heartbeats (← field j "n"))
   | o => throw s!"unknown op '{o}'"
 

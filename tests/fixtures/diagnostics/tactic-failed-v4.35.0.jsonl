@@ -1,0 +1,1 @@
+{"caption":"","data":"Tactic `split` failed: Could not split an `if` or `match` expression in the goal\n\nHint: Use `set_option trace.split.failure true` to display additional diagnostic information\n\nn : Nat\n⊢ 0 < n + 1","endPos":{"column":7,"line":2},"fileName":"T.lean","isSilent":false,"keepFullRange":false,"kind":"[anonymous]","pos":{"column":2,"line":2},"severity":"error"}

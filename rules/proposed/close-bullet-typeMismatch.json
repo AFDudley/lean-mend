@@ -1,0 +1,15 @@
+{
+  "name": "close-bullet-typeMismatch",
+  "class": "typeMismatch",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "EVMLean fd4f5e6 -> v4.33.1, Theory/GasLemmas.lean 48 (typeMismatch at 48 or 50): matchToIf changed Gas.Ccallgas, so the proof's `split` splits another `if` and its bullets no longer fit; the goals left are arithmetic (0 < 100). Checked on the real file: `· omega` closes both bullets with no error and no warning. The method is tryAtEachStep (Renshaw): a decision procedure at a failing step."
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.33.1" },
+  "node": "any",
+  "candidates": [
+    { "op": "closeBullet", "tactic": "omega" },
+    { "op": "closeBullet", "tactic": "simp_all" },
+    { "op": "closeBullet", "tactic": "decide" }
+  ]
+}

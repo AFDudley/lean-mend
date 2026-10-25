@@ -240,6 +240,34 @@ def run : IO Nat := do
       | .error _ => false
     IO.println s!"{if ok then "ok  " else "FAIL"} a flagged candidate is not accepted; Lean's hint replaces it"
     unless ok do failed := failed + 1
+  -- closeBullet: the innermost bullet (`Lean.cdot`) that holds the site, as
+  -- the probe reports it at EVMLean GasLemmas 48.
+  do
+    let n (k : String) (a b : Nat) (txt : String) : Node :=
+      { kind := k, start := a, stop := b, column := 4, text := txt, tokens := [] }
+    let nodes := [{ n "Lean.Parser.Tactic.split" 1372 1377 "split" with tokens := [⟨"split", 1372, 1377⟩] },
+                  n "Lean.Parser.Tactic.«tactic_<;>_»" 1372 1387 "split <;> omega",
+                  n "Lean.cdot" 1369 1387 "· split <;> omega",
+                  n "null" 1219 1442 ""]
+    let site : Site :=
+      { diagnostic := { module := "M", line := 48, column := 6, endLine := 48, endColumn := 11,
+                        severity := .error, kind := "[anonymous]",
+                        text := "Tactic `split` failed: Could not split an `if` or `match` expression in the goal" },
+        decl := some "Ccallgas_lt_Ccall", region := some .body, declStart := some 1000,
+        start := 1372, stop := 1377 }
+    let r : Rule := { name := "closer", cls := .tacticFailed, entrenchment := .proposed, family := .any,
+                      ops := [.closeBullet "omega", .closeBullet "simp_all"] }
+    let got := (ruleCandidates r nodes site).map fun c => (c.start, c.stop, c.replacement)
+    let ok := got == [(1369, 1387, "· omega"), (1369, 1387, "· simp_all")]
+    IO.println s!"{if ok then "ok  " else "FAIL"} closeBullet replaces the innermost bullet, in rule order: {repr got}"
+    unless ok do failed := failed + 1
+    -- a closer rule runs after every other rule of its entrenchment
+    let other : Rule := { name := "a-other", cls := .tacticFailed, entrenchment := .proposed, family := .any,
+                          ops := [.deleteTactic] }
+    let order := (proposeAll ⟨[]⟩ [r, other] nodes false [] site).map (·.replacement)
+    let ok2 := order == ["", "· omega", "· simp_all"]
+    IO.println s!"{if ok2 then "ok  " else "FAIL"} a closer rule runs last: {repr order}"
+    unless ok2 do failed := failed + 1
   for (what, cls, op, accept) in
       [("deleteTactic for noGoals is loaded", "noGoals", "deleteTactic", true),
        ("deleteTactic for typeMismatch is refused", "typeMismatch", "deleteTactic", false),

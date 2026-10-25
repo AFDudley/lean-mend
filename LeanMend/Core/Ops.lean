@@ -147,7 +147,8 @@ def applyOp (op : EditOp) (n : Node) : Option String :=
   | .deleteTactic => some ""
   | .appendTactic t =>
     some (n.text ++ "\n" ++ String.ofList (List.replicate n.column ' ') ++ t)
-  | .rename _ _ | .renamePrefix _ _ | .replaceInBody _ _ _ | .heartbeats _ | .valCompare => none
+  | .rename _ _ | .renamePrefix _ _ | .replaceInBody _ _ _ | .heartbeats _ | .valCompare
+  | .closeBullet _ => none
 
 /-- The variable in Lean's message `Decidable (x✝ = n)`: `x`. -/
 def decidableVar (d : Diagnostic) : Option String :=
@@ -270,6 +271,10 @@ def ruleCandidates (r : Rule) (nodes : List Node) (s : Site) : List Candidate :=
           let t ← n.tokens.find? (·.text == ns a)
           pure (mk (.aliasRename a b) t.start t.stop (ns b))
         else none
+    | .closeBullet t, some d, some .body => do
+      -- the innermost bullet that holds the site
+      let n ← nodes.find? (·.kind == "Lean.cdot")
+      pure (mk (.body d) n.start n.stop s!"· {t}")
     | .valCompare, some d, _ => do
       -- body-only here; a statement edit goes through followCandidates (D12)
       guard (!valCompareTouchesStatement s)
@@ -373,8 +378,12 @@ alias candidates, then ratified rules, then proposed rules, each in rule-list
 order. A candidate that an earlier one already proposed is dropped. -/
 def proposeAll (m : AliasMap) (rules : List Rule) (nodes : List Node)
     (annotate : Bool) (followed : List String) (s : Site) : List Candidate :=
-  let byE (e : Entrenchment) := (rules.filter (·.entrenchment == e)).flatMap
-    (ruleCandidates · nodes s)
+  -- A rule that only closes bullets replaces the author's proof: the least
+  -- preferred repair, so it runs after every other rule of its entrenchment.
+  let closer (r : Rule) := r.ops.all fun | .closeBullet _ => true | _ => false
+  let byE (e : Entrenchment) :=
+    let rs := rules.filter (·.entrenchment == e)
+    (rs.filter (!closer ·) ++ rs.filter closer).flatMap (ruleCandidates · nodes s)
   let all := propose m s ++ (if annotate then typeCandidates s else []) ++
     byE .ratified ++ byE .proposed ++
     followCandidates (rules.filter (followed.contains ·.name)) nodes s

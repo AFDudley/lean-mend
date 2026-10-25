@@ -78,6 +78,8 @@ inductive ErrorClass where
   parameters appearing in the declaration header may have their binders kinds
   be overridden"). -/
   | binderOverride
+  /-- A tactic could not act on its goal ("Tactic `split` failed: …"). -/
+  | tacticFailed
   /-- A tactic ran after its goal was closed ("No goals to be solved"). -/
   | noGoals
   | heartbeat
@@ -267,6 +269,10 @@ inductive EditOp where
   declaration. `match x with`, `x = n` and `x ≠ n` become `match x.val with`,
   `x.val = n` and `x.val ≠ n`, in one edit. -/
   | valCompare
+  /-- Replace the whole bullet (`· …`) that holds the site with `· tactic`: a
+  decision procedure closes what the bullet's proof no longer does. The
+  least preferred repair, tried after every other rule (`docs/rules.md`). -/
+  | closeBullet (tactic : String)
   /-- Insert `tactic` after the node, on its own line at the node's column:
   close a goal that the node leaves open. -/
   | appendTactic (tactic : String)

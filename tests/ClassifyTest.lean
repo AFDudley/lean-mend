@@ -34,6 +34,14 @@ def run : IO Nat := do
           IO.println s!"{if ok then "ok  " else "FAIL"} {v} line {line}: {repr c}"
           unless ok do failed := failed + 1
         | none => IO.println s!"FAIL {v} line {line}: no diagnostic"; failed := failed + 1
+  -- T.lean: `split` with nothing to split, recorded at v4.29.0 and v4.35.0.
+  for v in ["v4.29.0", "v4.35.0"] do
+    match Parse.lines (Parse.diagnostic "T") (← IO.FS.readFile s!"tests/fixtures/diagnostics/tactic-failed-{v}.jsonl") with
+    | .ok [d] =>
+      let ok := classify d == .tacticFailed
+      IO.println s!"{if ok then "ok  " else "FAIL"} {v} tactic failed: {repr (classify d)}"
+      unless ok do failed := failed + 1
+    | _ => IO.println s!"FAIL {v} tactic-failed fixture"; failed := failed + 1
   -- B.lean: a constructor binder `{s t}` that repeats a section variable.
   -- v4.29.0 accepts it; v4.33.1 and v4.35.0 reject it (decision D11).
   match Parse.lines (Parse.diagnostic "B") (← IO.FS.readFile "tests/fixtures/diagnostics/binder-v4.35.0.jsonl") with
