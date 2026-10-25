@@ -85,6 +85,18 @@ def applyOp (op : EditOp) (n : Node) : Option String :=
         some s!"exact {term.trimAscii.toString}"
       | none => none
     | [] => none
+  | .simpaSplit =>
+    match n.tokens with
+    | k :: _ =>
+      if k.text != "simpa" then none else
+      match n.tokens.dropWhile (·.text != "using") with
+      | [u, h] =>
+        -- exactly one token after `using`: a hypothesis name
+        if !(h.text.all identChar) then none else
+        let before := String.fromUTF8! (n.text.toUTF8.extract (k.stop - n.start) (u.start - n.start))
+        some s!"simp{before.trimAsciiEnd.toString} at {h.text} ⊢\n{String.ofList (List.replicate n.column ' ')}exact {h.text}"
+      | _ => none
+    | [] => none
   | .keywordSwap a b =>
     match n.tokens with
     | k :: _ => if k.text == a then some (splice n.text (rel k).1 (rel k).2 b) else none

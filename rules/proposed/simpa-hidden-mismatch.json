@@ -1,0 +1,11 @@
+{
+  "name": "simpa-hidden-mismatch",
+  "class": "typeMismatch",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "EVMLean fd4f5e6 -> v4.33.1, Theory/AccountLocality.lean 2558, 2657, 2716, 2831: `Type mismatch: After simplification` where the two printed types are identical (a hidden difference, likely the Decidable instance of `if v = UInt256.ofNat 0`). Hand bump bcca6b1 at all four: `simp [...] at h ⊢` then `exact h`. On the real file the split removed every error in the module."
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.33.1" },
+  "node": "simp",
+  "candidates": [ { "op": "simpaSplit" } ]
+}
