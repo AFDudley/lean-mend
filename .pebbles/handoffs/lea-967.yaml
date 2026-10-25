@@ -1,0 +1,59 @@
+status: completed
+pebble_id: lea-967
+summary: >
+  Added Site.declIndex, Site.key, and keyLt (a proved strict total order) to
+  LeanMend/Spec/Types.lean, giving each open error site an AST coordinate
+  (declaration index, then reach). LeanMend/Core/Mend.lean gained
+  Mending.decls, with bounded and sorted invariants on the open-site list,
+  and Mending.sortOpens, which keeps the list ordered by that coordinate so
+  the head is always the source-earliest open error, not the shell's message
+  order. The accept path now stores the sorted list; the termination measure
+  widened to a five-tuple (LeanMend/Spec/Termination.lean), re-proved over
+  the new accept, reject, and give-up transitions. LeanMend/Shell/Target.lean
+  and LeanMend/Core/Run.lean thread the module's declaration count through
+  diagnose and the initial Mending construction. This work came from the
+  captured branch s1-partial (commit 5885691, worker lea-e1b, killed at the
+  3600s task timeout): I took its Types.lean, Mend.lean, Run.lean,
+  Termination.lean, and Invariant.lean changes as-is (already zero-sorry,
+  already lake-test-clean), and only the decls-count half of its
+  Target.lean/Driver.lean diagnose-signature change, deliberately leaving out
+  the unrelated --follow-definition-changes (X7/D12) parameter threading in
+  LeanMend/Core/Ops.lean, which belongs to the sibling pebble for S1c.
+  I added tests/order.sh and tests/fixtures/order-first: the fixture breaks
+  two declarations of one module at once, and the script runs the real
+  lean-mend binary, reads its ledger, and checks that the first "gaveUp"
+  entry is at the source-earliest declaration's line, printing
+  {"first_attempt_is_source_earliest": true|false} and exiting accordingly.
+  scripts/gate.sh runs it as the "site order by declaration coordinates"
+  step. Verified with: `lake build` (clean, no warnings), `lake test` (0
+  failed, including OpsTest.lean's six "exposure" cases that construct open
+  sites in reversed shell order and check sortOpens still picks the
+  source-earliest head), `lake env lean tests/NoSorry.lean` (0 constants
+  depend on sorryAx), and the full `scripts/gate.sh` (12/12 steps ok, 0
+  failed, including the new order step against the real fixture).
+cost: ~95k tokens
+commits:
+  - "9f778dd06d3638817b77d51fab63c26fa7091b17"
+verify_transcript:
+  hooks:
+    - name: lake build
+      outcome: passed
+      duration_s: 25
+    - name: lake test
+      outcome: passed
+      duration_s: 20
+    - name: lake env lean tests/NoSorry.lean
+      outcome: passed
+      duration_s: 8
+    - name: scripts/gate.sh
+      outcome: passed
+      duration_s: 188
+    - name: pre-commit (all hooks on changed files)
+      outcome: passed
+      duration_s: 15
+e2e_gate:
+  spec: tests/order.sh
+  command: tests/order.sh tests/fixtures/order-first
+  result: passed
+  ran_at_sha: "9f778dd06d3638817b77d51fab63c26fa7091b17"
+  mocks_in_path: false
