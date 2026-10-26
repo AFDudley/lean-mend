@@ -230,6 +230,61 @@ theorem openCount_finish (mods : List Module) (st : Statuses) (m : Module)
   · simp_all
   · exact hx
 
+/-- Finish every module of `wave` at once, each with the status `s` gives
+it (`docs/parallel.md` § Level 2: parallel frontier modules). -/
+def finishAll (s : String → ModStatus) : List String → Statuses → Statuses
+  | [], st => st
+  | n :: rest, st => finishAll s rest (finish st n (s n))
+
+/-- `finish` to a non-open status never raises `openCount`, whatever the
+module's status was before. -/
+theorem openCount_finish_le (mods : List Module) (st : Statuses) (name : String) (s : ModStatus)
+    (hs : s.isOpen = false) : openCount mods (finish st name s) ≤ openCount mods st := by
+  apply countP_le_of_imp
+  intro m _ hopen
+  by_cases heq : m.name = name
+  · simp [finish, heq, hs] at hopen
+  · simpa [finish, heq] using hopen
+
+/-- `finishAll` to non-open statuses never raises `openCount`: each step is
+`openCount_finish_le`, chained. -/
+theorem openCount_finishAll_le (mods : List Module) (s : String → ModStatus) :
+    ∀ (wave : List String), (∀ n ∈ wave, (s n).isOpen = false) → ∀ (st : Statuses),
+      openCount mods (finishAll s wave st) ≤ openCount mods st
+  | [], _, st => by simp [finishAll]
+  | n :: rest, hs, st =>
+    Nat.le_trans
+      (by
+        show openCount mods (finishAll s rest (finish st n (s n))) ≤ openCount mods (finish st n (s n))
+        exact openCount_finishAll_le mods s rest
+          (fun x hx => hs x (List.mem_cons_of_mem n hx)) (finish st n (s n)))
+      (openCount_finish_le mods st n (s n) (hs n (List.mem_cons_self ..)))
+
+/-- Level 1: finishing a non-empty wave (`docs/parallel.md` § Level 2:
+parallel frontier modules, generalizing `openCount_finish`) makes
+`openCount` fall: one of the wave's modules is open in `st` and closes, and
+no other member of the wave can raise the count back. -/
+theorem openCount_finishAll (mods : List Module) (st : Statuses) (wave : List String)
+    (hne : wave ≠ [])
+    (hwave : ∀ n ∈ wave, ∃ m ∈ mods, m.name = n ∧ (st m.name).isOpen = true)
+    (s : String → ModStatus) (hs : ∀ n ∈ wave, (s n).isOpen = false) :
+    openCount mods (finishAll s wave st) < openCount mods st := by
+  cases wave with
+  | nil => exact absurd rfl hne
+  | cons n rest =>
+    obtain ⟨m, hmem, hname, hmopen⟩ := hwave n (List.mem_cons_self ..)
+    have hstep : openCount mods (finish st n (s n)) < openCount mods st := by
+      have h := openCount_finish mods st m hmem hmopen (s n) (hs n (List.mem_cons_self ..))
+      rwa [hname] at h
+    have hrest : openCount mods (finishAll s rest (finish st n (s n))) ≤
+        openCount mods (finish st n (s n)) :=
+      openCount_finishAll_le mods s rest (fun x hx => hs x (List.mem_cons_of_mem n hx))
+        (finish st n (s n))
+    calc openCount mods (finishAll s (n :: rest) st)
+        = openCount mods (finishAll s rest (finish st n (s n))) := by rw [finishAll]
+      _ ≤ openCount mods (finish st n (s n)) := hrest
+      _ < openCount mods st := hstep
+
 /-- A frontier module is open, so `openCount_finish` applies to it. -/
 theorem frontier_open (mods : List Module) (st : Statuses) (n : String)
     (h : n ∈ frontier mods st) : ∃ m ∈ mods, m.name = n ∧ (st m.name).isOpen = true := by

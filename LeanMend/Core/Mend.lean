@@ -347,6 +347,43 @@ def Mending.step (m : Mending) (o : MendObs) : Except Refusal Mending :=
       else .error (.observationMismatch "a reported site names a declaration outside the module")
   | [], _ => .error (.observationMismatch "no open site")
 
+/-- `Mending.step` never changes which module it mends: `giveUp`, `reject`,
+`accept` and `refine` all keep the original `module` field. A `Fleet`
+(`docs/parallel.md` § Level 2) relies on this to route an observation to one
+member and still know the result carries the same module name. -/
+theorem Mending.step_module (m m' : Mending) (o : MendObs) (h : m.step o = .ok m') :
+    m'.module = m.module := by
+  unfold Mending.step at h
+  split at h
+  · rename_i o₀ rest hs
+    split at h
+    · cases h; rfl
+    · cases h
+  · rename_i o₀ rest hs
+    split at h
+    · cases h
+    · cases h; rfl
+  · rename_i o₀ rest e lint unused sites hs
+    split at h
+    · cases h
+    · rename_i c cs hc
+      split at h
+      · split at h
+        · split at h
+          · split at h
+            · cases h; rfl
+            · cases h
+          · split at h
+            · split at h
+              · split at h
+                · cases h; rfl
+                · cases h; rfl
+              · cases h; rfl
+            · cases h; rfl
+        · cases h; rfl
+      · cases h
+  · cases h
+
 /-- The termination measure inside `Mending` (`docs/parallel.md` X5, widened
 by one component): the declarations after the head, then the head site's
 `Site.reach` (an exposing edit lowers it), then the number of open sites (a

@@ -41,16 +41,16 @@ def tour : List (String × RunObs) :=
     ("built", .build (statuses .failing .blocked)),
     ("mending", .diagnosed "A" 1 [⟨site "A", [cand ["sorry"], cand ["New.f", "("], cand ["New.f", "unused"], cand ["New.f"]]⟩]),
     -- the first candidate adds `sorry`: the core rejects it even though the error count fell
-    ("mending", .mend (.rebuilt 0 0 [] [])),
-    ("mending", .mend .unparsable),
+    ("mending", .mend "A" (.rebuilt 0 0 [] [])),
+    ("mending", .mend "A" .unparsable),
     -- the error count fell, but the candidate caused a linter warning: reject
-    ("mending", .mend (.rebuilt 0 1 [] [])),
-    ("mending", .mend (.rebuilt 0 0 [] [])),
-    ("built", .mended),
+    ("mending", .mend "A" (.rebuilt 0 1 [] [])),
+    ("mending", .mend "A" (.rebuilt 0 0 [] [])),
+    ("built", .mended "A"),
     ("built", .build (statuses .built .failing)),
     ("mending", .diagnosed "B" 1 [⟨site "B", []⟩]),
-    ("mending", .mend .gaveUp),
-    ("built", .mended),
+    ("mending", .mend "B" .gaveUp),
+    ("built", .mended "B"),
     -- `A.f` is a `def` whose body changed: a Behavior card
     ("awaiting", .certificate ⟨tc "v4.33.1", ["A"], [declA "b1'"], []⟩),
     ("done", .judgment { card := "c-1", kind := .behavior, subject := "A.f",

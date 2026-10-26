@@ -90,6 +90,16 @@ def stepL (c : Ctx) (s : RunState) (obs : RunObs) (name : String) (detail : Json
   record c name detail next
   pure next
 
+/-- The one member this (sequential) driver is working: it starts one
+`Mending` per wave and finishes it before diagnosing the next frontier
+module, so the fleet in `.mending` always holds exactly one member here
+(`docs/parallel.md` § S3a; the parallel fleet is `LeanMend.Shell.Driver`'s
+future, S3b). -/
+def soleMending (f : Fleet) : IO Mending :=
+  match f.mendings with
+  | [mm] => pure mm
+  | _ => throw <| IO.userError "lean-mend: the fleet does not hold exactly one Mending"
+
 /-- Statuses as the machine sees them: the shell's build result, except that a
 module the machine closed as `residual` stays `residual`. -/
 def overlay (machine : Statuses) (built : List (String × ModStatus)) : Statuses :=
@@ -206,9 +216,10 @@ partial def consumeSpeculation (c : Ctx) (m : String) (file : FilePath) :
       (Json.mkObj [("index", toJson (i + 1)), ("worktree", toJson dir.toString),
                    ("rule", toJson cd.rule), ("startedAt", toJson r.startedAt),
                    ("finishedAt", toJson r.finishedAt)]) s
-    let s' ← stepL c s (.mend r.obs) "rebuilt" (rebuiltDetail cd.rule r.obs)
+    let s' ← stepL c s (.mend m r.obs) "rebuilt" (rebuiltDetail cd.rule r.obs)
     match s' with
-    | .mending _ _ mm' =>
+    | .mending _ _ f' =>
+      let mm' ← soleMending f'
       if mm'.accepted.length > mmCur.accepted.length then
         -- The winning candidate was only ever applied in its own worktree
         -- (`docs/parallel.md` P14); the main checkout still holds the
@@ -267,10 +278,11 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
       loop c (← stepL c s (.diagnosed m decls opens) "diagnosed"
         (Json.mkObj [("module", toJson m), ("sites", toJson opens.length),
                      ("detail", Json.arr siteJson.toArray)]))
-  | .mending _ _ mm =>
+  | .mending _ _ f =>
+    let mm ← soleMending f
     match mm.next with
     | .finish =>
-      let s' ← stepL c s .mended "mended" (toJson mm.module)
+      let s' ← stepL c s (.mended mm.module) "mended" (toJson mm.module)
       match s' with
       | .built _ st' =>
         let (_, built) ← buildAll c.target c.targets c.order
@@ -278,7 +290,7 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
         loop c (← stepL c s' (.build merged) "build" (toJson ((statusList c merged).map fun (n, x) => s!"{n}: {repr x}")))
       | other => pure other
     | .giveUp site =>
-      loop c (← stepL c s (.mend .gaveUp) "gaveUp"
+      loop c (← stepL c s (.mend mm.module .gaveUp) "gaveUp"
         (Json.mkObj [("module", toJson mm.module), ("line", toJson site.diagnostic.line),
                      ("text", toJson site.diagnostic.text)]))
     | .attempt cand =>
@@ -287,10 +299,12 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
         -- The target checkout holds one attempt at a time, reverted on a
         -- reject (concept D3: attempts in worktrees are level 3 only).
         let (saved, obs, done, nodesAt) ← attemptOne c c.target mm file cand
-        let s' ← stepL c s (.mend obs) "rebuilt" (rebuiltDetail cand.rule obs)
-        let acceptedNow := match s' with
-          | .mending _ _ mm' => decide (mm'.accepted.length > mm.accepted.length)
-          | _ => false
+        let s' ← stepL c s (.mend mm.module obs) "rebuilt" (rebuiltDetail cand.rule obs)
+        let acceptedNow ← match s' with
+          | .mending _ _ f' => do
+            let mm' ← soleMending f'
+            pure (decide (mm'.accepted.length > mm.accepted.length))
+          | _ => pure false
         if acceptedNow then
           commitAccepted c mm.module file cand done nodesAt
         else

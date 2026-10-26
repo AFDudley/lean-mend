@@ -3,6 +3,7 @@ import LeanMend.Shell.Parse
 import LeanMend.Shell.Target
 import LeanMend.Core.Compare
 import LeanMend.Core.Mend
+import LeanMend.Core.Run
 
 /-!
 Edit operations on one tactic node (`docs/rules.md` § Edit operations), and the
@@ -90,6 +91,20 @@ def openSite : Site :=
 
 def ruleJson (cls op : String) : String :=
   s!"\{\"name\": \"r\", \"class\": \"{cls}\", \"entrenchment\": \"ratified\", \"node\": \"any\", \"candidates\": [\{\"op\": \"{op}\"}]}"
+
+/-- S3a (docs/parallel.md § Level 2: parallel frontier modules): one open
+site, named `m`, with no candidate — enough to drive a `Mending` straight
+to `gaveUp`. -/
+def fleetSite (m : String) : Site :=
+  { diagnostic := { module := m, line := 1, column := 0, endLine := 1, endColumn := 1,
+                    severity := .error, kind := "[anonymous]", text := "e" },
+    decl := some s!"{m}.f", region := some .body, declStart := some 0, start := 10, stop := 20 }
+
+/-- A `Mending` for module `m`, with one open site and no candidate. -/
+def fleetMending (m : String) : Mending :=
+  { module := m, errors := 1, decls := 1, sites := [⟨fleetSite m, []⟩],
+    residue := [], accepted := [], wf := by simp [fleetSite], bounded := by simp [fleetSite],
+    sorted := by simp [fleetSite] }
 
 def run : IO Nat := do
   let mut failed := 0
@@ -341,6 +356,28 @@ def run : IO Nat := do
     let r := Lean.Json.parse (ruleJson cls op) >>= Parse.rule
     let ok := r.toBool == accept
     IO.println s!"{if ok then "ok  " else "FAIL"} {what}"
+    unless ok do failed := failed + 1
+  -- S3a (docs/parallel.md § Level 2: parallel frontier modules): a fleet of
+  -- two Mending states, one per module, reaches the same final state
+  -- whichever order their observations arrive in. `Fleet.step` replaces a
+  -- member in place by its module name, so the order of the two `mend`
+  -- observations below does not change either member's own result.
+  do
+    let fleet : Fleet := { mendings := [fleetMending "A", fleetMending "B"], distinct := by decide }
+    let ctx : Context :=
+      { target := "t", base := { toolchain := ⟨"a"⟩, built := [], decls := [] }, mods := [],
+        aliases := ⟨[]⟩ }
+    let st : Statuses := fun _ => .built
+    let base : RunState := .mending ctx st fleet
+    let summary (s : RunState) : Option (List (String × Nat × Nat)) :=
+      match s with
+      | .mending _ _ f => some (f.mendings.map fun m => (m.module, m.errors, m.residue.length))
+      | _ => none
+    let ab := (base.step (.mend "A" .gaveUp)).step (.mend "B" .gaveUp)
+    let ba := (base.step (.mend "B" .gaveUp)).step (.mend "A" .gaveUp)
+    let ok := summary ab == summary ba && summary ab == some [("A", 0, 1), ("B", 0, 1)]
+    IO.println s!"{if ok then "ok  " else "FAIL"} S3a: a fleet of two Mending states reaches \
+      the same final state in either order"
     unless ok do failed := failed + 1
   return failed
 
