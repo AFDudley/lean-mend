@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # tests/expose.sh <fixture>: S1b (docs/parallel.md X3, X4, X5). The fixture's
 # App.lean breaks one declaration with one head error. The fixture's rules/
-# directory holds the one rule that fixes it. The edit either exposes later
-# errors in the same declaration at a smaller byte reach than the old head
-# (the Core accepts it, tests/fixtures/expose-two) or leaves an error at a
-# byte reach larger than the old head, a position earlier in the declaration
-# (the Core rejects it, tests/fixtures/expose-back).
+# directory holds the one rule for it. The edit either exposes later errors
+# that were already in the text after it, in the same declaration (the Core
+# accepts it, tests/fixtures/expose-two), or replaces the head error with text
+# that fails itself (the Core rejects it, tests/fixtures/expose-back).
 #
 # stdout carries one JSON object and nothing else: {"verdict": "accepted" |
 # "rejected"}, decided by whether lean-mend committed the fixture's rule on

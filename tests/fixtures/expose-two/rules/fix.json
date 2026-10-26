@@ -7,8 +7,8 @@
     {
       "op": "replaceInBody",
       "decl": "foo",
-      "old": "exact unknownHead\n  -- padding to inflate reach so the exposing edit can still advance\n  done",
-      "new": "constructor\n  exact unknownA\n  exact unknownB"
+      "old": "exact unknownHead",
+      "new": "constructor"
     }
   ]
 }

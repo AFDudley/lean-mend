@@ -16,6 +16,10 @@ namespace OpsTest
 
 open LeanMend
 
+-- `decide` evaluates `Mending.sorted` over test sites with 300-byte
+-- declaration texts; the default recursion depth is too small for that.
+set_option maxRecDepth 20000
+
 /-- A node at offset 100 whose tokens are the words of `text`. -/
 def node (text : String) : Node :=
   let spaced := (text.replace "[" " [ ").replace "]" " ] " |>.replace "," " , "
@@ -298,7 +302,7 @@ def run : IO Nat := do
         declText := some (100, String.ofList (List.replicate declLen 'x')), start, stop := start + 1,
         declIndex := declIdx }
     let head := mkSite "D.f" 1 150 300
-    let m : Mending := { module := "M", errors := 1, decls := 2, sites := [⟨head, [c]⟩],
+    let m : Mending := { module := "M", errors := 1, decls := 3, sites := [⟨head, [c]⟩],
                          residue := [], accepted := [],
                          wf := by decide, bounded := by decide, sorted := by decide }
     for (what, e, s', accept, headStart) in
@@ -312,15 +316,36 @@ def run : IO Nat := do
          ("an error earlier in the same declaration appears: reject", 2,
           [mkSite "D.f" 1 100 300, head], false, 150),
          ("an error in an earlier declaration appears: reject", 2,
-          [mkSite "D.a" 0 20 300, mkSite "D.f" 1 200 292], false, 150)] do
-      let got : Bool := match m.step (.rebuilt e 0 [] (s'.map (⟨·, []⟩))) with
-        | .ok m' => !m'.accepted.isEmpty &&
-            -- the exposed site becomes the head site
-            (m'.sites.head?.map (·.site.start)) == some headStart
+          [mkSite "D.a" 0 20 300, mkSite "D.f" 1 200 292], false, 150),
+         -- EVMLean run 21, AccountLocality 2558: `closeBullet "omega"` failed
+         -- inside its own bytes [140, 152); the shorter declaration made the
+         -- error's reach smaller than the head's.
+         ("the new error starts inside the edit's own bytes: reject", 1,
+          [mkSite "D.f" 1 145 292], false, 150),
+         ("the head's error persists and the declaration got shorter: reject", 1,
+          [mkSite "D.f" 1 150 292], false, 150),
+         ("a new error appears in a later declaration: reject", 1,
+          [mkSite "D.g" 2 20 300], false, 150)] do
+      -- Accepted or not is read on its own; the head is checked only on an
+      -- accept, where the exposed site becomes the head site.
+      let ok : Bool := match m.step (.rebuilt e 0 [] (s'.map (⟨·, []⟩))) with
+        | .ok m' =>
+          let acc := !m'.accepted.isEmpty
+          acc == accept && (!acc || (m'.sites.head?.map (·.site.start)) == some headStart)
         | .error _ => false
-      let ok := got == accept
       IO.println s!"{if ok then "ok  " else "FAIL"} exposure: {what}"
       unless ok do failed := failed + 1
+    -- Two open sites with one failure text: the edit fixes the first one.
+    -- The failure still occurs once, but less often than before: accept.
+    let twinAt (start declLen : Nat) : Site := { mkSite "D.f" 1 start declLen with diagnostic := head.diagnostic }
+    let m2 : Mending := { module := "M", errors := 2, decls := 3,
+                          sites := [⟨head, [c]⟩, ⟨twinAt 250 300, []⟩], residue := [], accepted := [],
+                          wf := by decide, bounded := by decide, sorted := by decide }
+    let got2 : Bool := match m2.step (.rebuilt 1 0 [] [⟨twinAt 242 292, []⟩]) with
+      | .ok m' => !m'.accepted.isEmpty && (m'.sites.head?.map (·.site.start)) == some 242
+      | .error _ => false
+    IO.println s!"{if got2 then "ok  " else "FAIL"} exposure: one of two identical failures is fixed: accept"
+    unless got2 do failed := failed + 1
   -- closeBullet: the innermost bullet (`Lean.cdot`) that holds the site, as
   -- the probe reports it at EVMLean GasLemmas 48.
   do

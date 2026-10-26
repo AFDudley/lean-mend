@@ -164,23 +164,25 @@ theorem Mending.step_measure (m m' : Mending) (o : MendObs)
     · rename_i c cs hc
       have hne : o₀.candidates ≠ [] := by simp [hc]
       split at h  -- hBound
-      · split at h  -- hp
-        · split at h  -- hclean
-          · split at h  -- hwf: accept
-            · cases h
-              rename_i hBound hp hclean hwf
-              exact Mending.accept_measure m hs c e lint sites hBound hp hclean hwf
-            · cases h
-          · -- hclean false: Lean's hint, or reject
-            split at h  -- the unused-simp-args check
-            · split at h  -- dropSimpArgs
-              · split at h  -- the replacement-length check
-                · cases h
-                  rename_i r _ hlt
-                  exact Mending.refine_measure m hs hc _ hlt
+      · split at h  -- the exposure guard
+        · split at h  -- hp
+          · split at h  -- hclean
+            · split at h  -- hwf: accept
+              · cases h
+                rename_i hBound _hg hp hclean hwf
+                exact Mending.accept_measure m hs c e lint sites hBound hp hclean hwf
+              · cases h
+            · -- hclean false: Lean's hint, or reject
+              split at h  -- the unused-simp-args check
+              · split at h  -- dropSimpArgs
+                · split at h  -- the replacement-length check
+                  · cases h
+                    rename_i r _ hlt
+                    exact Mending.refine_measure m hs hc _ hlt
+                  · cases h; exact Mending.reject_measure m hs hne
                 · cases h; exact Mending.reject_measure m hs hne
               · cases h; exact Mending.reject_measure m hs hne
-            · cases h; exact Mending.reject_measure m hs hne
+          · cases h; exact Mending.reject_measure m hs hne
         · cases h; exact Mending.reject_measure m hs hne
       · cases h
   · cases h

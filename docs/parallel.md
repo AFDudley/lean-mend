@@ -464,7 +464,7 @@ P19. A wallclock site is rebuilt alone, so its verdict is the quiescent verdict.
 X1. A site position is the pair (declaration index in source order, bytes from the error to the end of that declaration).
 X2. The Core sorts the open sites by that position, so the head site is the earliest error.
 X3. An edit is accepted when the earliest open position moves strictly toward the end of the file.
-X4. An edit is rejected when it leaves or adds an error earlier than the old head.
+X4. An edit is accepted only if it removes one instance of the head's failure and every failure it adds is in the attempted site's declaration, after the bytes it changed.
 X5. The measure is the five-tuple (declarations after the head, head reach, open sites, head candidates, head replacement length).
 X6. D10 fixes the declaration set, so an earlier declaration's position never changes under a later edit.
 X7. A D12 statement follow and its body edit are one candidate, so the earliest error never moves back.

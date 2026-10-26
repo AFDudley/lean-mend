@@ -290,6 +290,30 @@ def Mending.accept (m : Mending) {o₀ : Open} {rest : List Open} (_hs : m.sites
     bounded := Mending.sortOpens_bounded hBound
     sorted := Mending.sortOpens_sorted sites }
 
+/-- How many open sites report the same failure as `s` (`Site.sameAs`). -/
+def Open.count (os : List Open) (s : Site) : Nat := (os.filter (·.site.sameAs s)).length
+
+/-- The edit removed one instance of the head's failure, and every failure it
+added lies after the edit, in the attempted site's declaration
+(`docs/parallel.md` X4). `old` are the open sites before the edit, the head
+included; `sites` are the open sites after it. A site is new when its failure
+occurs more often after the edit than before. Lean checks each declaration on
+its own, so an error that the edit exposes can only be in the edited
+declaration, after the bytes the edit changed. An error inside those bytes is
+the edit's own failure. A new error in another declaration is a break that
+the edit caused. EVMLean run 21 committed `closeBullet "omega"` four times in
+`AccountLocality`: `omega` failed inside its own bytes, and the shorter text
+made that error look later. -/
+def Candidate.leavesOnlyLater (c : Candidate) (head : Site) (old sites : List Open) : Bool :=
+  let spans := if c.changed.isEmpty then [(c.start, c.start + c.replacement.utf8ByteSize)]
+    else c.changed
+  let after (s : Site) : Bool :=
+    spans.all fun (x, y) => !(decide (x ≤ s.start)) || decide (y ≤ s.start)
+  decide (Open.count sites head < Open.count old head) &&
+    sites.all fun o =>
+      decide (Open.count sites o.site ≤ Open.count old o.site) ||
+        (o.site.decl.isSome && o.site.decl == head.decl && after o.site)
+
 /-- The transition function (`docs/machine.md` § Transitions, `docs/parallel.md`
 X1-X8).
 
@@ -300,8 +324,10 @@ X1-X8).
   every open site the shell reports, in source-position order, not the
   shell's message order (`Mending.sortOpens`, X2); the new head is the
   earliest of them, so any number of later errors in the attempted site's
-  declaration may appear and still be accepted. An edit that leaves or adds
-  an error earlier than the old head is rejected (X4). If the edit made
+  declaration may appear and still be accepted. The edit must also remove
+  one instance of the head's failure and add failures only after its own
+  bytes in the attempted site's declaration (`Candidate.leavesOnlyLater`,
+  X4); otherwise reject. If the edit made
   progress and every warning is an unused simp argument, Lean's own hint
   makes the better candidate: the same edit without those arguments replaces
   the head candidate, and the shell attempts it next. A flagged candidate is
@@ -323,26 +349,28 @@ def Mending.step (m : Mending) (o : MendObs) : Except Refusal Mending :=
     | [] => .error (.observationMismatch "no candidate was attempted")
     | c :: _ =>
       if hBound : ∀ o ∈ sites, o.site.declIndex < m.decls then
-        if hp : o₀.site.declIndex < (Mending.afterCoord o₀ sites).1 ∨
-            (o₀.site.declIndex = (Mending.afterCoord o₀ sites).1 ∧
-              (Mending.afterCoord o₀ sites).2 < o₀.site.reach) then
-          if hclean : c.clean = true ∧ lint = 0 then
-            if hwf : (Mending.sortOpens sites).length + m.residue.length ≤ e then
-              .ok (m.accept hs c e lint sites hBound hp hclean hwf)
-            else .error (.observationMismatch "more open sites than errors")
-          else
-            -- Lean's hint: the same edit without the unused simp arguments. Only
-            -- for an edit of one node (a file-wide edit has `changed` spans).
-            if c.clean && lint > 0 && unused.length == lint && c.changed.isEmpty then
-              match dropSimpArgs c.replacement unused with
-              | some r =>
-                if r.length < c.replacement.length then
-                  .ok (m.refine hs { c with
-                    rule := s!"{c.rule} (Lean's hint: without {unused})"
-                    replacement := r })
-                else .ok (m.reject hs)
-              | none => .ok (m.reject hs)
-            else .ok (m.reject hs)
+        if c.leavesOnlyLater o₀.site m.sites sites then
+          if hp : o₀.site.declIndex < (Mending.afterCoord o₀ sites).1 ∨
+              (o₀.site.declIndex = (Mending.afterCoord o₀ sites).1 ∧
+                (Mending.afterCoord o₀ sites).2 < o₀.site.reach) then
+            if hclean : c.clean = true ∧ lint = 0 then
+              if hwf : (Mending.sortOpens sites).length + m.residue.length ≤ e then
+                .ok (m.accept hs c e lint sites hBound hp hclean hwf)
+              else .error (.observationMismatch "more open sites than errors")
+            else
+              -- Lean's hint: the same edit without the unused simp arguments. Only
+              -- for an edit of one node (a file-wide edit has `changed` spans).
+              if c.clean && lint > 0 && unused.length == lint && c.changed.isEmpty then
+                match dropSimpArgs c.replacement unused with
+                | some r =>
+                  if r.length < c.replacement.length then
+                    .ok (m.refine hs { c with
+                      rule := s!"{c.rule} (Lean's hint: without {unused})"
+                      replacement := r })
+                  else .ok (m.reject hs)
+                | none => .ok (m.reject hs)
+              else .ok (m.reject hs)
+          else .ok (m.reject hs)
         else .ok (m.reject hs)
       else .error (.observationMismatch "a reported site names a declaration outside the module")
   | [], _ => .error (.observationMismatch "no open site")
@@ -368,18 +396,20 @@ theorem Mending.step_module (m m' : Mending) (o : MendObs) (h : m.step o = .ok m
     · cases h
     · rename_i c cs hc
       split at h
-      · split at h
+      · split at h  -- the exposure guard
         · split at h
           · split at h
-            · cases h; rfl
-            · cases h
-          · split at h
+            · split at h
+              · cases h; rfl
+              · cases h
             · split at h
               · split at h
-                · cases h; rfl
+                · split at h
+                  · cases h; rfl
+                  · cases h; rfl
                 · cases h; rfl
               · cases h; rfl
-            · cases h; rfl
+          · cases h; rfl
         · cases h; rfl
       · cases h
   · cases h

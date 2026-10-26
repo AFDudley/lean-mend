@@ -164,22 +164,28 @@ The structural checks on an attempt (concept C2, structural):
    which keeps the layout), and the shell attempts it next. The flagged
    candidate itself is never accepted; if the cleaned one fails, it is
    rejected like any other candidate.
-5. The edit made progress. Either the module's whole error count `e` fell,
-   or the count did not change and the edit exposed one later error
-   (`Candidate.exposes`). An exposing edit removed the site's error, so Lean
-   checks further into the declaration and reports an error it could not
-   reach before. Exactly one new open site must exist: every other site
-   matches an old one by `Site.sameAs`. The new site must be in the attempted
-   site's declaration, after every byte the edit changed there, and nearer
-   the declaration's end (`Site.reach`). The Core then moves it to the head
-   (`Candidate.reorder`). The check reads every site, because Lean reports
-   sites in message order, not source order. Example: EVMLean
-   `ReturnDataBound` 2528, where the `RBSet` move exposes an error at 2552.
+5. The edit made progress, by two checks (`Mending.step`).
 
-   An edit that exposes two or more errors for one is rejected. A measure
-   over byte distance to the end of the file does not admit it: an accepted
-   edit changes the file's length, so the distance of every earlier error
-   changes. EVMLean run 20 measured this at `Semantics` 288 and 1040.
+   - **Position.** The Core sorts the open sites by their position:
+     declaration index, then bytes to the declaration's end (`Site.reach`).
+     It does not use Lean's message order. The earliest open position must
+     move strictly toward the end of the file (`docs/parallel.md` X3).
+   - **Cause.** The edit must remove one instance of the head's failure, and
+     every failure it adds must be in the attempted site's declaration, after
+     the bytes the edit changed (`Candidate.leavesOnlyLater`, X4). A failure
+     is added when it occurs more often after the edit than before
+     (`Site.sameAs`, counted, so two identical failures stay distinct).
+
+   An edit that removes the head's error lets Lean check further into the
+   declaration, so it can expose any number of later errors there. Lean
+   checks each declaration on its own, so an error in another declaration is
+   never exposed: it is a break that the edit caused. An error inside the
+   edit's own bytes is the edit's own failure. The position check alone
+   admits both: in EVMLean run 21, `closeBullet "omega"` failed inside its
+   own bytes in `AccountLocality`, and the shorter text made the error look
+   later. The cause check rejects that edit. Example of a correct exposure:
+   EVMLean `ReturnDataBound` 2528, where the `RBSet` move exposes an error at
+   2552.
 
 ## The invariant
 
