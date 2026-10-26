@@ -59,9 +59,9 @@ merge. It runs, in order:
    real fixtures.
 
 The gate stops at the first failed step and exits 1. Each step's output goes
-to stderr. stdout carries one JSON object and nothing else:
-`{"steps": [{"name": …, "ok": …}, …], "passed": N, "failed": 0 or 1}`. A
-failed step is the last entry, with `"ok": false`. An exophial spec observes
+to stderr. stdout carries one JSON object and nothing else: one key
+`"steps.<step name>.ok"` per step that ran, then `"passed": N` and
+`"failed": 0 or 1`. A failed step is the last step key, with value `false`. An exophial spec observes
 this object (`stdout_json`); an exit code alone is a vacuous check.
 
 ### Check scripts
@@ -70,7 +70,11 @@ Every check script prints one JSON object on stdout and nothing else; its other 
 
 A runner under `tests/` sources `tests/lib/report.sh`, records each check
 with `pass NAME` or `failed NAME`, and ends with `report`. Its object is
-`{"runner": …, "checks": [{"name": …, "ok": …}, …], "passed": N, "failed": N}`.
+`{"runner": …, "checks.<check name>.ok": true|false, …, "passed": N, "failed": N}`.
+The keys are flat on purpose: exophial reads a whole `stdout_json` field path
+as a top-level key first, so a spec can address one step or check by name,
+and a name that holds a dot (`Dep.new`, `v4.33.1`) still resolves. A nested
+object would split such a name at its dots.
 A runner builds what it runs. A runner that runs lean-mend sources
 `tests/lib/lean-mend.sh`, which builds the binary and sets `$bin`. exophial
 runs each check script alone in its gate container, so a runner cannot

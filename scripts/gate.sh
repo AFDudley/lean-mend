@@ -4,28 +4,32 @@
 # (.exophial/config.yaml, gate.command). Each step fails loud.
 #
 # stdout carries one JSON object and nothing else, so an exophial spec can
-# observe it (`stdout_json`): {"steps": [{"name", "ok"}...], "passed", "failed"}.
-# Every step's own output goes to stderr. The gate stops at the first failed
-# step; that step is the last entry, with "ok": false.
+# observe it (`stdout_json`): one key "steps.<step name>.ok" per step that
+# ran, then "passed" and "failed". exophial reads a whole field path as a
+# top-level key first, so `steps.<step name>.ok` resolves even when the name
+# holds a dot. Every step's own output goes to stderr. The gate stops at the
+# first failed step; that step is the last key, with value false.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.elan/bin:$PATH"
 exec 3>&1 1>&2
 
-steps=()
+_obj='{}'
 passed=0
+# record NAME OK: add the key "steps.NAME.ok" to the result object.
+record() { _obj=$(jq -cn --argjson o "$_obj" --arg k "steps.$1.ok" --argjson v "$2" '$o + {($k): $v}'); }
+# summary FAILED: print the result object, then the counts, on stdout.
 summary() {
-  local IFS=,
-  printf '{"steps":[%s],"passed":%d,"failed":%d}\n' "${steps[*]}" "$passed" "$1" >&3
+  jq -cn --argjson o "$_obj" --argjson p "$passed" --argjson f "$1" '$o + {passed: $p, failed: $f}' >&3
 }
 # step NAME COMMAND...: run COMMAND; on failure, print the summary and exit 1.
 step() {
   local name=$1; shift
   echo "== $name"
   if "$@"; then
-    steps+=("{\"name\":\"$name\",\"ok\":true}"); passed=$((passed + 1))
+    record "$name" true; passed=$((passed + 1))
   else
-    steps+=("{\"name\":\"$name\",\"ok\":false}"); summary 1; exit 1
+    record "$name" false; summary 1; exit 1
   fi
 }
 
