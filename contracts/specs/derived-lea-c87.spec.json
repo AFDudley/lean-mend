@@ -1,0 +1,278 @@
+{
+  "id": "derived-lea-c87",
+  "original_statement": "What must hold? State the invariant or expectation this concerns. The run mends every current frontier module at the same time, each in its own attempt worktree. Only the driver writes the mend branch, in module topological order, and the ledger is in the canonical sequential order. Decisions P8, P10, P11 and P12 and the S3b acceptance check of docs/parallel.md hold.\nWhat holds now? Describe the current, observed state. LeanMend/Shell/Driver.lean mends one frontier module at a time.\nHow do you see it? Describe exactly how to observe this for yourself \u2014 the steps to reproduce, or how you would demo it. Run tests/fleet.sh on tests/fixtures/fleet, as docs/parallel.md S3b states. Run scripts/gate.sh: stdout is one JSON object; its steps list holds a step named 'parallel frontier modules' with ok true, and failed is 0.\nWhat constraints apply? State them in plain prose. Spec and Core import no Shell module (scripts/gate.sh checks it). Termination stays a theorem in LeanMend/Spec/Termination.lean, with no retry cap and no timeout as a control. Decision D10 holds: lean-mend adds no declaration to a target. lean-mend depends on Lean core only, not on Mathlib. Every committed text is in ASD-STE100 Simplified Technical English. Run export PATH=\"$HOME/.elan/bin:$PATH\" before a lean or lake command. Scratch files go in the gitignored .scratch/ directory, not /tmp. The worker task timeout is 3600 seconds. Do not run lean-mend on EVMLean: one EVMLean run takes about 2 hours, and the operator runs it after the merge.\nWhere does this apply? (e.g. gateway route, mobile screen, CLI verb) LeanMend/Shell/Driver.lean, LeanMend/Shell/Target.lean, scripts/gate.sh",
+  "restatement": "A lean-mend run mends every current frontier module at the same time, each module in its own attempt worktree. Only the driver writes the mend branch. The driver commits accepted patches in module topological order. The driver appends ledger entries in the canonical sequential order, not in completion order. Today LeanMend/Shell/Driver.lean mends one frontier module at a time. The change is done when tests/fleet.sh on tests/fixtures/fleet reports success through printed observations and scripts/gate.sh prints one JSON object whose steps list holds a step named 'parallel frontier modules' with ok true and with failed 0. Spec and Core import no Shell module. Termination stays a theorem in LeanMend/Spec/Termination.lean. lean-mend depends on Lean core only, not on Mathlib.",
+  "restatement_clauses": [
+    {
+      "id": "c1",
+      "text": "The run mends every current frontier module at the same time, each in its own attempt worktree (P8): at least two attempts run at once on tests/fixtures/fleet."
+    },
+    {
+      "id": "c2",
+      "text": "Only the driver writes the mend branch (P11), and it commits each wave's accepted patches in module topological order (P10)."
+    },
+    {
+      "id": "c3",
+      "text": "The driver appends the ledger entries in the canonical sequential order, not in completion order (P12)."
+    },
+    {
+      "id": "c4",
+      "text": "Running tests/fleet.sh on tests/fixtures/fleet passes, as docs/parallel.md S3b states."
+    },
+    {
+      "id": "c5",
+      "text": "scripts/gate.sh prints one JSON object on stdout. Its steps list holds a step named 'parallel frontier modules' with ok true, and failed is 0."
+    },
+    {
+      "id": "c6",
+      "text": "Spec and Core import no Shell module."
+    },
+    {
+      "id": "c7",
+      "text": "Termination stays a theorem in LeanMend/Spec/Termination.lean."
+    },
+    {
+      "id": "c8",
+      "text": "lean-mend depends on Lean core only, not on Mathlib."
+    }
+  ],
+  "goal": "Parallel mending of frontier modules in the Shell, with one writer to the mend branch and a sequential ledger order.",
+  "acceptance_criteria": [
+    "Mending the fleet example project starts at least two module attempts at the same time, and every attempt uses its own separate worktree.",
+    "After mending the fleet example project, no writer other than the driver touched the mend branch, and its commits follow module topological order.",
+    "After mending the fleet example project, the ledger entries are in the same order as in a one-module-at-a-time run, even when modules finish in another order.",
+    "The fleet check finishes with success and reports zero failed checks and a true overall result in its printed result.",
+    "The gate script prints one result that lists the step 'parallel frontier modules' as ok and reports zero failed steps.",
+    "No file in the Spec or Core folders imports a Shell module.",
+    "The termination file still states termination as a theorem.",
+    "No Lean source file imports Mathlib."
+  ],
+  "request_clauses": [
+    {
+      "id": "c1",
+      "text": "Mending the fleet example project starts at least two module attempts at the same time, and every attempt uses its own separate worktree."
+    },
+    {
+      "id": "c2",
+      "text": "After mending the fleet example project, no writer other than the driver touched the mend branch, and its commits follow module topological order."
+    },
+    {
+      "id": "c3",
+      "text": "After mending the fleet example project, the ledger entries are in the same order as in a one-module-at-a-time run, even when modules finish in another order."
+    },
+    {
+      "id": "c4",
+      "text": "The fleet check finishes with success and reports zero failed checks and a true overall result in its printed result."
+    },
+    {
+      "id": "c5",
+      "text": "The gate script prints one result that lists the step 'parallel frontier modules' as ok and reports zero failed steps."
+    },
+    {
+      "id": "c6",
+      "text": "No file in the Spec or Core folders imports a Shell module."
+    },
+    {
+      "id": "c7",
+      "text": "The termination file still states termination as a theorem."
+    },
+    {
+      "id": "c8",
+      "text": "No Lean source file imports Mathlib."
+    }
+  ],
+  "acceptance_tests": [
+    {
+      "type": "behavior",
+      "description": "Mending the fleet example project starts at least two module attempts at the same time, and every attempt uses its own separate worktree.",
+      "proves": "Frontier modules are mended at the same time, each in its own worktree.",
+      "restatement_clause_id": "c1",
+      "when": {
+        "interpreter": "",
+        "script": "tests/fleet.sh",
+        "args": [
+          "tests/fixtures/fleet"
+        ],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "stdout_json",
+          "field": "max_concurrent_attempts",
+          "op": "ge",
+          "value": 2
+        },
+        {
+          "observe": "stdout_json",
+          "field": "attempts_sharing_a_worktree",
+          "op": "eq",
+          "value": 0
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 3600,
+      "clause_id": "c1"
+    },
+    {
+      "type": "behavior",
+      "description": "After mending the fleet example project, no writer other than the driver touched the mend branch, and its commits follow module topological order.",
+      "proves": "The driver is the only writer of the mend branch and commits in topological order.",
+      "restatement_clause_id": "c2",
+      "when": {
+        "interpreter": "",
+        "script": "tests/fleet.sh",
+        "args": [
+          "tests/fixtures/fleet"
+        ],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "stdout_json",
+          "field": "mend_branch_writers_other_than_driver",
+          "op": "eq",
+          "value": 0
+        },
+        {
+          "observe": "stdout_json",
+          "field": "commits_in_topological_order",
+          "op": "eq",
+          "value": true
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 3600,
+      "clause_id": "c2"
+    },
+    {
+      "type": "behavior",
+      "description": "After mending the fleet example project, the ledger entries are in the same order as in a one-module-at-a-time run, even when modules finish in another order.",
+      "proves": "The ledger follows the canonical sequential order, not the completion order.",
+      "restatement_clause_id": "c3",
+      "when": {
+        "interpreter": "",
+        "script": "tests/fleet.sh",
+        "args": [
+          "tests/fixtures/fleet"
+        ],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "stdout_json",
+          "field": "ledger_matches_sequential_order",
+          "op": "eq",
+          "value": true
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 3600,
+      "clause_id": "c3"
+    },
+    {
+      "type": "behavior",
+      "description": "The fleet check finishes with success and reports zero failed checks and a true overall result in its printed result.",
+      "proves": "The fleet check passes on the fleet example project and states its result in a printed value.",
+      "restatement_clause_id": "c4",
+      "when": {
+        "interpreter": "",
+        "script": "tests/fleet.sh",
+        "args": [
+          "tests/fixtures/fleet"
+        ],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "exit_code",
+          "field": "exit_code",
+          "op": "eq",
+          "value": 0
+        },
+        {
+          "observe": "stdout_json",
+          "field": "failed",
+          "op": "eq",
+          "value": 0
+        },
+        {
+          "observe": "stdout_json",
+          "field": "ok",
+          "op": "eq",
+          "value": true
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 3600,
+      "clause_id": "c4"
+    },
+    {
+      "type": "behavior",
+      "description": "The gate script prints one result that lists the step 'parallel frontier modules' as ok and reports zero failed steps.",
+      "proves": "The gate covers parallel mending and passes.",
+      "restatement_clause_id": "c5",
+      "when": {
+        "interpreter": "",
+        "script": "scripts/gate.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "stdout_json",
+          "field": "failed",
+          "op": "eq",
+          "value": 0
+        },
+        {
+          "observe": "stdout_json",
+          "field": "steps.parallel frontier modules.ok",
+          "op": "eq",
+          "value": true
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 3600,
+      "clause_id": "c5"
+    },
+    {
+      "type": "grep_absent",
+      "description": "No file in the Spec or Core folders imports a Shell module.",
+      "proves": "The pure layers do not depend on the Shell.",
+      "restatement_clause_id": "c6",
+      "pattern": "^\\s*import\\s+LeanMend\\.Shell",
+      "files": [
+        "LeanMend/Spec/**/*.lean",
+        "LeanMend/Core/**/*.lean"
+      ],
+      "clause_id": "c6"
+    },
+    {
+      "type": "grep",
+      "description": "The termination file still states termination as a theorem.",
+      "proves": "Termination remains a theorem in the Spec layer.",
+      "restatement_clause_id": "c7",
+      "pattern": "^\\s*theorem\\s",
+      "files": [
+        "LeanMend/Spec/Termination.lean"
+      ],
+      "clause_id": "c7"
+    },
+    {
+      "type": "grep_absent",
+      "description": "No Lean source file imports Mathlib.",
+      "proves": "lean-mend depends on Lean core only.",
+      "restatement_clause_id": "c8",
+      "pattern": "^\\s*import\\s+Mathlib",
+      "files": [
+        "LeanMend/**/*.lean",
+        "LeanMend.lean"
+      ],
+      "clause_id": "c8"
+    }
+  ],
+  "declared_new_entrypoints": [
+    "scripts/gate.sh",
+    "tests/fleet.sh"
+  ]
+}
