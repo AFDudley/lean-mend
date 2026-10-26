@@ -1,0 +1,14 @@
+{
+  "name": "speculate-slow-a",
+  "class": "unknownIdentifier",
+  "entrenchment": "ratified",
+  "node": "any",
+  "candidates": [
+    {
+      "op": "replaceInBody",
+      "decl": "foo",
+      "old": "exact unknownHead",
+      "new": "exact unknownHead\n  have _slowA : slowCount 80000 = 80000 := by decide"
+    }
+  ]
+}

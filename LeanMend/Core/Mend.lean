@@ -101,6 +101,26 @@ def Mending.next (m : Mending) : MendAction :=
     | [] => .giveUp o.site
     | c :: _ => .attempt c
 
+/-- The next `n` head candidates of the head site, in rule order
+(`docs/parallel.md` P14). The shell attempts every one of them at the same
+time, each in its own worktree. Acceptance stays `Mending.step`: the shell
+feeds the verdicts back to it in this same order, a reject for every
+candidate that failed before the first one it accepts (P15). -/
+def Mending.speculate (m : Mending) (n : Nat) : List Candidate :=
+  match m.sites with
+  | [] => []
+  | o :: _ => o.candidates.take n
+
+/-- `Mending.speculate m n` is a prefix of the head site's candidate list, so
+the speculative order is the rule order (`docs/parallel.md`
+`speculate_prefix`). -/
+theorem Mending.speculate_prefix (m : Mending) {o₀ : Open} {rest : List Open}
+    (hs : m.sites = o₀ :: rest) (n : Nat) :
+    Mending.speculate m n <+: o₀.candidates := by
+  unfold Mending.speculate
+  rw [hs]
+  exact List.take_prefix n o₀.candidates
+
 /-- Changing a site's candidates keeps every site's declaration index the
 same, so a declaration bound on the old list transfers to the new one. -/
 theorem Mending.bounded_setHead {decls : Nat} {o : Open} {rest : List Open} (cs : List Candidate)

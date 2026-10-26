@@ -15,9 +15,12 @@ bumped: the baseline is the parent commit (`HEAD~1`), checked out in a
 detached worktree under `<target>/.lean-mend/base`. The mend branch is
 `lean-mend/mend`, created at `HEAD`. Each accepted patch is one commit on it.
 
-Not built yet: attempts in separate worktrees (concept D3). Attempts run in
-the target checkout, one at a time, and a rejected candidate is reverted by
-restoring the file's previous bytes.
+By default (`--speculate 1`), an attempt runs in the target checkout, one
+candidate at a time; a rejected candidate is reverted by restoring the
+file's previous bytes. `--speculate <n>` attempts the next `n` head
+candidates at the same time, each in its own worktree (`docs/parallel.md`
+P14-P16, `consumeSpeculation`); the main checkout stays at the last accepted
+commit until the Core picks a winner, in rule order.
 -/
 
 namespace LeanMend.Shell
@@ -41,6 +44,10 @@ structure Ctx where
   annotate : Bool
   /-- `--follow-definition-changes` (decision D12). -/
   follow : Bool
+  /-- `--speculate <n>` (`docs/parallel.md` P14-P16): the width of the
+  speculative window at the head site. `1` (the default) attempts one
+  candidate at a time, in the target checkout, as before. -/
+  speculate : Nat := 1
   /-- Rules accepted in a declaration body earlier in this run. -/
   followed : IO.Ref (List String)
   /-- Statement sites already warned about (decision D12). -/
@@ -125,6 +132,96 @@ def warnFollow (c : Ctx) (m : String) (done : List String) (nodesAt : List (Site
           would change the statement `{t.replacement.take 60}…` to follow a definition change; \
           rerun with --follow-definition-changes"
 
+/-- Apply `cand` under `target` and rebuild `mm.module`, as `Mending.step`
+expects (`docs/parallel.md` P14): `target` is the main checkout for a plain
+attempt, or one attempt worktree's own copy for a speculative one. Returns the
+file's previous bytes (for a revert on the main checkout), the `rebuilt`
+observation, the `done` rule-name list `commitAccepted` and `warnFollow` need,
+and the nodes at the attempted site. -/
+def attemptOne (c : Ctx) (target : FilePath) (mm : Mending) (file : FilePath) (cand : Candidate) :
+    IO (ByteArray × MendObs × List String × List (Site × List Node)) := do
+  let saved ← applyEdit target file cand
+  let done := (← c.followed.get) ++
+    (match cand.target with | .body _ => [(cand.rule.splitOn ": ").head!] | _ => [])
+  let (e, _, lints, opens0, nodesAt) ← diagnose target mm.module file c.aliases c.rules c.annotate c.follow
+    (if c.follow then done else [])
+  let opens := opens0.filter fun o => !mm.residue.any (·.sameAs o.site)
+  let editEnd := cand.start + cand.replacement.utf8ByteSize
+  let spans := if cand.changed.isEmpty then [(cand.start, editEnd)] else cand.changed
+  let inEdit := lints.filter fun (o, _) => spans.any fun (a, b) => a ≤ o && o < b
+  let lint := inEdit.length
+  let unused := inEdit.filterMap (·.2)
+  pure (saved, .rebuilt e lint unused opens, done, nodesAt)
+
+/-- The ledger detail of a `rebuilt` observation, for the step named `"rebuilt"`. -/
+def rebuiltDetail (rule : String) : MendObs → Json
+  | .rebuilt e lint unused _ =>
+    Json.mkObj [("rule", toJson rule), ("errors", toJson e), ("lint", toJson lint),
+                ("unused", toJson unused)]
+  | _ => Json.null
+
+/-- The side effects of a candidate the Core accepted: the decision-D11/D12
+bookkeeping and the mend-branch commit. Only the driver writes the mend
+branch (`docs/parallel.md` P11). -/
+def commitAccepted (c : Ctx) (m : String) (file : FilePath) (cand : Candidate)
+    (done : List String) (nodesAt : List (Site × List Node)) : IO Unit := do
+  if let .typeAnnotation d := cand.target then
+    appendWarning c.ledger s!"narrowed binders of type {d} in {m}: {cand.rule}"
+  if let .followStatement d := cand.target then
+    c.followedDecls.modify (d :: ·)
+    appendWarning c.ledger s!"changed the statement of {d} in {m} to follow a definition change: {cand.rule}"
+  if let .body _ := cand.target then
+    c.followed.modify fun xs => (cand.rule.splitOn ": ").head! :: xs
+  warnFollow c m done nodesAt
+  discard <| git c.target #["add", file.toString]
+  discard <| git c.target #["commit", "-q", "-m",
+    s!"lean-mend: {cand.rule} in {m}\n\nRule: {cand.rule}\nEntrenchment: {repr cand.entrenchment}"]
+
+/-- One speculative attempt's result: the observation `Mending.step` must
+see, the data `commitAccepted` needs if the Core accepts it, and the wall
+time of its own rebuild, for the ledger (`docs/parallel.md` P14). -/
+structure SpecResult where
+  obs : MendObs
+  done : List String
+  nodesAt : List (Site × List Node)
+  startedAt : Nat
+  finishedAt : Nat
+
+/-- Attempt every candidate of `items` in its own worktree, at the same time
+(`docs/parallel.md` P14), then feed `Mending.step` their verdicts in rule
+order (P15): a reject for every one that failed, then an accept at the first
+that passed. Stops at the first accept, or when a verdict does not plainly
+reject (a cleaning, or a refusal): the remaining precomputed results no
+longer match the Core's state, so the batch ends there and the ordinary loop
+resumes at the new head. Every result after the one it stops at is discarded
+without being applied anywhere (P16): `consumeSpeculation` never touches the
+main checkout except through `commitAccepted` at an accept. -/
+partial def consumeSpeculation (c : Ctx) (m : String) (file : FilePath) :
+    List (Candidate × FilePath × Task (Except IO.Error SpecResult)) → RunState → Mending →
+      Nat → IO (RunState × Option Nat)
+  | [], s, _, _ => pure (s, none)
+  | (cd, dir, t) :: rest, s, mmCur, i => do
+    let r ← IO.ofExcept t.get
+    record c "speculateAttempt"
+      (Json.mkObj [("index", toJson (i + 1)), ("worktree", toJson dir.toString),
+                   ("rule", toJson cd.rule), ("startedAt", toJson r.startedAt),
+                   ("finishedAt", toJson r.finishedAt)]) s
+    let s' ← stepL c s (.mend r.obs) "rebuilt" (rebuiltDetail cd.rule r.obs)
+    match s' with
+    | .mending _ _ mm' =>
+      if mm'.accepted.length > mmCur.accepted.length then
+        -- The winning candidate was only ever applied in its own worktree
+        -- (`docs/parallel.md` P14); the main checkout still holds the
+        -- pre-attempt bytes, so apply it there before the commit.
+        discard <| applyEdit c.target file cd
+        commitAccepted c m file cd r.done r.nodesAt
+        pure (s', some (i + 1))
+      else if (mm'.sites.head?.map (·.candidates.length)) ==
+          (mmCur.sites.head?.map fun o => o.candidates.length - 1) then
+        consumeSpeculation c m file rest s' mm' (i + 1)
+      else pure (s', none)
+    | _ => pure (s', none)
+
 /-- The level-1 loop, after `bumped`. Termination is the theorem set in
 `Spec/Termination.lean`; the loop itself is `partial` because it runs IO. -/
 partial def loop (c : Ctx) (s : RunState) : IO RunState := do
@@ -186,48 +283,56 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
                      ("text", toJson site.diagnostic.text)]))
     | .attempt cand =>
       let file := c.fileOf mm.module
-      let saved ← applyEdit c.target file cand
-      -- Read the new sites as if this attempt is accepted: on a reject the
-      -- machine ignores them. So a statement site sees a body edit at once.
-      let done := (← c.followed.get) ++
-        (match cand.target with | .body _ => [(cand.rule.splitOn ": ").head!] | _ => [])
-      let (e, _, lints, opens0, nodesAt) ← diagnose c.target mm.module file c.aliases c.rules c.annotate c.follow
-        (if c.follow then done else [])
-      -- Residue sites stay errors in the file; they are not tried again.
-      let opens := opens0.filter fun o => !mm.residue.any (·.sameAs o.site)
-      -- Linter warnings inside the replaced bytes: the candidate caused them.
-      let editEnd := cand.start + cand.replacement.utf8ByteSize
-      let spans := if cand.changed.isEmpty then [(cand.start, editEnd)] else cand.changed
-      let inEdit := lints.filter fun (o, _) => spans.any fun (a, b) => a ≤ o && o < b
-      let lint := inEdit.length
-      let unused := inEdit.filterMap (·.2)
-      let s' ← stepL c s (.mend (.rebuilt e lint unused opens)) "rebuilt"
-        (Json.mkObj [("rule", toJson cand.rule), ("errors", toJson e), ("lint", toJson lint),
-                     ("unused", toJson unused)])
-      let acceptedNow := match s' with
-        | .mending _ _ mm' => decide (mm'.accepted.length > mm.accepted.length)
-        | _ => false
-      if acceptedNow then
-        -- Decision D11: an applied type narrowing is always reported, even if
-        -- the module does not build and the certificate never compares it.
-        if let .typeAnnotation d := cand.target then
-          appendWarning c.ledger s!"narrowed binders of type {d} in {mm.module}: {cand.rule}"
-        if let .followStatement d := cand.target then
-          c.followedDecls.modify (d :: ·)
-          appendWarning c.ledger s!"changed the statement of {d} in {mm.module} to follow a definition change: {cand.rule}"
-        if let .body _ := cand.target then
-          c.followed.modify fun xs => (cand.rule.splitOn ": ").head! :: xs
-        warnFollow c mm.module done nodesAt
-        discard <| git c.target #["add", file.toString]
-        discard <| git c.target #["commit", "-q", "-m",
-          s!"lean-mend: {cand.rule} in {mm.module}\n\nRule: {cand.rule}\nEntrenchment: {repr cand.entrenchment}"]
+      if c.speculate ≤ 1 then
+        -- The target checkout holds one attempt at a time, reverted on a
+        -- reject (concept D3: attempts in worktrees are level 3 only).
+        let (saved, obs, done, nodesAt) ← attemptOne c c.target mm file cand
+        let s' ← stepL c s (.mend obs) "rebuilt" (rebuiltDetail cand.rule obs)
+        let acceptedNow := match s' with
+          | .mending _ _ mm' => decide (mm'.accepted.length > mm.accepted.length)
+          | _ => false
+        if acceptedNow then
+          commitAccepted c mm.module file cand done nodesAt
+        else
+          IO.FS.writeBinFile (c.target / file) saved
+        loop c s'
       else
-        IO.FS.writeBinFile (c.target / file) saved
-      loop c s'
+        -- Speculation across the head site's candidates (`docs/parallel.md`
+        -- P14-P16): the next `c.speculate` candidates, each in its own
+        -- worktree, attempted at the same time.
+        let cands := mm.speculate c.speculate
+        let base := ((← git c.target #["rev-parse", "HEAD"]).splitOn "\n").head!
+        let dirs := (List.range cands.length).map fun i => c.target / ".lean-mend" / s!"attempt-{i + 1}"
+        -- `git worktree add` writes the shared `.git/worktrees` directory, so
+        -- the driver serializes it; the rebuild each starts is what runs at
+        -- the same time.
+        for dir in dirs do
+          discard <| git c.target #["worktree", "add", "-q", "--detach", dir.toString, base]
+        record c "speculateRound"
+          (Json.mkObj [("module", toJson mm.module), ("width", toJson c.speculate),
+                       ("candidates", toJson cands.length),
+                       ("worktrees", toJson (dirs.map FilePath.toString))]) s
+        let items ← (dirs.zip cands).mapM fun (dir, cd) => do
+          let t ← IO.asTask
+            (do
+              let startedAt ← IO.monoMsNow
+              let (_, obs, done, nodesAt) ← attemptOne c dir mm file cd
+              let finishedAt ← IO.monoMsNow
+              pure { obs, done, nodesAt, startedAt, finishedAt : SpecResult })
+            (prio := .dedicated)
+          pure (cd, dir, t)
+        let (s', acceptedIndex) ← consumeSpeculation c mm.module file items s mm 0
+        record c "speculateResult"
+          (Json.mkObj [("module", toJson mm.module), ("acceptedIndex", toJson acceptedIndex)]) s'
+        for dir in dirs do
+          discard <| git c.target #["worktree", "remove", "--force", dir.toString]
+        record c "speculateCleanup" (Json.mkObj [("removed", toJson (dirs.map FilePath.toString))]) s'
+        loop c s'
   | other => pure other
 
 /-- Run the `--prepare` command in a tree before its build, for example
-`lake exe cache get` for a Mathlib project. It must succeed. -/
+`lake exe cache get` when the target's own dependencies need fetching. It
+must succeed. -/
 def prepareTree (tree : FilePath) : List String → IO Unit
   | [] => pure ()
   | cmd :: args => discard <| runOk tree cmd args.toArray
@@ -235,7 +340,7 @@ def prepareTree (tree : FilePath) : List String → IO Unit
 /-- `lean-mend run <target> --adopt [--targets <t,…>] [--prepare <cmd>] [--aliases-from <project>]…` -/
 def runAdopt (target : FilePath) (targets : List String) (aliasesFrom : List FilePath)
     (prepare : List String := []) (rules : List Rule := []) (annotate : Bool := false)
-    (follow : Bool := false) : IO RunState := do
+    (follow : Bool := false) (speculate : Nat := 1) : IO RunState := do
   -- Absolute paths: git and lake run with the target as their working
   -- directory, so a relative path would resolve one level too deep.
   let target ← IO.FS.realPath target
@@ -291,7 +396,7 @@ def runAdopt (target : FilePath) (targets : List String) (aliasesFrom : List Fil
   let warned ← IO.mkRef ([] : List String)
   let followedDecls ← IO.mkRef ([] : List String)
   let c : Ctx := { target, toolchain, files, order, targets, aliases := resolved, rules, annotate,
-                   follow, followed, warned, followedDecls, ledger,
+                   follow, speculate, followed, warned, followedDecls, ledger,
                    start := "" }
   -- The machine, in its own order.
   let s ← stepL c (.idle target.toString) (.baseline baseCert baseFailing) "baseline"

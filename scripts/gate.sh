@@ -49,6 +49,7 @@ step "decision D12 on the follow fixture" tests/follow.sh
 step "D12 body edit and statement follow as one candidate" \
   tests/follow-pair.sh tests/fixtures/follow-pair
 step "site order by declaration coordinates" tests/order.sh tests/fixtures/order-first
+step "speculation across candidates" tests/speculate.sh
 exposure() {
   [ "$(tests/expose.sh tests/fixtures/expose-two | jq -r .verdict)" = accepted ] &&
   [ "$(tests/expose.sh tests/fixtures/expose-back | jq -r .verdict)" = rejected ]

@@ -55,12 +55,14 @@ structure RunOpts where
   rules : Option System.FilePath := none
   annotate : Bool := false
   follow : Bool := false
+  speculate : Nat := 1
 
 def usage : String :=
   "usage: lean-mend baseline <target>\n" ++
   "       lean-mend run <target> --adopt [--targets <t,…>] [--prepare <cmd>]\n" ++
   "                 [--rules <dir>] [--annotate-binders]\n" ++
-  "                 [--follow-definition-changes] [--aliases-from <project>]…\n" ++
+  "                 [--follow-definition-changes] [--speculate <n>]\n" ++
+  "                 [--aliases-from <project>]…\n" ++
   "       lean-mend cards <target>\n" ++
   "       lean-mend judge <target> <card> accept|reject --by <name>"
 
@@ -72,6 +74,7 @@ def parseOpts : List String → Option RunOpts
   | "--rules" :: d :: more => (parseOpts more).map fun o => { o with rules := some d }
   | "--annotate-binders" :: more => (parseOpts more).map fun o => { o with annotate := true }
   | "--follow-definition-changes" :: more => (parseOpts more).map fun o => { o with follow := true }
+  | "--speculate" :: n :: more => n.toNat?.bind fun w => (parseOpts more).map fun o => { o with speculate := w }
   | _ => none
 
 /-- Every `*.json` file of a rules directory, in file-name order, parsed. A file
@@ -93,7 +96,7 @@ def runCmd (t : String) (rest : List String) : IO UInt32 := do
       let rules ← match o.rules with
         | some d => loadRules d
         | none => pure []
-      let s ← runAdopt t o.targets o.aliasesFrom o.prepare rules o.annotate o.follow
+      let s ← runAdopt t o.targets o.aliasesFrom o.prepare rules o.annotate o.follow o.speculate
       let target ← IO.FS.realPath t
       let ws ← ledgerWarnings (target / ".lean-mend" / "ledger.jsonl")
       IO.println ((summary s).setObjVal! "warnings" (toJson ws)).compress

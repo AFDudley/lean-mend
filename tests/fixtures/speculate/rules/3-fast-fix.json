@@ -1,0 +1,14 @@
+{
+  "name": "speculate-fast-fix",
+  "class": "unknownIdentifier",
+  "entrenchment": "ratified",
+  "node": "any",
+  "candidates": [
+    {
+      "op": "replaceInBody",
+      "decl": "foo",
+      "old": "exact unknownHead",
+      "new": "trivial"
+    }
+  ]
+}

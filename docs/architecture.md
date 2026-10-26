@@ -124,10 +124,13 @@ replace Lake.
    imports are built.
 
 Modules are handled in graph order (brief item 1). The design attempts
-independent frontier modules in parallel, each in its own worktree (concept D3).
-The current driver does not do this yet: it attempts one candidate at a time in
-the target checkout, and it reverts a rejected candidate by writing back the
-file's previous bytes.
+independent frontier modules in parallel, each in its own worktree (concept
+D3). The current driver does not do this yet: by default it attempts one
+candidate at a time in the target checkout, and it reverts a rejected
+candidate by writing back the file's previous bytes. `--speculate <n>`
+attempts the next `n` candidates of the head site at the same time instead,
+each in its own worktree (`docs/parallel.md` Level 3); this is the one
+worktree-isolated attempt the driver runs today.
 
 ## The two stores
 
