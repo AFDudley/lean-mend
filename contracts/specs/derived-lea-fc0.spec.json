@@ -1,0 +1,252 @@
+{
+  "id": "derived-lea-fc0",
+  "original_statement": "What must hold? State the invariant or expectation this concerns. The Core forms a batch of at most one candidate per failing theorem or lemma body and decides it as the left fold of Mending.step in source order. Mending.batch_distinct, Mending.batch_bodyOnly, Mending.stepBatch_eq_fold and Mending.stepBatch_measure hold. Decisions P1, P2, P3, P6 and P7 and the S2a acceptance check of docs/parallel.md hold.\nWhat holds now? Describe the current, observed state. LeanMend/Core/Mend.lean decides one candidate per observation. In EVMLean run 19, NoOutOfFuel had 22 sites of one class with the rule simp-set-id-run, and each accepted edit took one rebuild of the module.\nHow do you see it? Describe exactly how to observe this for yourself \u2014 the steps to reproduce, or how you would demo it. Run lake test: tests/OpsTest.lean shows Mending.batch on three failing theorem bodies and one failing def body, and stepBatch equal to the left fold of Mending.step, as docs/parallel.md S2a states. Run lake env lean tests/NoSorry.lean. Run scripts/gate.sh: failed is 0 in its JSON.\nWhat constraints apply? State them in plain prose. Spec and Core import no Shell module (scripts/gate.sh checks it). Termination stays a theorem in LeanMend/Spec/Termination.lean, with no retry cap and no timeout as a control. Decision D10 holds: lean-mend adds no declaration to a target. lean-mend depends on Lean core only, not on Mathlib. Every committed text is in ASD-STE100 Simplified Technical English. Run export PATH=\"$HOME/.elan/bin:$PATH\" before a lean or lake command. Scratch files go in the gitignored .scratch/ directory, not /tmp. The worker task timeout is 3600 seconds. Do not run lean-mend on EVMLean: one EVMLean run takes about 2 hours, and the operator runs it after the merge.\nWhere does this apply? (e.g. gateway route, mobile screen, CLI verb) LeanMend/Core/Mend.lean, LeanMend/Spec/Termination.lean, tests/OpsTest.lean",
+  "restatement": "The Core of lean-mend must decide a batch of candidates in one step, not one candidate per observation. The batch holds at most one candidate for each failing theorem or lemma body. It excludes def bodies and combined candidates, and it decides the sites as the left fold of Mending.step in source order. The Lean theorems Mending.batch_distinct, Mending.batch_bodyOnly, Mending.stepBatch_eq_fold and Mending.stepBatch_measure hold. The tests, the no-sorry check and scripts/gate.sh pass. The layering, termination, dependency and language constraints stay intact.",
+  "restatement_clauses": [
+    {
+      "id": "c1",
+      "text": "The four theorems Mending.batch_distinct, Mending.batch_bodyOnly, Mending.stepBatch_eq_fold and Mending.stepBatch_measure are stated in the Lean sources under LeanMend/Core/Mend.lean and LeanMend/Spec/Termination.lean."
+    },
+    {
+      "id": "c2",
+      "text": "Run lake test: tests/OpsTest.lean shows Mending.batch on three failing theorem bodies and one failing def body, and stepBatch equal to the left fold of Mending.step. The run exits with code 0."
+    },
+    {
+      "id": "c3",
+      "text": "tests/OpsTest.lean names both Mending.batch and stepBatch."
+    },
+    {
+      "id": "c4",
+      "text": "Run lake env lean tests/NoSorry.lean: it succeeds, so no sorry exists."
+    },
+    {
+      "id": "c5",
+      "text": "Run scripts/gate.sh: failed is 0 in its JSON."
+    },
+    {
+      "id": "c6",
+      "text": "Spec and Core import no Shell module."
+    },
+    {
+      "id": "c7",
+      "text": "Termination stays a theorem in LeanMend/Spec/Termination.lean, with no retry cap and no timeout as a control."
+    },
+    {
+      "id": "c8",
+      "text": "lean-mend depends on Lean core only and does not import Mathlib."
+    }
+  ],
+  "goal": "Add the batch step to LeanMend/Core/Mend.lean so that one rebuild can decide many sites, with proofs and tests as docs/parallel.md S2a states.",
+  "acceptance_criteria": [
+    "The Core and Spec sources name all four batch theorems.",
+    "The full gate runs the whole Lean test suite. It passes the build, the no-sorry step and the test step, and it exits with code 0.",
+    "The ops test file names both the batch function and the batch step.",
+    "The gate runs the no-sorry check as its third step. The gate reports at least four passed steps, so that check passed.",
+    "The gate prints one JSON report. The report shows zero failed steps.",
+    "No Spec or Core file imports a Shell module.",
+    "The termination file has no retry cap and no timeout as a control.",
+    "No source file imports Mathlib."
+  ],
+  "request_clauses": [
+    {
+      "id": "c1",
+      "text": "The Core and Spec sources name all four batch theorems."
+    },
+    {
+      "id": "c2",
+      "text": "The full gate runs the whole Lean test suite. It passes the build, the no-sorry step and the test step, and it exits with code 0."
+    },
+    {
+      "id": "c3",
+      "text": "The ops test file names both the batch function and the batch step."
+    },
+    {
+      "id": "c4",
+      "text": "The gate runs the no-sorry check as its third step. The gate reports at least four passed steps, so that check passed."
+    },
+    {
+      "id": "c5",
+      "text": "The gate prints one JSON report. The report shows zero failed steps."
+    },
+    {
+      "id": "c6",
+      "text": "No Spec or Core file imports a Shell module."
+    },
+    {
+      "id": "c7",
+      "text": "The termination file has no retry cap and no timeout as a control."
+    },
+    {
+      "id": "c8",
+      "text": "No source file imports Mathlib."
+    }
+  ],
+  "acceptance_tests": [
+    {
+      "type": "grep",
+      "description": "The Core and Spec sources name all four batch theorems.",
+      "proves": "The four required batch theorems are stated in the sources.",
+      "restatement_clause_id": "c1",
+      "pattern": "theorem\\s+(Mending\\.)?batch_distinct",
+      "additional_patterns": [
+        "theorem\\s+(Mending\\.)?batch_bodyOnly",
+        "theorem\\s+(Mending\\.)?stepBatch_eq_fold",
+        "theorem\\s+(Mending\\.)?stepBatch_measure"
+      ],
+      "files": [
+        "LeanMend/Core/Mend.lean",
+        "LeanMend/Spec/Termination.lean"
+      ],
+      "count": {
+        "unit": "patterns",
+        "op": "eq",
+        "value": 4
+      },
+      "clause_id": "c1"
+    },
+    {
+      "type": "behavior",
+      "description": "The full gate runs the whole Lean test suite. It passes the build, the no-sorry step and the test step, and it exits with code 0.",
+      "proves": "The Lean tests, including the batch test on three theorem bodies and one def body, pass.",
+      "restatement_clause_id": "c2",
+      "when": {
+        "interpreter": "",
+        "script": "scripts/gate.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "exit_code",
+          "field": "",
+          "op": "eq",
+          "value": 0
+        },
+        {
+          "observe": "stdout_json",
+          "field": "passed",
+          "op": "ge",
+          "value": 4
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 3600,
+      "clause_id": "c2"
+    },
+    {
+      "type": "grep",
+      "description": "The ops test file names both the batch function and the batch step.",
+      "proves": "The test file covers both Mending.batch and stepBatch.",
+      "restatement_clause_id": "c3",
+      "pattern": "Mending\\.batch\\b",
+      "additional_patterns": [
+        "stepBatch"
+      ],
+      "files": [
+        "tests/OpsTest.lean"
+      ],
+      "count": {
+        "unit": "patterns",
+        "op": "eq",
+        "value": 2
+      },
+      "clause_id": "c3"
+    },
+    {
+      "type": "behavior",
+      "description": "The gate runs the no-sorry check as its third step. The gate reports at least four passed steps, so that check passed.",
+      "proves": "No sorry exists in any LeanMend constant.",
+      "restatement_clause_id": "c4",
+      "when": {
+        "interpreter": "",
+        "script": "scripts/gate.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "stdout_json",
+          "field": "passed",
+          "op": "ge",
+          "value": 4
+        },
+        {
+          "observe": "stdout_json",
+          "field": "failed",
+          "op": "eq",
+          "value": 0
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 3600,
+      "clause_id": "c4"
+    },
+    {
+      "type": "behavior",
+      "description": "The gate prints one JSON report. The report shows zero failed steps.",
+      "proves": "The full commit gate passes.",
+      "restatement_clause_id": "c5",
+      "when": {
+        "interpreter": "",
+        "script": "scripts/gate.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "stdout_json",
+          "field": "failed",
+          "op": "eq",
+          "value": 0
+        },
+        {
+          "observe": "exit_code",
+          "field": "",
+          "op": "eq",
+          "value": 0
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 3600,
+      "clause_id": "c5"
+    },
+    {
+      "type": "grep_absent",
+      "description": "No Spec or Core file imports a Shell module.",
+      "proves": "The layering rule holds.",
+      "restatement_clause_id": "c6",
+      "pattern": "^import\\s+LeanMend\\.Shell",
+      "files": [
+        "LeanMend/Core/*.lean",
+        "LeanMend/Spec/*.lean"
+      ],
+      "clause_id": "c6"
+    },
+    {
+      "type": "grep_absent",
+      "description": "The termination file has no retry cap and no timeout as a control.",
+      "proves": "Termination rests on a theorem, not on a cap or a timeout.",
+      "restatement_clause_id": "c7",
+      "pattern": "(?i)max_?retr|retry_?cap|timeout",
+      "files": [
+        "LeanMend/Spec/Termination.lean"
+      ],
+      "clause_id": "c7"
+    },
+    {
+      "type": "grep_absent",
+      "description": "No source file imports Mathlib.",
+      "proves": "lean-mend depends on Lean core only.",
+      "restatement_clause_id": "c8",
+      "pattern": "^import\\s+Mathlib",
+      "files": [
+        "LeanMend/**/*.lean",
+        "tests/*.lean"
+      ],
+      "clause_id": "c8"
+    }
+  ],
+  "declared_new_entrypoints": [
+    "scripts/gate.sh"
+  ]
+}
