@@ -355,3 +355,9 @@
 {"type":"comment","timestamp":"2026-10-26T04:15:49.760600Z","issue_id":"lea-e8e","payload":{"body":"gate-verdict: 7d261c8f95cf43437ca092a071a050543e0095fd passed 0.2.1+b32d6b6d","build":"0.2.1+b32d6b6d","outcome":"passed","sha":"7d261c8f95cf43437ca092a071a050543e0095fd","verdict_kind":"gate_verdict"}}
 {"type":"comment","timestamp":"2026-10-26T04:15:49.765371Z","issue_id":"lea-e8e","payload":{"body":"exophiald: merged (merged_ff).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
 {"type":"close","timestamp":"2026-10-26T04:15:49.767463Z","issue_id":"lea-e8e","payload":{"outcome":"merged_ff","reason":"clean fast-forward merge; no rebase was needed"}}
+{"type":"create","timestamp":"2026-10-26T04:21:19.657215Z","issue_id":"lea-88d","payload":{"description":"Operator-authored branch `report-keyed`, landed via `exophial integrate --branch` — no pebble id already tracked it.","priority":"2","title":"land: report-keyed","type":"task"}}
+{"type":"comment","timestamp":"2026-10-26T04:21:19.661709Z","issue_id":"lea-88d","payload":{"body":"branch-identity: report-keyed"}}
+{"type":"comment","timestamp":"2026-10-26T04:21:19.679895Z","issue_id":"lea-88d","payload":{"body":"exophial-integration-attempt-started: at bcbde7b8ae2ce1b88b7b5c91ed49154359fc6f71"}}
+{"type":"comment","timestamp":"2026-10-26T04:36:39.986218Z","issue_id":"lea-88d","payload":{"body":"gate-verdict: c849f29558a9ec6da241432b958f01fd61b7801b passed 0.2.1+b32d6b6d","build":"0.2.1+b32d6b6d","outcome":"passed","sha":"c849f29558a9ec6da241432b958f01fd61b7801b","verdict_kind":"gate_verdict"}}
+{"type":"comment","timestamp":"2026-10-26T04:36:39.991404Z","issue_id":"lea-88d","payload":{"body":"exophiald: merged (merged_after_rebase).\n\nexophial-verdict: {\"verdict\": \"pass\"}"}}
+{"type":"close","timestamp":"2026-10-26T04:36:39.993715Z","issue_id":"lea-88d","payload":{"outcome":"merged_after_rebase","reason":"main had advanced since the branch was cut; the branch was rebased then fast-forwarded"}}
