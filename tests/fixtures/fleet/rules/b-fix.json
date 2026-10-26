@@ -1,0 +1,14 @@
+{
+  "name": "fleet-fix-b",
+  "class": "unknownIdentifier",
+  "entrenchment": "ratified",
+  "node": "any",
+  "candidates": [
+    {
+      "op": "replaceInBody",
+      "decl": "fooB",
+      "old": "exact unknownHeadB",
+      "new": "trivial"
+    }
+  ]
+}

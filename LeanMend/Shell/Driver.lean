@@ -15,12 +15,24 @@ bumped: the baseline is the parent commit (`HEAD~1`), checked out in a
 detached worktree under `<target>/.lean-mend/base`. The mend branch is
 `lean-mend/mend`, created at `HEAD`. Each accepted patch is one commit on it.
 
-By default (`--speculate 1`), an attempt runs in the target checkout, one
-candidate at a time; a rejected candidate is reverted by restoring the
-file's previous bytes. `--speculate <n>` attempts the next `n` head
-candidates at the same time, each in its own worktree (`docs/parallel.md`
-P14-P16, `consumeSpeculation`); the main checkout stays at the last accepted
-commit until the Core picks a winner, in rule order.
+A wave is every current frontier module (`docs/parallel.md` § Level 2,
+P8-P13): the driver mends every member at the same time, each in its own
+attempt worktree (`planWaveModule`, `planModule`). Each member's plan is
+computed in its own worktree, with no ledger write and no mend-branch commit;
+the driver then replays every member's plan against the shared `RunState`
+and the ledger, one member at a time in the wave's own canonical (module
+topological) order (`replayDiagnosed`, `replayRounds`), so the ledger and the
+commits come out exactly as a one-module-at-a-time run would write them, no
+matter which member's worktree finished first (P10-P12). Only the driver
+ever edits the main checkout or runs `git commit` there, so it is the only
+writer of the mend branch (P11).
+
+By default (`--speculate 1`), an attempt runs in the module's own wave
+worktree, one candidate at a time; a rejected candidate is reverted by
+restoring the file's previous bytes. `--speculate <n>` attempts the next `n`
+head candidates at the same time, each in its own nested worktree
+(`docs/parallel.md` P14-P16, `speculateRounds`); the plan keeps the last
+accepted candidate until the Core picks a winner, in rule order.
 -/
 
 namespace LeanMend.Shell
@@ -110,6 +122,25 @@ def statusList (c : Ctx) (st : Statuses) : List (String × ModStatus) :=
 
 def git (target : FilePath) (args : Array String) : IO String := runOk target "git" args
 
+/-- Symlink `dir`'s copy of every Lake package's `.lake` build directory
+(the main checkout's own, and every nested path dependency's) to the same
+package's `.lake` under `c.target` (`docs/parallel.md` P18). `dir` is a
+`git worktree add` checkout: it holds every package's tracked source, never
+a package's untracked build output, and `lake env lean --json` (`diagnose`,
+`attemptOne`) only ever reads that output through `LEAN_PATH` — `buildAll`,
+the only writer, always runs against `c.target` directly, never inside a
+wave or speculative attempt worktree, so every worktree can safely share
+one copy. -/
+def symlinkLakeDirs (c : Ctx) (dir : FilePath) : IO Unit := do
+  let link (srcRoot dstRoot : FilePath) : IO Unit := do
+    let src := srcRoot / ".lake"
+    if ← src.pathExists then
+      IO.FS.createDirAll dstRoot
+      discard <| runOk dir "ln" #["-s", src.toString, (dstRoot / ".lake").toString]
+  link c.target dir
+  for p in ← nestedPackageRoots c.target do
+    link (c.target / p) (dir / p)
+
 /-- Every alias pair from the probe's `deprecated`, in `project`, over `modules`. -/
 def deprecated (project : FilePath) (modules : List String) : IO (List (String × String)) := do
   if modules.isEmpty then return []
@@ -143,15 +174,28 @@ def warnFollow (c : Ctx) (m : String) (done : List String) (nodesAt : List (Site
           rerun with --follow-definition-changes"
 
 /-- Apply `cand` under `target` and rebuild `mm.module`, as `Mending.step`
-expects (`docs/parallel.md` P14): `target` is the main checkout for a plain
-attempt, or one attempt worktree's own copy for a speculative one. Returns the
-file's previous bytes (for a revert on the main checkout), the `rebuilt`
-observation, the `done` rule-name list `commitAccepted` and `warnFollow` need,
-and the nodes at the attempted site. -/
-def attemptOne (c : Ctx) (target : FilePath) (mm : Mending) (file : FilePath) (cand : Candidate) :
+expects (`docs/parallel.md` P14): `target` is one module's own wave worktree
+(`planModule`), or one nested worktree of a speculative attempt
+(`speculateRounds`). Returns the file's previous bytes (unused once the
+caller only ever discards or replays this worktree, never the main
+checkout directly), the `rebuilt` observation, the `done` rule-name list
+`commitAccepted` and `warnFollow` need, and the nodes at the attempted site.
+
+`followedSnapshot`, when given, replaces a live read of `c.followed`: a
+wave's modules plan at the same time (`docs/parallel.md` P8), so each one
+reads the single snapshot taken before the wave started, never another
+module's mid-wave accept — `c.followed` only gains that accept once the
+driver replays it, after the whole wave is planned. `none` (the sequential
+`--speculate 1` single-module path, outside a wave) reads `c.followed` live,
+as before. -/
+def attemptOne (c : Ctx) (target : FilePath) (mm : Mending) (file : FilePath) (cand : Candidate)
+    (followedSnapshot : Option (List String) := none) :
     IO (ByteArray × MendObs × List String × List (Site × List Node)) := do
   let saved ← applyEdit target file cand
-  let done := (← c.followed.get) ++
+  let followed ← match followedSnapshot with
+    | some d => pure d
+    | none => c.followed.get
+  let done := followed ++
     (match cand.target with | .body _ => [(cand.rule.splitOn ": ").head!] | _ => [])
   let (e, _, lints, opens0, nodesAt) ← diagnose target mm.module file c.aliases c.rules c.annotate c.follow
     (if c.follow then done else [])
@@ -187,54 +231,243 @@ def commitAccepted (c : Ctx) (m : String) (file : FilePath) (cand : Candidate)
   discard <| git c.target #["commit", "-q", "-m",
     s!"lean-mend: {cand.rule} in {m}\n\nRule: {cand.rule}\nEntrenchment: {repr cand.entrenchment}"]
 
-/-- One speculative attempt's result: the observation `Mending.step` must
-see, the data `commitAccepted` needs if the Core accepts it, and the wall
-time of its own rebuild, for the ledger (`docs/parallel.md` P14). -/
-structure SpecResult where
+/-- One round of `planModule`: either one attempted candidate (an
+`attempt`, `.rebuilt`/`.unparsable`) or a give-up (`.gaveUp`, no candidate).
+Computed inside a module's own wave worktree with no ledger write and no
+mend-branch commit, so the same round replays identically regardless of
+when, relative to another module's own rounds, it was computed
+(`docs/parallel.md` P8, P11, P12). `accepted` is `Mending.step`'s own
+verdict on this round, decided once while planning; `replayRounds` only
+replays it, never re-decides it. -/
+structure WaveRound where
   obs : MendObs
+  name : String
+  detail : Json
+  cand : Option Candidate
   done : List String
   nodesAt : List (Site × List Node)
+  accepted : Bool
   startedAt : Nat
   finishedAt : Nat
+  worktree : FilePath
+  /-- Extra ledger lines `replayRounds` writes before this round's own
+  (`.mend`) transition, each as `(name, detail)` against the round's own
+  `s` (no state change) — the speculative-candidate records
+  (`speculateAttempt`, `speculateResult`) a `--speculate n > 1` attempt
+  still writes, so `tests/speculate.sh` sees the same ledger shape it saw
+  before S3b. -/
+  extra : List (String × Json) := []
+  /-- This round's 1-based position in its speculative candidate list, for
+  `speculateResult`'s `acceptedIndex`. `none` outside a speculative round. -/
+  specIndex : Option Nat := none
 
-/-- Attempt every candidate of `items` in its own worktree, at the same time
-(`docs/parallel.md` P14), then feed `Mending.step` their verdicts in rule
-order (P15): a reject for every one that failed, then an accept at the first
-that passed. Stops at the first accept, or when a verdict does not plainly
-reject (a cleaning, or a refusal): the remaining precomputed results no
-longer match the Core's state, so the batch ends there and the ordinary loop
-resumes at the new head. Every result after the one it stops at is discarded
-without being applied anywhere (P16): `consumeSpeculation` never touches the
-main checkout except through `commitAccepted` at an accept. -/
-partial def consumeSpeculation (c : Ctx) (m : String) (file : FilePath) :
-    List (Candidate × FilePath × Task (Except IO.Error SpecResult)) → RunState → Mending →
-      Nat → IO (RunState × Option Nat)
-  | [], s, _, _ => pure (s, none)
-  | (cd, dir, t) :: rest, s, mmCur, i => do
-    let r ← IO.ofExcept t.get
-    record c "speculateAttempt"
-      (Json.mkObj [("index", toJson (i + 1)), ("worktree", toJson dir.toString),
-                   ("rule", toJson cd.rule), ("startedAt", toJson r.startedAt),
-                   ("finishedAt", toJson r.finishedAt)]) s
-    let s' ← stepL c s (.mend m r.obs) "rebuilt" (rebuiltDetail cd.rule r.obs)
-    match s' with
-    | .mending _ _ f' =>
-      let mm' ← soleMending f'
-      if mm'.accepted.length > mmCur.accepted.length then
-        -- The winning candidate was only ever applied in its own worktree
-        -- (`docs/parallel.md` P14); the main checkout still holds the
-        -- pre-attempt bytes, so apply it there before the commit.
-        discard <| applyEdit c.target file cd
-        commitAccepted c m file cd r.done r.nodesAt
-        pure (s', some (i + 1))
-      else if (mm'.sites.head?.map (·.candidates.length)) ==
-          (mmCur.sites.head?.map fun o => o.candidates.length - 1) then
-        consumeSpeculation c m file rest s' mm' (i + 1)
-      else pure (s', none)
-    | _ => pure (s', none)
+/-- Speculate across the head site's candidates of `mm`, inside `dir` (one
+module's own wave worktree, or the lone module's worktree outside a wave):
+the next `c.speculate` candidates, each in its own nested worktree, attempted
+at the same time (`docs/parallel.md` P14). Feeds `Mending.step` their
+verdicts in rule order (P15): a reject for every one that failed, then an
+accept at the first that passed. Stops at the first accept, or at the first
+verdict that does not plainly reject (a cleaning, or a refusal): the
+remaining precomputed results no longer match the Core's state, so the round
+list ends there and `planModule` resumes at the new head. Every candidate
+after the one it stops at is discarded without being recorded anywhere
+(P16): this function writes no ledger line and makes no mend-branch commit,
+by construction — only `replayRounds` ever does either, later, from the
+rounds this returns. -/
+partial def speculateRounds (c : Ctx) (dir : FilePath) (followedSnapshot : List String)
+    (mm : Mending) (file : FilePath) : IO (List WaveRound × Mending) := do
+  let cands := mm.speculate c.speculate
+  let base := ((← git dir #["rev-parse", "HEAD"]).splitOn "\n").head!
+  let dirs := (List.range cands.length).map fun i => dir / ".lean-mend" / s!"attempt-{i + 1}"
+  -- `git worktree add` writes the shared `.git/worktrees` directory, so the
+  -- driver serializes it; the rebuild each starts is what runs at the same
+  -- time.
+  for d in dirs do
+    discard <| git dir #["worktree", "add", "-q", "--detach", d.toString, base]
+    symlinkLakeDirs c d
+  let tasks ← (dirs.zip cands).mapM fun (d, cd) =>
+    IO.asTask
+      (do
+        let startedAt ← IO.monoMsNow
+        let (_, obs, done, nodesAt) ← attemptOne c d mm file cd followedSnapshot
+        let finishedAt ← IO.monoMsNow
+        pure (cd, d, obs, done, nodesAt, startedAt, finishedAt))
+      (prio := .dedicated)
+  let rec consume :
+      List (Task (Except IO.Error
+        (Candidate × FilePath × MendObs × List String × List (Site × List Node) × Nat × Nat))) →
+      Nat → Mending → IO (List WaveRound × Mending)
+    | [], _, mmc => pure ([], mmc)
+    | t :: rest, i, mmc => do
+      let (cd, d, obs, done, nodesAt, startedAt, finishedAt) ← IO.ofExcept t.get
+      match mmc.step obs with
+      | .error r => throw <| IO.userError s!"lean-mend: {mmc.module}: {repr r}"
+      | .ok mmc' =>
+        let accepted := mmc'.accepted.length > mmc.accepted.length
+        let round : WaveRound :=
+          { obs, name := "rebuilt", detail := rebuiltDetail cd.rule obs, cand := some cd,
+            done, nodesAt, accepted, startedAt, finishedAt, worktree := d, specIndex := some (i + 1)
+            extra := [("speculateAttempt",
+              Json.mkObj [("index", toJson (i + 1)), ("worktree", toJson d.toString),
+                          ("rule", toJson cd.rule), ("startedAt", toJson startedAt),
+                          ("finishedAt", toJson finishedAt)])] }
+        if accepted then pure ([round], mmc')
+        else if (mmc'.sites.head?.map (·.candidates.length)) ==
+            (mmc.sites.head?.map fun o => o.candidates.length - 1) then
+          let (rest', mmFinal) ← consume rest (i + 1) mmc'
+          pure (round :: rest', mmFinal)
+        else pure ([round], mmc')
+  let (rounds, mmFinal) ← consume tasks 0 mm
+  for d in dirs do
+    discard <| git dir #["worktree", "remove", "--force", d.toString]
+  -- `speculateResult`'s `acceptedIndex`: the accepted candidate's rule-order
+  -- position, or `none` if every speculated candidate was rejected (or the
+  -- batch stopped early on a cleaning). Attached to the last round, so
+  -- `replayRounds` writes it right after that round's own ledger line, as
+  -- the sequential run did.
+  let acceptedIndex := if rounds.getLast?.map (·.accepted) == some true then
+    rounds.getLast?.bind (·.specIndex) else none
+  let resultExtra : String × Json :=
+    ("speculateResult", Json.mkObj [("module", toJson mm.module), ("acceptedIndex", toJson acceptedIndex)])
+  let rounds := match rounds.reverse with
+    | [] => []
+    | last :: earlierRev => ({ last with extra := last.extra ++ [resultExtra] } :: earlierRev).reverse
+  pure (rounds, mmFinal)
+
+/-- Plan one module's whole wave-mend session inside `dir`, from `mm`'s
+current state to `Mending.next = .finish`: the sequence of `WaveRound`s a
+one-module-at-a-time run would see, decided by `Mending.step` exactly as it
+decides for a live run, but with no ledger write and no mend-branch commit
+(`docs/parallel.md` P8). `planWaveModule` runs this as a background task, one
+per wave member, so every member's build happens at the same time; the
+driver only ever reads the returned rounds back, later, in the wave's own
+canonical order (`replayRounds`). -/
+partial def planModule (c : Ctx) (dir : FilePath) (followedSnapshot : List String) (mm : Mending) :
+    IO (List WaveRound) := do
+  let file := c.fileOf mm.module
+  match mm.next with
+  | .finish => pure []
+  | .giveUp site =>
+    match mm.step .gaveUp with
+    | .error r => throw <| IO.userError s!"lean-mend: {mm.module}: {repr r}"
+    | .ok mm' =>
+      let now ← IO.monoMsNow
+      let round : WaveRound :=
+        { obs := .gaveUp, name := "gaveUp",
+          detail := Json.mkObj [("module", toJson mm.module), ("line", toJson site.diagnostic.line),
+                                 ("text", toJson site.diagnostic.text)],
+          cand := none, done := [], nodesAt := [], accepted := false,
+          startedAt := now, finishedAt := now, worktree := dir }
+      pure (round :: (← planModule c dir followedSnapshot mm'))
+  | .attempt cand =>
+    if c.speculate ≤ 1 then
+      -- `dir` holds one attempt at a time, as `Mending.step` expects
+      -- (concept D3: nested worktrees are level 3 only). A rejected edit is
+      -- reverted before the next attempt reuses this same worktree.
+      let startedAt ← IO.monoMsNow
+      let (saved, obs, done, nodesAt) ← attemptOne c dir mm file cand followedSnapshot
+      let finishedAt ← IO.monoMsNow
+      match mm.step obs with
+      | .error r => throw <| IO.userError s!"lean-mend: {mm.module}: {repr r}"
+      | .ok mm' =>
+        let accepted := mm'.accepted.length > mm.accepted.length
+        unless accepted do
+          IO.FS.writeBinFile (dir / file) saved
+        let round : WaveRound :=
+          { obs, name := "rebuilt", detail := rebuiltDetail cand.rule obs, cand := some cand,
+            done, nodesAt, accepted, startedAt, finishedAt, worktree := dir }
+        pure (round :: (← planModule c dir followedSnapshot mm'))
+    else
+      let (rounds, mm') ← speculateRounds c dir followedSnapshot mm file
+      pure (rounds ++ (← planModule c dir followedSnapshot mm'))
+
+/-- One wave member's plan: the module's initial diagnose (for the
+`.diagnosed` replay) and its full round sequence (for the `.mend` replays),
+with the worktree `planWaveModule` computed it in. -/
+structure WavePlan where
+  module : String
+  decls : Nat
+  opens : List Open
+  nodesAt0 : List (Site × List Node)
+  rounds : List WaveRound
+  dir : FilePath
+
+/-- Diagnose `m` inside its own wave worktree `dir`, build the initial
+`Mending` the same way `RunState.step` would for a live `.diagnosed`
+observation (reusing it on the real `ctx`/`st`, since `m` is already known
+to be a member of `frontier ctx.mods st`), then plan the whole session
+(`planModule`). This is the one background task per wave member
+(`docs/parallel.md` P8); the driver starts one per member, then replays each
+member's plan in the wave's own canonical order (`loop`). -/
+def planWaveModule (c : Ctx) (ctx : Context) (st : Statuses) (followedSnapshot : List String)
+    (dir : FilePath) (m : String) : IO WavePlan := do
+  let (_, decls, _, opens, nodesAt0) ← diagnose dir m (c.fileOf m) c.aliases c.rules c.annotate c.follow
+    (if c.follow then followedSnapshot else [])
+  let mm0 ← match RunState.step (.built ctx st) (.diagnosed m decls opens) with
+    | .mending _ _ f => soleMending f
+    | .halted r => throw <| IO.userError s!"lean-mend: {m}: {repr r}"
+    | _ => throw <| IO.userError s!"lean-mend: {m}: diagnosed did not enter mending"
+  let rounds ← planModule c dir followedSnapshot mm0
+  pure { module := m, decls, opens, nodesAt0, rounds, dir }
+
+/-- Replay `plan`'s initial diagnose against the shared ledger and
+`RunState` (`docs/parallel.md` P12): the same warnings, in the same order,
+that the `.built` branch of `loop` wrote for one module before S3b, now
+written once per wave member, in the wave's own canonical order. -/
+def replayDiagnosed (c : Ctx) (s : RunState) (plan : WavePlan) : IO RunState := do
+  let done ← c.followed.get
+  warnFollow c plan.module done plan.nodesAt0
+  -- Decision D11: without --annotate-binders, report the type narrowing the
+  -- run would apply, and leave the site as residue.
+  unless c.annotate do
+    for o in plan.opens do
+      for t in typeCandidates o.site do
+        appendWarning c.ledger s!"{plan.module}:{o.site.diagnostic.line} {o.site.decl.getD "?"}: \
+          would narrow `{o.site.text}` to `{t.replacement}`; rerun with --annotate-binders"
+  let siteJson := plan.opens.map fun o => Json.mkObj
+    [("line", toJson o.site.diagnostic.line),
+     ("class", toJson (toString (repr (classify o.site.diagnostic)))),
+     ("decl", toJson o.site.decl),
+     ("region", toJson (o.site.region.map fun r => toString (repr r))),
+     ("candidates", toJson o.candidates.length)]
+  stepL c s (.diagnosed plan.module plan.decls plan.opens) "diagnosed"
+    (Json.mkObj [("module", toJson plan.module), ("sites", toJson plan.opens.length),
+                 ("detail", Json.arr siteJson.toArray)])
+
+/-- Replay `plan`'s rounds against the shared ledger, `RunState` and the main
+checkout, in the module's own round order (`docs/parallel.md` P10, P12): an
+accepted round's candidate is applied to the main checkout and committed
+there — the only place any candidate from this wave is ever applied or
+committed (P11) — then the module is closed with `.mended`. -/
+def replayRounds (c : Ctx) (s : RunState) (plan : WavePlan) : IO RunState := do
+  let mut s := s
+  for r in plan.rounds do
+    record c "waveAttempt"
+      (Json.mkObj [("module", toJson plan.module), ("worktree", toJson r.worktree.toString),
+                   ("rule", toJson (r.cand.map (·.rule))),
+                   ("startedAt", toJson r.startedAt), ("finishedAt", toJson r.finishedAt)]) s
+    for (name, detail) in r.extra do
+      record c name detail s
+    s ← stepL c s (.mend plan.module r.obs) r.name r.detail
+    if r.accepted then
+      let some cand := r.cand
+        | throw <| IO.userError "lean-mend: an accepted wave round names no candidate"
+      let file := c.fileOf plan.module
+      discard <| applyEdit c.target file cand
+      commitAccepted c plan.module file cand r.done r.nodesAt
+  stepL c s (.mended plan.module) "mended" (toJson plan.module)
 
 /-- The level-1 loop, after `bumped`. Termination is the theorem set in
-`Spec/Termination.lean`; the loop itself is `partial` because it runs IO. -/
+`Spec/Termination.lean`; the loop itself is `partial` because it runs IO.
+
+A wave is every current frontier module (`docs/parallel.md` § Level 2): the
+driver mends every member at the same time, each in its own attempt
+worktree (P8), then replays every member's plan, one member at a time, in
+the wave's own canonical (module topological) order — `frontier` already
+returns the members in `ctx.mods`'s topological order (`Core.Run.frontier`)
+— so the ledger and the mend-branch commits come out exactly as a
+one-module-at-a-time run would write them (P10, P12), whichever member's
+worktree finished first. -/
 partial def loop (c : Ctx) (s : RunState) : IO RunState := do
   match s with
   | .built ctx st =>
@@ -257,91 +490,34 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
         { target := c.target.toString, start := c.start, base := ctx.base, after := cert,
           mods := ctx.mods, aliases := ctx.aliases, residue, cards } fs c.fileOf
       pure next
-    | m :: _ =>
-      let done ← c.followed.get
-      let (_, decls, _, opens, nodesAt) ← diagnose c.target m (c.fileOf m) c.aliases c.rules c.annotate c.follow
-        (if c.follow then done else [])
-      warnFollow c m done nodesAt
-      -- Decision D11: without --annotate-binders, report the type narrowing
-      -- the run would apply, and leave the site as residue.
-      unless c.annotate do
-        for o in opens do
-          for t in typeCandidates o.site do
-            appendWarning c.ledger s!"{m}:{o.site.diagnostic.line} {o.site.decl.getD "?"}: \
-              would narrow `{o.site.text}` to `{t.replacement}`; rerun with --annotate-binders"
-      let siteJson := opens.map fun o => Json.mkObj
-        [("line", toJson o.site.diagnostic.line),
-         ("class", toJson (toString (repr (classify o.site.diagnostic)))),
-         ("decl", toJson o.site.decl),
-         ("region", toJson (o.site.region.map fun r => toString (repr r))),
-         ("candidates", toJson o.candidates.length)]
-      loop c (← stepL c s (.diagnosed m decls opens) "diagnosed"
-        (Json.mkObj [("module", toJson m), ("sites", toJson opens.length),
-                     ("detail", Json.arr siteJson.toArray)]))
-  | .mending _ _ f =>
-    let mm ← soleMending f
-    match mm.next with
-    | .finish =>
-      let s' ← stepL c s (.mended mm.module) "mended" (toJson mm.module)
+    | wave =>
+      let followedSnapshot ← c.followed.get
+      let base := ((← git c.target #["rev-parse", "HEAD"]).splitOn "\n").head!
+      let dirs := (List.range wave.length).map fun i => c.target / ".lean-mend" / s!"wave-{i + 1}"
+      for dir in dirs do
+        discard <| git c.target #["worktree", "add", "-q", "--detach", dir.toString, base]
+        symlinkLakeDirs c dir
+      record c "waveStart"
+        (Json.mkObj [("modules", toJson wave), ("worktrees", toJson (dirs.map FilePath.toString))]) s
+      let tasks ← (dirs.zip wave).mapM fun (dir, m) =>
+        IO.asTask (planWaveModule c ctx st followedSnapshot dir m) (prio := .dedicated)
+      let mut plans : List WavePlan := []
+      for t in tasks do
+        plans := plans ++ [← IO.ofExcept t.get]
+      for dir in dirs do
+        discard <| git c.target #["worktree", "remove", "--force", dir.toString]
+      record c "waveCleanup" (Json.mkObj [("removed", toJson (dirs.map FilePath.toString))]) s
+      let mut s' := s
+      for plan in plans do
+        s' ← replayDiagnosed c s' plan
+      for plan in plans do
+        s' ← replayRounds c s' plan
       match s' with
       | .built _ st' =>
         let (_, built) ← buildAll c.target c.targets c.order
         let merged := overlay st' built
         loop c (← stepL c s' (.build merged) "build" (toJson ((statusList c merged).map fun (n, x) => s!"{n}: {repr x}")))
       | other => pure other
-    | .giveUp site =>
-      loop c (← stepL c s (.mend mm.module .gaveUp) "gaveUp"
-        (Json.mkObj [("module", toJson mm.module), ("line", toJson site.diagnostic.line),
-                     ("text", toJson site.diagnostic.text)]))
-    | .attempt cand =>
-      let file := c.fileOf mm.module
-      if c.speculate ≤ 1 then
-        -- The target checkout holds one attempt at a time, reverted on a
-        -- reject (concept D3: attempts in worktrees are level 3 only).
-        let (saved, obs, done, nodesAt) ← attemptOne c c.target mm file cand
-        let s' ← stepL c s (.mend mm.module obs) "rebuilt" (rebuiltDetail cand.rule obs)
-        let acceptedNow ← match s' with
-          | .mending _ _ f' => do
-            let mm' ← soleMending f'
-            pure (decide (mm'.accepted.length > mm.accepted.length))
-          | _ => pure false
-        if acceptedNow then
-          commitAccepted c mm.module file cand done nodesAt
-        else
-          IO.FS.writeBinFile (c.target / file) saved
-        loop c s'
-      else
-        -- Speculation across the head site's candidates (`docs/parallel.md`
-        -- P14-P16): the next `c.speculate` candidates, each in its own
-        -- worktree, attempted at the same time.
-        let cands := mm.speculate c.speculate
-        let base := ((← git c.target #["rev-parse", "HEAD"]).splitOn "\n").head!
-        let dirs := (List.range cands.length).map fun i => c.target / ".lean-mend" / s!"attempt-{i + 1}"
-        -- `git worktree add` writes the shared `.git/worktrees` directory, so
-        -- the driver serializes it; the rebuild each starts is what runs at
-        -- the same time.
-        for dir in dirs do
-          discard <| git c.target #["worktree", "add", "-q", "--detach", dir.toString, base]
-        record c "speculateRound"
-          (Json.mkObj [("module", toJson mm.module), ("width", toJson c.speculate),
-                       ("candidates", toJson cands.length),
-                       ("worktrees", toJson (dirs.map FilePath.toString))]) s
-        let items ← (dirs.zip cands).mapM fun (dir, cd) => do
-          let t ← IO.asTask
-            (do
-              let startedAt ← IO.monoMsNow
-              let (_, obs, done, nodesAt) ← attemptOne c dir mm file cd
-              let finishedAt ← IO.monoMsNow
-              pure { obs, done, nodesAt, startedAt, finishedAt : SpecResult })
-            (prio := .dedicated)
-          pure (cd, dir, t)
-        let (s', acceptedIndex) ← consumeSpeculation c mm.module file items s mm 0
-        record c "speculateResult"
-          (Json.mkObj [("module", toJson mm.module), ("acceptedIndex", toJson acceptedIndex)]) s'
-        for dir in dirs do
-          discard <| git c.target #["worktree", "remove", "--force", dir.toString]
-        record c "speculateCleanup" (Json.mkObj [("removed", toJson (dirs.map FilePath.toString))]) s'
-        loop c s'
   | other => pure other
 
 /-- Run the `--prepare` command in a tree before its build, for example

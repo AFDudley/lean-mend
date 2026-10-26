@@ -1,0 +1,8 @@
+name = "app"
+defaultTargets = ["ModA", "ModB"]
+
+[[lean_lib]]
+name = "ModA"
+
+[[lean_lib]]
+name = "ModB"

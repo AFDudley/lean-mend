@@ -61,6 +61,28 @@ partial def sourceFiles (target : FilePath) : IO (List FilePath) := do
     return acc
   walk target ""
 
+/-- Every nested Lake package under `target` (a path dependency's own
+directory, the same test `sourceFiles` uses to stop there), at any depth —
+`target` itself is not included. A wave or speculative attempt worktree
+symlinks each one's own `.lake` build directory from the main checkout
+(`docs/parallel.md` P18, `Shell.Driver.symlinkLakeDirs`): a `git worktree
+add` checkout holds every package's tracked source, never a package's
+untracked build output. -/
+partial def nestedPackageRoots (target : FilePath) : IO (List FilePath) := do
+  let skip := [".lake", ".lean-mend", ".scratch", ".git"]
+  let rec walk (dir : FilePath) (rel : FilePath) : IO (List FilePath) := do
+    let mut acc := []
+    for e in ← dir.readDir do
+      if ← e.path.isDir then
+        unless skip.contains e.fileName do
+          let r := if rel.toString.isEmpty then FilePath.mk e.fileName else rel / e.fileName
+          let nested := (← (e.path / "lakefile.toml").pathExists) ||
+            (← (e.path / "lakefile.lean").pathExists)
+          if nested then acc := acc ++ [r]
+          acc := acc ++ (← walk e.path r)
+    return acc
+  walk target ""
+
 /-- `Fx/Basic.lean` → `Fx.Basic`. -/
 def moduleOfFile (f : FilePath) : String :=
   ".".intercalate ((f.withExtension "").components)

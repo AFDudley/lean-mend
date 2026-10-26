@@ -60,4 +60,5 @@ exposure() {
 }
 step "exposure of later errors" exposure
 step "a namespace move with no aliases, on the move fixture" tests/move.sh
+step "parallel frontier modules" tests/fleet.sh tests/fixtures/fleet
 summary 0
