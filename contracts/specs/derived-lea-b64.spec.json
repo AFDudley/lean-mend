@@ -1,0 +1,293 @@
+{
+  "id": "derived-lea-b64",
+  "original_statement": "What must hold? State the invariant or expectation this concerns. The shell starts one probe process for each module that it mends. That process imports the module's imports one time and returns the regions and the nodes for every attempt on the module. Decisions C1, C2 and C3 and the S0a acceptance check of docs/parallel.md hold.\nWhat holds now? Describe the current, observed state. LeanMend/Shell/Target.lean diagnose calls readRegions and readNodes. Each call runs lake env lean --run .lean-mend/Probe.lean one time, and each run calls importModules on the file's imports and parses the whole file. On 2026-10-27, at a 1-minute load average of 30 to 40, regions on EVMLean ReturnDataBound.lean took 24.2 to 45.9 s, node took 22.9 to 25.8 s, and lake env lean --json on the same file took 11.9 to 13.2 s. regions on NoOutOfFuel.lean took 21.0 s.\nHow do you see it? Describe exactly how to observe this for yourself \u2014 the steps to reproduce, or how you would demo it. tests/probe-serve.sh starts the probe serve command on a fixture module, sends requests for three versions of the file, and compares each reply with the output of the regions and node commands on the same version. It prints the wall time of one request and the peak resident size of the probe process. The ledger of a run on tests/fixtures/expose-two holds one probe start for the module, and the run's branch tree equals the tree of the same run with the lean-mend binary from before this change. Run scripts/gate.sh: stdout is one JSON object; the key 'steps.one probe process per module.ok' is true, and failed is 0.\nWhat constraints apply? State them in plain prose. Spec and Core import no Shell module (scripts/gate.sh checks it). Termination stays a theorem in LeanMend/Spec/Termination.lean, with no retry cap and no timeout as a control. Decision D10 holds: lean-mend adds no declaration to a target. lean-mend depends on Lean core only, not on Mathlib. Every committed text is in ASD-STE100 Simplified Technical English. Run export PATH=\"$HOME/.elan/bin:$PATH\" before a lean or lake command. Scratch files go in the gitignored .scratch/ directory, not /tmp. The worker task timeout is 3600 seconds. Do not run lean-mend on EVMLean: one EVMLean run takes about 3 hours, and the operator runs it after the merge.\nWhere does this apply? (e.g. gateway route, mobile screen, CLI verb) probe/Probe.lean, LeanMend/Shell/Target.lean, LeanMend/Shell/Driver.lean, docs/architecture.md, scripts/gate.sh, tests/",
+  "restatement": "Today the shell runs a new probe process for every regions query and every node query. Each process imports the whole import closure of the file again, so one query costs 21 to 46 s on EVMLean under load, which is more than a full lake env lean --json run. The request is slice S0a of docs/parallel.md. The shell must start one long-lived probe process for each module it mends. That process loads the module's imports one time and loads them again only when a request's import header differs from the loaded header (C2). One request returns the declaration regions and the nodes at given byte offsets for one file version (C3). Every attempt on the module goes to that one process (C1). The change must not alter results: each serve reply equals the output of the existing regions and node commands for the same file version, and a full run on tests/fixtures/expose-two produces the same branch tree as the lean-mend binary from before the change, with one probe start in the ledger for the module. The runner tests/probe-serve.sh shows this and prints the wall time of one request and the peak resident size of the probe. scripts/gate.sh runs it as the step 'one probe process per module'. The existing constraints stay: Spec and Core import no Shell module, termination stays a theorem with no retry cap or timeout as a control, D10 holds, lean-mend depends on Lean core only, and no EVMLean run is part of the check. The change is a speed change with output identical to today, and lean-mend still compiles every edit, so a defect costs at most a slower or a rejected run.",
+  "restatement_clauses": [
+    {
+      "id": "c1",
+      "text": "tests/probe-serve.sh starts the probe serve command on a fixture module, sends requests for three versions of the file, and each reply equals the output of the regions and node commands on the same version."
+    },
+    {
+      "id": "c2",
+      "text": "tests/probe-serve.sh prints the wall time of one request and the peak resident size of the probe process."
+    },
+    {
+      "id": "c3",
+      "text": "The ledger of a run on tests/fixtures/expose-two holds one probe start for the module, and the run's branch tree equals the tree of the same run with the lean-mend binary from before this change."
+    },
+    {
+      "id": "c4",
+      "text": "scripts/gate.sh runs tests/probe-serve.sh as the step 'one probe process per module'."
+    },
+    {
+      "id": "c5",
+      "text": "Run scripts/gate.sh: stdout is one JSON object; the key 'steps.one probe process per module.ok' is true, and failed is 0."
+    },
+    {
+      "id": "c6",
+      "text": "Spec and Core import no Shell module (scripts/gate.sh checks it)."
+    },
+    {
+      "id": "c7",
+      "text": "lean-mend depends on Lean core only, not on Mathlib."
+    },
+    {
+      "id": "c8",
+      "text": "Termination stays a theorem in LeanMend/Spec/Termination.lean, with no retry cap and no timeout as a control."
+    }
+  ],
+  "goal": "Make the shell use one probe process per mended module, which imports the module's imports one time and answers every regions and node request of every attempt, with output identical to the current per-call probe.",
+  "acceptance_criteria": [
+    "Running the probe-serve check on a fixture module reports that the long-lived probe answered three file versions, and that every answer matched the answers of the old one-shot regions and node commands.",
+    "The probe-serve check prints a positive wall time for one request and a positive peak memory size for the probe process.",
+    "A full mend run on the expose-two fixture records exactly one probe start for the module, and the mended branch has the same file tree as a run with the lean-mend binary from before the change.",
+    "The gate script names the step 'one probe process per module' and runs tests/probe-serve.sh in it.",
+    "Running the whole gate prints one result where the step 'one probe process per module' passed and no step failed.",
+    "No file under LeanMend/Spec or LeanMend/Core imports a LeanMend.Shell module.",
+    "The package files and the probe do not name Mathlib.",
+    "The termination file still states at least one theorem."
+  ],
+  "request_clauses": [
+    {
+      "id": "c1",
+      "text": "Running the probe-serve check on a fixture module reports that the long-lived probe answered three file versions, and that every answer matched the answers of the old one-shot regions and node commands."
+    },
+    {
+      "id": "c2",
+      "text": "The probe-serve check prints a positive wall time for one request and a positive peak memory size for the probe process."
+    },
+    {
+      "id": "c3",
+      "text": "A full mend run on the expose-two fixture records exactly one probe start for the module, and the mended branch has the same file tree as a run with the lean-mend binary from before the change."
+    },
+    {
+      "id": "c4",
+      "text": "The gate script names the step 'one probe process per module' and runs tests/probe-serve.sh in it."
+    },
+    {
+      "id": "c5",
+      "text": "Running the whole gate prints one result where the step 'one probe process per module' passed and no step failed."
+    },
+    {
+      "id": "c6",
+      "text": "No file under LeanMend/Spec or LeanMend/Core imports a LeanMend.Shell module."
+    },
+    {
+      "id": "c7",
+      "text": "The package files and the probe do not name Mathlib."
+    },
+    {
+      "id": "c8",
+      "text": "The termination file still states at least one theorem."
+    }
+  ],
+  "acceptance_tests": [
+    {
+      "description": "Running the probe-serve check on a fixture module reports that the long-lived probe answered three file versions, and that every answer matched the answers of the old one-shot regions and node commands.",
+      "proves": "The single long-lived probe gives the same regions and nodes as the current per-call probe for each of three file versions (C3).",
+      "restatement_clause_id": "c1",
+      "type": "behavior",
+      "when": {
+        "interpreter": "",
+        "script": "tests/probe-serve.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "exit_code",
+          "field": "",
+          "op": "eq",
+          "value": 0
+        },
+        {
+          "observe": "stdout_json",
+          "field": "versions",
+          "op": "eq",
+          "value": 3
+        },
+        {
+          "observe": "stdout_json",
+          "field": "replies_equal",
+          "op": "eq",
+          "value": true
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 1200,
+      "clause_id": "c1"
+    },
+    {
+      "description": "The probe-serve check prints a positive wall time for one request and a positive peak memory size for the probe process.",
+      "proves": "The runner reports the cost of one request and the memory of the probe, so the operator can compare it with the old cost.",
+      "restatement_clause_id": "c2",
+      "type": "behavior",
+      "when": {
+        "interpreter": "",
+        "script": "tests/probe-serve.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "exit_code",
+          "field": "",
+          "op": "eq",
+          "value": 0
+        },
+        {
+          "observe": "stdout_json",
+          "field": "request_wall_ms",
+          "op": "gt",
+          "value": 0
+        },
+        {
+          "observe": "stdout_json",
+          "field": "peak_rss_kb",
+          "op": "gt",
+          "value": 0
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 1200,
+      "clause_id": "c2"
+    },
+    {
+      "description": "A full mend run on the expose-two fixture records exactly one probe start for the module, and the mended branch has the same file tree as a run with the lean-mend binary from before the change.",
+      "proves": "The shell starts one probe per module and serves every attempt from it (C1), and the change does not alter the mend result.",
+      "restatement_clause_id": "c3",
+      "type": "behavior",
+      "when": {
+        "interpreter": "",
+        "script": "tests/probe-once.sh",
+        "args": [
+          "tests/fixtures/expose-two"
+        ],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "exit_code",
+          "field": "",
+          "op": "eq",
+          "value": 0
+        },
+        {
+          "observe": "stdout_json",
+          "field": "probe_starts",
+          "op": "eq",
+          "value": 1
+        },
+        {
+          "observe": "stdout_json",
+          "field": "tree_equal",
+          "op": "eq",
+          "value": true
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 2400,
+      "clause_id": "c3"
+    },
+    {
+      "description": "The gate script names the step 'one probe process per module' and runs tests/probe-serve.sh in it.",
+      "proves": "The new check is part of the commit gate under its named step.",
+      "restatement_clause_id": "c4",
+      "type": "grep",
+      "pattern": "one probe process per module",
+      "additional_patterns": [
+        "tests/probe-serve\\.sh"
+      ],
+      "count": {
+        "unit": "patterns",
+        "op": "eq",
+        "value": 2
+      },
+      "files": [
+        "scripts/gate.sh"
+      ],
+      "clause_id": "c4"
+    },
+    {
+      "description": "Running the whole gate prints one result where the step 'one probe process per module' passed and no step failed.",
+      "proves": "The full gate, with the new step, passes on the changed code.",
+      "restatement_clause_id": "c5",
+      "type": "behavior",
+      "when": {
+        "interpreter": "",
+        "script": "scripts/gate.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "exit_code",
+          "field": "",
+          "op": "eq",
+          "value": 0
+        },
+        {
+          "observe": "stdout_json",
+          "field": "steps.one probe process per module.ok",
+          "op": "eq",
+          "value": true
+        },
+        {
+          "observe": "stdout_json",
+          "field": "failed",
+          "op": "eq",
+          "value": 0
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 3600,
+      "clause_id": "c5"
+    },
+    {
+      "description": "No file under LeanMend/Spec or LeanMend/Core imports a LeanMend.Shell module.",
+      "proves": "The change keeps the Spec and Core free of the shell.",
+      "restatement_clause_id": "c6",
+      "type": "grep_absent",
+      "pattern": "^import LeanMend\\.Shell",
+      "files": [
+        "LeanMend/Spec/**/*.lean",
+        "LeanMend/Core/**/*.lean"
+      ],
+      "clause_id": "c6"
+    },
+    {
+      "description": "The package files and the probe do not name Mathlib.",
+      "proves": "lean-mend still depends on Lean core only.",
+      "restatement_clause_id": "c7",
+      "type": "grep_absent",
+      "pattern": "[Mm]athlib",
+      "files": [
+        "lakefile.lean",
+        "lake-manifest.json",
+        "probe/Probe.lean"
+      ],
+      "clause_id": "c7"
+    },
+    {
+      "description": "The termination file still states at least one theorem.",
+      "proves": "Termination stays a proved theorem after the change.",
+      "restatement_clause_id": "c8",
+      "type": "grep",
+      "pattern": "^theorem ",
+      "files": [
+        "LeanMend/Spec/Termination.lean"
+      ],
+      "count": {
+        "unit": "lines",
+        "op": "ge",
+        "value": 1
+      },
+      "clause_id": "c8"
+    }
+  ],
+  "declared_new_entrypoints": [
+    "scripts/gate.sh",
+    "tests/probe-once.sh",
+    "tests/probe-serve.sh"
+  ]
+}
