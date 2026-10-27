@@ -1,0 +1,262 @@
+{
+  "id": "derived-lea-5eb",
+  "original_statement": "What must hold? State the invariant or expectation this concerns. lean-mend has the operation setOptionBefore name value. It puts set_option name value in before a declaration, and no heartbeats operation remains. A rule whose operations are all setOptionBefore runs after every other rule of its entrenchment. Three rules use it: backward.isDefEq.respectTransparency.types false (v4.33.0 #13895), maxRecDepth (v4.33.0 #13956), and backward.do.legacy true (v4.32.0 #13305). Decisions B1, B2 and B3 of docs/breaking-changes.md hold.\nWhat holds now? Describe the current, observed state. LeanMend/Spec/Types.lean EditOp has heartbeats (n : Nat), which inserts only set_option maxHeartbeats n in. No operation inserts any other option. rules/proposed has no rule for #13895, #13956 or #13305.\nHow do you see it? Describe exactly how to observe this for yourself \u2014 the steps to reproduce, or how you would demo it. Run lake test: tests/OpsTest.lean shows setOptionBefore producing the inserted text before a declaration, and a setOptionBefore rule ordered after another rule of the same entrenchment. A fixture under tests/ whose declaration fails under the v4.33.1 transparency default and builds with the option shows the rule accepted, through a runner that sources tests/lib/report.sh. Run scripts/gate.sh: stdout is one JSON object; the key 'steps.set_option before a declaration.ok' is true, and failed is 0.\nWhat constraints apply? State them in plain prose. Spec and Core import no Shell module (scripts/gate.sh checks it). Termination stays a theorem in LeanMend/Spec/Termination.lean, with no retry cap and no timeout as a control. Decision D10 holds: lean-mend adds no declaration to a target. lean-mend depends on Lean core only, not on Mathlib. Every committed text is in ASD-STE100 Simplified Technical English. Run export PATH=\"$HOME/.elan/bin:$PATH\" before a lean or lake command. Scratch files go in the gitignored .scratch/ directory, not /tmp. The worker task timeout is 3600 seconds. Do not run lean-mend on EVMLean: one EVMLean run takes about 2 hours, and the operator runs it after the merge.\nWhere does this apply? (e.g. gateway route, mobile screen, CLI verb) LeanMend/Spec/Types.lean, LeanMend/Core/Ops.lean, LeanMend/Shell/Parse.lean, rules/proposed/, docs/rules.md, tests/",
+  "restatement": "lean-mend replaces its heartbeats operation with one general operation, setOptionBefore name value, which puts 'set_option name value in' before a declaration. A rule whose operations are all setOptionBefore runs after every other rule of its entrenchment, because an option hides a change instead of adapting the source. Three proposed rules use it: backward.isDefEq.respectTransparency.types false (v4.33.0 #13895), maxRecDepth (v4.33.0 #13956) and backward.do.legacy true (v4.32.0 #13305). The existing constraints keep holding: Spec and Core import no Shell module, termination stays a theorem, lean-mend adds no declaration to a target, and it needs Lean core only.",
+  "restatement_clauses": [
+    {
+      "id": "c1",
+      "text": "EditOp in LeanMend/Spec/Types.lean has the operation setOptionBefore name value and no heartbeats operation remains."
+    },
+    {
+      "id": "c2",
+      "text": "setOptionBefore puts 'set_option name value in' before a declaration, shown by tests/OpsTest.lean under lake test, and the scripts/gate.sh step 'set_option before a declaration' has ok true."
+    },
+    {
+      "id": "c3",
+      "text": "A rule whose operations are all setOptionBefore runs after every other rule of its entrenchment, shown by a tests/OpsTest.lean case."
+    },
+    {
+      "id": "c4",
+      "text": "rules/proposed holds rules for backward.isDefEq.respectTransparency.types false (v4.33.0 #13895), maxRecDepth (v4.33.0 #13956) and backward.do.legacy true (v4.32.0 #13305), each using setOptionBefore."
+    },
+    {
+      "id": "c5",
+      "text": "A fixture under tests/ whose declaration fails under the v4.33.1 transparency default and builds with the option shows the rule accepted, through a runner that sources tests/lib/report.sh."
+    },
+    {
+      "id": "c6",
+      "text": "scripts/gate.sh prints one JSON object on stdout, and failed is 0."
+    },
+    {
+      "id": "c7",
+      "text": "Spec and Core import no Shell module, and lean-mend depends on Lean core only, not on Mathlib."
+    },
+    {
+      "id": "c8",
+      "text": "Termination stays a theorem in LeanMend/Spec/Termination.lean, and docs/rules.md describes setOptionBefore."
+    }
+  ],
+  "goal": "lean-mend gets one operation, setOptionBefore, that puts a set_option line before a declaration. It replaces heartbeats. Rules that only use it run last. Three rules use it.",
+  "acceptance_criteria": [
+    "The operation list in the spec types file names setOptionBefore.",
+    "The old heartbeats operation no longer appears in the spec types file.",
+    "The project gate runs. Its step 'set_option before a declaration' reports ok true.",
+    "The operations test file has a case for a rule ordered after another rule of the same entrenchment.",
+    "The proposed rules folder names all three option rules.",
+    "A test runner script under tests sources the shared report library.",
+    "The project gate finishes with no failed step.",
+    "No Spec or Core file imports a Shell module.",
+    "No Lean file imports Mathlib.",
+    "The rules document describes setOptionBefore.",
+    "The termination file still states a theorem."
+  ],
+  "request_clauses": [
+    {
+      "id": "c1",
+      "text": "The operation list in the spec types file names setOptionBefore."
+    },
+    {
+      "id": "c2",
+      "text": "The old heartbeats operation no longer appears in the spec types file."
+    },
+    {
+      "id": "c3",
+      "text": "The project gate runs. Its step 'set_option before a declaration' reports ok true."
+    },
+    {
+      "id": "c4",
+      "text": "The operations test file has a case for a rule ordered after another rule of the same entrenchment."
+    },
+    {
+      "id": "c5",
+      "text": "The proposed rules folder names all three option rules."
+    },
+    {
+      "id": "c6",
+      "text": "A test runner script under tests sources the shared report library."
+    },
+    {
+      "id": "c7",
+      "text": "The project gate finishes with no failed step."
+    },
+    {
+      "id": "c8",
+      "text": "No Spec or Core file imports a Shell module."
+    },
+    {
+      "id": "c9",
+      "text": "No Lean file imports Mathlib."
+    },
+    {
+      "id": "c10",
+      "text": "The rules document describes setOptionBefore."
+    },
+    {
+      "id": "c11",
+      "text": "The termination file still states a theorem."
+    }
+  ],
+  "acceptance_tests": [
+    {
+      "type": "grep",
+      "description": "The operation list in the spec types file names setOptionBefore.",
+      "proves": "The new operation exists in the spec types.",
+      "restatement_clause_id": "c1",
+      "pattern": "setOptionBefore",
+      "files": [
+        "LeanMend/Spec/Types.lean"
+      ],
+      "clause_id": "c1"
+    },
+    {
+      "type": "grep_absent",
+      "description": "The old heartbeats operation no longer appears in the spec types file.",
+      "proves": "No heartbeats operation remains.",
+      "restatement_clause_id": "c1",
+      "pattern": "heartbeats",
+      "files": [
+        "LeanMend/Spec/Types.lean"
+      ],
+      "clause_id": "c2"
+    },
+    {
+      "type": "behavior",
+      "description": "The project gate runs. Its step 'set_option before a declaration' reports ok true.",
+      "proves": "The operation inserts the set_option line before a declaration.",
+      "restatement_clause_id": "c2",
+      "when": {
+        "interpreter": "",
+        "script": "scripts/gate.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "stdout_json",
+          "field": "steps.set_option before a declaration.ok",
+          "op": "eq",
+          "value": true
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 3600,
+      "clause_id": "c3"
+    },
+    {
+      "type": "grep",
+      "description": "The operations test file has a case for a rule ordered after another rule of the same entrenchment.",
+      "proves": "The ordering of setOptionBefore rules is tested.",
+      "restatement_clause_id": "c3",
+      "pattern": "setOptionBefore",
+      "files": [
+        "tests/OpsTest.lean"
+      ],
+      "clause_id": "c4"
+    },
+    {
+      "type": "grep",
+      "description": "The proposed rules folder names all three option rules.",
+      "proves": "The three rules for #13895, #13956 and #13305 exist.",
+      "restatement_clause_id": "c4",
+      "pattern": "backward\\.isDefEq\\.respectTransparency\\.types",
+      "additional_patterns": [
+        "maxRecDepth",
+        "backward\\.do\\.legacy"
+      ],
+      "files": [
+        "rules/proposed/*"
+      ],
+      "count": {
+        "unit": "patterns",
+        "op": "eq",
+        "value": 3
+      },
+      "clause_id": "c5"
+    },
+    {
+      "type": "grep",
+      "description": "A test runner script under tests sources the shared report library.",
+      "proves": "The fixture runs through a runner that sources tests/lib/report.sh.",
+      "restatement_clause_id": "c5",
+      "pattern": "source .*lib/report\\.sh",
+      "files": [
+        "tests/*.sh"
+      ],
+      "clause_id": "c6"
+    },
+    {
+      "type": "behavior",
+      "description": "The project gate finishes with no failed step.",
+      "proves": "All gate steps pass, including the fixture that the rule makes build.",
+      "restatement_clause_id": "c6",
+      "when": {
+        "interpreter": "",
+        "script": "scripts/gate.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "stdout_json",
+          "field": "failed",
+          "op": "eq",
+          "value": 0
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 3600,
+      "clause_id": "c7"
+    },
+    {
+      "type": "grep_absent",
+      "description": "No Spec or Core file imports a Shell module.",
+      "proves": "The layering rule holds.",
+      "restatement_clause_id": "c7",
+      "pattern": "import LeanMend\\.Shell",
+      "files": [
+        "LeanMend/Spec/*.lean",
+        "LeanMend/Core/*.lean"
+      ],
+      "clause_id": "c8"
+    },
+    {
+      "type": "grep_absent",
+      "description": "No Lean file imports Mathlib.",
+      "proves": "The project needs Lean core only.",
+      "restatement_clause_id": "c7",
+      "pattern": "import Mathlib",
+      "files": [
+        "LeanMend/*.lean",
+        "LeanMend/Spec/*.lean",
+        "LeanMend/Core/*.lean",
+        "LeanMend/Shell/*.lean"
+      ],
+      "clause_id": "c9"
+    },
+    {
+      "type": "grep",
+      "description": "The rules document describes setOptionBefore.",
+      "proves": "The documentation covers the new operation.",
+      "restatement_clause_id": "c8",
+      "pattern": "setOptionBefore",
+      "files": [
+        "docs/rules.md"
+      ],
+      "clause_id": "c10"
+    },
+    {
+      "type": "grep",
+      "description": "The termination file still states a theorem.",
+      "proves": "Termination stays a theorem.",
+      "restatement_clause_id": "c8",
+      "pattern": "theorem",
+      "files": [
+        "LeanMend/Spec/Termination.lean"
+      ],
+      "clause_id": "c11"
+    }
+  ],
+  "declared_new_entrypoints": [
+    "scripts/gate.sh"
+  ]
+}
