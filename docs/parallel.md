@@ -7,14 +7,21 @@ stale.
 
 ## The problem
 
-One EVMLean run (v4.29.0 → v4.33.1) takes about 2 hours. Almost all of the
-time is sequential module rebuilds. One attempt is one rebuild. One rebuild
-takes about 10 to 20 seconds. The sequential driver rebuilds one candidate at
-one site at one module at a time (`LeanMend/Shell/Driver.lean`, `loop`).
+One EVMLean run (v4.29.0 → v4.33.1) takes about 3 hours. Run 21 took 11738 s
+for 333 attempts and 147 commits. The sequential driver attempts one candidate
+at one site at one module at a time (`LeanMend/Shell/Driver.lean`, `loop`).
 
-This design adds three kinds of parallelism and one measure change. Each kind
-keeps the mend branch deterministic. The functional core stays pure. The
-concurrency lives in the shell. The Core decides acceptance.
+One attempt starts three processes. `lake env lean --json` elaborates the
+module. The probe then runs two times, for `regions` and for `node`, and each
+run imports the module's imports again. § The cost of one attempt gives the
+measured numbers. The two probe runs take about 80 % of the attempt time. The
+elaboration of the unchanged commands before the edit takes most of the
+remainder.
+
+This design first removes the repeated work inside one attempt (Level 0). It
+then adds three kinds of parallelism and one measure change. Each level keeps
+the mend branch deterministic. The functional core stays pure. The reuse and
+the concurrency live in the shell. The Core decides acceptance.
 
 Three rules hold for every level:
 
@@ -91,51 +98,146 @@ with the OOM killer. The dependency build is 2.9 GiB and never rebuilds during
 a mend. The root build is only 38 MiB. So an attempt worktree shares the
 dependency build and keeps a small root build of its own.
 
-## Level 1: batch across declarations in one module
+### The cost of one attempt
+
+The host ran these commands on 2026-10-27 in the EVMLean target
+`.scratch/mend-target`, on branch `lean-mend/mend`. Other work shared the
+machine. The 1-minute load average was 30 to 40. The probe is
+`probe/Probe.lean` at `e357c63`, the version of run 21. `HEAD` makes the same
+calls (`LeanMend/Shell/Target.lean`, `diagnose`).
+
+| Step | Command | Wall time |
+|---|---|---|
+| Elaborate `ReturnDataBound.lean` (4084 lines) | `lake env lean --json <file>` | 11.9–13.2 s |
+| Elaborate its first 2362 lines | the same, on a copy cut after line 2362 | 9.4 s |
+| Elaborate its first 1200 lines | the same, on a copy cut after line 1200 | 6.3 s |
+| Elaborate its import header only | the same, on a copy with the `import` lines only | 5.2 s |
+| Probe `regions` on `ReturnDataBound.lean` | `lake env lean --run .lean-mend/Probe.lean regions <file>` | 24.2–45.9 s |
+| Probe `node` on `ReturnDataBound.lean` | `lake env lean --run .lean-mend/Probe.lean node <file> <offset>` | 22.9–25.8 s |
+| Probe `regions` on `NoOutOfFuel.lean` | `lake env lean --run .lean-mend/Probe.lean regions <file>` | 21.0 s |
+| Probe with no command | `lake env lean --run .lean-mend/Probe.lean` | 2.7–2.9 s |
+
+`diagnose` runs the elaboration one time and the probe two times for each
+attempt. So one attempt on `ReturnDataBound.lean` takes about 60 s, and the
+two probe runs take about 47 s of it. Each probe run calls `importModules` on
+the file's imports and parses the whole file. A probe run on the small
+`NoOutOfFuel.lean` also takes 21 s. So the import step, not the parse, sets
+most of the probe time. The probe interprets its own code (`lean --run`) and
+imports with `loadExts := true`. The elaboration loads the same imports in
+about 5 s. This document does not explain the difference.
+
+Run 21's mend branch has 147 commits. The mean time between two commits is
+75 s (10993 s over 146 intervals). The ledger has no time stamps, so it does
+not give the time of each attempt. The measures above ran at a higher load than
+run 21, so their absolute times are higher than run 21's. Their ratios are the
+basis of Level 0. The earlier `ReturnDataBound` measure in this section
+(26.45 s) is from a different load.
+
+## Level 0: one probe process per module, and reuse of the unchanged commands
+
+### Mechanism
+
+The shell starts one probe process for each module that it mends (C1). The
+process imports the module's imports one time. It then reads requests from its
+standard input. One request names one file version and a list of byte offsets.
+The reply holds the declaration regions and the nodes at the offsets (C3). The
+probe imports again only when a request's import header differs from the
+header that it loaded (C2).
+
+The shell gets the diagnostics of an attempt from a Lean server,
+`lake env lean --server`, one for each attempt worktree (C4). The shell opens
+the module file one time. It sends the text of each candidate as a change to
+the open document. The server keeps the elaborated state after each command.
+After a change, it elaborates again from the first changed command. The
+commands before the edit keep their state. The shell waits until the server
+finishes the new version, and then it reads the diagnostics of that version.
+
+### The Core change
+
+None. The Core receives the same observations as before. Only the way the
+shell computes an observation changes.
+
+### The Shell change
+
+`probe/Probe.lean` gets a `serve` command. It reads one JSON request for each
+line and writes one JSON reply for each line. `LeanMend/Shell/Target.lean` gets
+a probe session (start, request, stop), and `diagnose` makes one probe request
+in place of two probe runs. `LeanMend/Shell/Target.lean` also gets a Lean
+server session: open, change, and a wait for the diagnostics of one version.
+`diagnose` and `attemptOne` read the diagnostics from that session. A revert is
+a change back to the previous text.
+
+### The proof obligations
+
+None in Lean, because the Core does not change. The equality of the two
+diagnostic sources is a property of Lean, not of the Core. C5 states it. Slice
+S0b checks it on fixtures, and the operator checks it on EVMLean.
+
+### The determinism argument
+
+The probe reply for one file version is a function of the file text and the
+imports only. So a long-lived probe process gives the same reply as a new one.
+The Lean server gives the same diagnostics as `lean --json` for the same text
+(C5). So each observation is the same as before, and the Core makes the same
+decisions in the same order.
+
+### The expected speedup with its basis
+
+§ The cost of one attempt gives the basis. One probe process per module
+removes about 47 s of a 60 s attempt on `ReturnDataBound.lean`. The probe
+import then occurs one time for each module. The reuse of the unchanged
+commands removes the elaboration of the commands before the edit. At line 2354
+of `ReturnDataBound.lean`, that is about 9 s of 13 s. The remaining cost is the
+elaboration from the edit to the end of the file. Nobody measured the time of
+one probe request or of one server change. The operator measures both on
+`ReturnDataBound.lean` after S0b and records them in this section.
+
+## Level 1: prefetch across declarations in one module
 
 ### Mechanism
 
 A theorem body is invisible to every other declaration. Lean checks each
 declaration separately. Lean adds a failed declaration with `sorry` and still
-gives later declarations the failed declaration's type. So one rebuild can test
-one candidate for each failing theorem at once.
+gives later declarations the failed declaration's type. So the result of a
+theorem-body edit depends only on the text of that declaration and on the
+declarations before it. Of an earlier theorem or lemma, only its statement
+counts.
 
-The shell gathers one head candidate for each eligible theorem site. Eligible
-means the site is in a theorem or lemma body region. The shell applies every
-gathered candidate in one attempt worktree. The shell rebuilds the module one
-time. The shell reads the new diagnostics per declaration. The Core decides
-each site in source order. The driver commits the accepted subset in source
-order. Example: a module with 22 `NoOutOfFuel` sites and one rule needs 1
-rebuild, not 22.
+The shell attempts the first candidate of each eligible theorem site at the
+same time, each in its own attempt (P4). A site is eligible when it is in a
+theorem or lemma body region (P2), it is the earliest open site of its
+declaration (P6), and its candidate is not a D12 combined candidate (P7). The
+shell keeps each result: the diagnostics inside the edited declaration, with
+positions relative to the start of the declaration. A result has a key (P5).
+The key is the declaration index, the edited declaration text, the statements
+of the earlier declarations, and the bodies of the earlier declarations that
+are not theorems or lemmas.
 
-A declaration holds at most one candidate in a batch (P1). An edit to a theorem
-body changes only that body's elaboration. So two sites in the same body are
-not independent. A declaration with more than one open error gives only its
-earliest site to a batch (P6). The declaration's later sites wait for the next
-round.
+The Core still decides only the head site, with the existing `Mending.step`
+(P3). When the head candidate has a result with a valid key, the shell makes
+the module observation from that result and from the current diagnostics of
+every other declaration. It does not attempt the candidate again (P20). When no
+valid result exists, the shell attempts the candidate as before. Example: a
+module with 22 `NoOutOfFuel` sites and one rule needs 22 attempts at the same
+time, then 22 decisions with no further attempt.
 
 ### The Core change
 
 `Mending.batch : Mending → List (Nat × Candidate)` selects the head candidate
-of each eligible, distinct theorem declaration, with the site's index.
-
-`BatchObs` is the per-declaration observation. For each attempted site it holds
-the declaration's error count after the rebuild, the linter count inside the
-edit, and the open sites inside that declaration.
-
-`Mending.stepBatch : Mending → List BatchObs → Except Refusal Mending` folds
-the per-site decision over the attempted sites in source order. Each accept
-builds the same `Accepted` record as `Mending.step`. So `branchSound` holds
-without change.
+of each eligible, distinct theorem declaration, with the site's index. The
+branch `worker/lea-fc0` (commit `6f9984c`) has it, with `batch_distinct` and
+`batch_bodyOnly` proved. `Mending.step` does not change. The Core has no batch
+step.
 
 ### The Shell change
 
-`LeanMend/Shell/Target.lean` gains a batched diagnose. It applies a list of
-candidates to one file set, rebuilds the module one time, and splits the
-diagnostics by declaration. `LeanMend/Shell/Driver.lean` calls `Mending.batch`,
-runs the batched diagnose, calls `Mending.stepBatch`, and commits each accepted
-patch in source order. A rejected candidate leaves no commit. The worktree is
-discarded after the round.
+`LeanMend/Shell/Driver.lean` calls `Mending.batch` when a module starts and
+after each accepted edit. It attempts the selected candidates that have no
+valid result, within the worker budget (P17). It keeps the results in a table
+for the module. Before an attempt at the head, it looks up the table. A hit
+gives the observation with no attempt. The ledger records each prefetched
+attempt and each use of a kept result. The run option `--prefetch <n>` sets
+the prefetch width. `--prefetch 0` attempts only at the head, as before.
 
 ### The proof obligations
 
@@ -143,36 +245,41 @@ discarded after the round.
 |---|---|
 | `Mending.batch_distinct` | the sites that `Mending.batch` returns have pairwise distinct declarations |
 | `Mending.batch_bodyOnly` | every candidate from `Mending.batch` targets a theorem or lemma body region |
-| `Mending.stepBatch_eq_fold` | `stepBatch m obs` equals the left fold of the single-site accept or reject over `obs` in source order |
-| `Mending.stepBatch_measure` | a non-empty successful `stepBatch` lowers `Mending.measure` lexicographically |
 
-`stepBatch_eq_fold` reduces batch correctness to the sequential step. The
-existing `branchSound` theorem then applies to every batched commit without
-change.
+The Core decides with `Mending.step` only. So `Mending.step_measure` and
+`branchSound` apply to every commit without change. Termination needs no new
+proof.
+
+An earlier design decided a whole batch in one Core step (`Mending.stepBatch`).
+Its measure theorem `stepBatch_measure` is false for the five-tuple measure. A
+batch can reject the head candidate and accept a later site that exposes two
+errors. Then the open-site count rises, and the head does not move. This
+counterexample was derived by hand. The prefetch design has no batch step, so
+it does not need that theorem.
 
 ### The determinism argument
 
-A batch gives the same mend branch as the sequential run, byte for byte. The
-reason is theorem-body independence. An edit to theorem A's body never changes
-whether theorem B elaborates, because B uses only A's type, never A's proof.
-A's type is fixed, because lean-mend never edits a statement region of a proof
-body (statement immutability). So site B's verdict in the batch equals site B's
-verdict when it is attempted alone. The Core consumes the per-site observations
-in the fixed source order. So the accepted set, the accepted candidates, and
-the commit order match the sequential run.
+A kept result with a valid key equals the result of the same attempt at the
+time the Core consumes it. The reason is theorem-body independence and the
+key. An edit to the body of theorem A never changes whether theorem B
+elaborates, because B uses only the type of A. The key holds the text of B and
+every earlier text that B can depend on. A change to any of them makes the key
+not valid, and the shell attempts again. The Core consumes the observations in
+the order of the sequential run. So the accepted candidates and the commit
+order match the sequential run.
 
 This independence is a property of Lean's elaborator, not of the Core. The
-Core cannot prove it. The design states it, and the batch fixture checks it on
-a real module (slice S2).
+Core cannot prove it. The design states it, and the prefetch fixture checks it
+on a real module (slice S2b).
 
 ### The expected speedup with its basis
 
-The speedup is per module. A module whose M theorem sites share one rule needs
-1 rebuild instead of M. `ReturnDataBound.lean` has 156 theorem or lemma
-bodies and 4 defs, so the batch applies to almost every site. The 22-site
-`NoOutOfFuel` case gives up to 22× on that module. The real module factor is
-the mean count of same-round eligible sites. It is high on the theorem-dense
-EVMLean theory modules and low on a module with few failing theorems.
+The prefetch makes the first attempts of a module's theorem sites parallel. A
+module whose M theorem sites each pass with their first candidate needs about
+one attempt time instead of M, within the worker budget. `ReturnDataBound.lean`
+has 156 theorem or lemma bodies and 4 defs, so the prefetch applies to almost
+every site. A site whose first candidate fails attempts its later candidates
+at the head, as before.
 
 ## Level 2: parallel frontier modules
 
@@ -300,22 +407,23 @@ narrow frontier where levels 1 and 2 give little. Its cost is wasted rebuilds.
 
 ## The combined scheduler
 
-The three levels attack three serial axes. Level 2 runs independent modules at
-once. Level 1 tests many sites of one module in one rebuild. Level 3 tests many
-candidates of one site at once. One worker pool serves all three. The pool size
-is the worker budget from the measured numbers (P17). A batch rebuild counts as
-one worker. A speculation of width N counts as N workers.
+Level 0 makes each attempt shorter. The three other levels attack three serial
+axes. Level 2 runs independent modules at once. Level 1 attempts many sites of
+one module at once. Level 3 attempts many candidates of one site at once. One
+worker pool serves all three. The pool size is the worker budget from the
+measured numbers (P17). A prefetched attempt counts as one worker. A
+speculation of width N counts as N workers.
 
-The combined speedup is bounded by the worker budget (about 7 to 12) and by the
+The parallel speedup is bounded by the worker budget (about 7 to 12) and by the
 longest module chain that cannot run in parallel. A realistic range is 4× to
 8×, from the measured budget and the EVMLean graph shape. The design does not
-promise more, because the import depth sets a floor that no level removes.
+promise more, because the import depth sets a floor that no level removes. The
+Level 0 factor is separate, because it shortens each attempt.
 
 ## "Any number after" exposure with AST coordinates
 
-This item changes `Mending.measure` and `Mending.step`. The parallel design
-shares that measure, so this item and the batch level use one theorem family.
-Implement this item first (slice S1). The batch level then builds on it.
+This item changes `Mending.measure` and `Mending.step`. The parallel levels use
+the same measure. Implement this item first (slice S1).
 
 ### The problem
 
@@ -407,20 +515,16 @@ records the declaration in `followedDecls`. The declaration then enters
 and body region text, so the proposer builds the combined replacement purely.
 One atomic candidate gives one rebuild.
 
-### How this interacts with batching
+### How this interacts with the prefetch
 
-The AST coordinate makes the batch level sound. The coordinate's first
-component is the declaration index, and the second is the reach inside one
-declaration. So acceptance is local to a declaration. A batch edits distinct
-declarations, so each declaration's head advances on its own. The module head
-is the minimum coordinate over the declarations. The declaration that held the
-module head advances, so the module measure falls. One theorem family serves
-both the measure and the batch.
+The Core still decides one head at a time, so the five-tuple measure and its
+theorems apply without change. The prefetch only supplies observations before
+the Core needs them.
 
 A D12 combined candidate changes a statement. A later declaration can depend on
 that statement's type. Proof irrelevance does not protect a later declaration
-from a statement change. So a batch excludes a D12 combined candidate (P7). The
-module mends that declaration in a non-batched rebuild.
+from a statement change. So the prefetch excludes a D12 combined candidate
+(P7). The module attempts that candidate at the head, as before.
 
 ### The proof obligations
 
@@ -442,13 +546,18 @@ byte.
 
 ## Decisions
 
-P1. A batch holds at most one candidate for each theorem or lemma proof body.
-P2. A batch edits only a body region whose declaration kind is theorem or lemma.
-P3. The Core decides each batched site in source order, so the commit order equals the sequential run.
-P4. The shell applies a whole batch in one worktree and rebuilds the module one time.
-P5. The shell reads each edited declaration's own error count, because a theorem body is invisible to every other declaration.
-P6. A declaration with more than one open error contributes only its earliest site to a batch.
-P7. A batch excludes a D12 combined candidate, because that candidate changes a statement and a later declaration can depend on it.
+C1. The shell starts one probe process for each module that it mends, and that process serves every attempt on the module.
+C2. The probe imports the module's imports one time, and again only when a request's import header differs from the loaded header.
+C3. One probe request returns the declaration regions and the nodes at given byte offsets of one file version.
+C4. The shell reads the diagnostics of an attempt from one Lean server for each attempt worktree, and the server keeps the elaborated state of the commands before the first changed command.
+C5. The Lean server's diagnostics for a file text equal the diagnostics of `lake env lean --json` for the same text, in severity, range and message text.
+P1. A prefetch holds at most one candidate for each theorem or lemma proof body.
+P2. A prefetch attempts only a body region whose declaration kind is theorem or lemma.
+P3. The Core decides only the head site, with `Mending.step`, so the commit order equals the sequential run.
+P4. The shell attempts the prefetched candidates at the same time, each in its own attempt, within the worker budget.
+P5. The key of a kept result is the declaration index, the edited declaration text, the statements of the earlier declarations, and the bodies of the earlier declarations that are not theorems or lemmas.
+P6. A declaration with more than one open error contributes only its earliest site to a prefetch.
+P7. A prefetch excludes a D12 combined candidate, because that candidate changes a statement and a later declaration can depend on it.
 P8. The run mends every current frontier module at the same time, each in its own attempt worktree.
 P9. Frontier modules never import each other, so their mends do not interact.
 P10. The driver commits each wave's accepted patches in module topological order.
@@ -461,6 +570,7 @@ P16. The shell discards every speculative result after the accepted candidate in
 P17. The scheduler bounds the live Lean process count by the available memory, not by the core count.
 P18. An attempt worktree symlinks the shared dependency build and keeps its own root build directory.
 P19. A wallclock site is rebuilt alone, so its verdict is the quiescent verdict.
+P20. When the head candidate has a kept result with a valid key, the shell makes the module observation from that result and the current diagnostics of every other declaration, with no attempt.
 X1. A site position is the pair (declaration index in source order, bytes from the error to the end of that declaration).
 X2. The Core sorts the open sites by that position, so the head site is the earliest error.
 X3. An edit is accepted when the earliest open position moves strictly toward the end of the file.
@@ -478,16 +588,63 @@ acceptance check runs the real program. Every slice runs the gate
 new behavior.
 
 A worker has at most one hour (`dispatcher.task_timeout`). One EVMLean run
-takes about two hours, so no slice names an EVMLean run as its check. The
-operator runs the EVMLean checks after the merges: the `Semantics` 1040 check
-after S1b, and the tree-equality check after S5. Each slice adds one named step
-to `scripts/gate.sh`, so its check is visible in the gate's JSON output.
+takes about three hours, so no slice names an EVMLean run as its check. The
+operator runs the EVMLean checks after the merges: the diagnostic equality
+check after S0b, the `Semantics` 1040 check after S1b, and the tree-equality
+check after S5. Each slice adds one named step to `scripts/gate.sh`, so its
+check is visible in the gate's JSON output.
 
 The branch `s1-partial` (commit `5885691`) holds the first S1 worker's
 captured work. It builds, it has no `sorry`, and `lake test` reports 0 failed.
 It has the coordinates, the sort, acceptance by coordinate and the five-tuple
 measure, and part of the D12 combined candidate. It has no runner and no
 fixture.
+
+### S0a. One probe process per module
+
+Implements C1, C2, C3.
+
+Files: `probe/Probe.lean`, `LeanMend/Shell/Target.lean`,
+`LeanMend/Shell/Driver.lean`, `scripts/gate.sh`.
+
+Acceptance check:
+- A runner `tests/probe-serve.sh` starts the probe `serve` command on a fixture
+  module. It sends requests for three versions of the file. It asserts that
+  each reply equals the output of the `regions` and `node` commands on the same
+  version.
+- The ledger of a run on `tests/fixtures/expose-two` holds one probe start for
+  the module. The run's branch tree equals the tree of the same run with the
+  lean-mend binary from before this slice.
+- The runner prints the wall time of one request and the peak resident size of
+  the probe process.
+- `scripts/gate.sh` runs `tests/probe-serve.sh` as the step `one probe process
+  per module`, and the gate's JSON reports every step passed.
+
+### S0b. Reuse of the elaborated commands before an edit
+
+Implements C4, C5. Depends on S0a.
+
+Files: `LeanMend/Shell/Target.lean`, `LeanMend/Shell/Driver.lean`,
+`scripts/gate.sh`.
+
+Acceptance check:
+- A runner `tests/server-diag.sh` opens a fixture module in the Lean server and
+  sends at least five changes: an edit that removes an error, an edit that adds
+  an error, an edit in the first declaration, an edit in the last declaration,
+  and a revert. After each change, it asserts that the server's diagnostics
+  equal the diagnostics of `lake env lean --json` on the same text, in
+  severity, range and message text.
+- The runner prints the wall time of each change and the peak resident size of
+  the server.
+- The branch trees of the runs in `tests/expose.sh`, `tests/follow-pair.sh` and
+  `tests/speculate.sh` equal the trees of the same runs with the lean-mend
+  binary from before this slice.
+- `scripts/gate.sh` runs `tests/server-diag.sh` as the step `diagnostics from
+  the Lean server`, and the gate's JSON reports every step passed.
+
+The operator then checks C5 on EVMLean. For each commit of run 21's mend
+branch, the server's diagnostics of the changed module equal the diagnostics of
+`lake env lean --json`.
 
 ### S1a. Declaration coordinates and the sorted site list
 
@@ -542,39 +699,47 @@ Acceptance check:
   statement follow as one candidate`, and the gate's JSON reports every step
   passed.
 
-### S2a. The batch step in the Core
+### S2a. The prefetch selection in the Core
 
-Implements P1, P2, P3, P6, P7. Depends on S1c.
+Implements P1, P2, P6, P7. Depends on S1c.
 
-Files: `LeanMend/Core/Mend.lean`, `LeanMend/Spec/Termination.lean`,
-`tests/OpsTest.lean`.
+Files: `LeanMend/Core/Mend.lean`, `tests/OpsTest.lean`.
+
+The branch `worker/lea-fc0` (commit `6f9984c`) has `Mending.batch`,
+`batch_distinct` and `batch_bodyOnly`. It also has `Mending.stepBatch` and a
+`stepBatch_measure` that is false and has a `sorry`. This slice keeps the
+selection and its two proofs. It does not add `stepBatch`.
 
 Acceptance check:
-- `Mending.batch_distinct`, `Mending.batch_bodyOnly`,
-  `Mending.stepBatch_eq_fold` and `Mending.stepBatch_measure` exist with the
+- `Mending.batch_distinct` and `Mending.batch_bodyOnly` exist with the
   statements in the table above, and no LeanMend constant depends on
   `sorryAx`.
 - `tests/OpsTest.lean` shows `Mending.batch` on a module state with three
-  failing theorem bodies and one failing `def` body: the batch holds the three
-  theorem sites and not the `def` site. It shows `stepBatch` with one accept
-  and two rejects, and the result equals the left fold of `Mending.step`.
+  failing theorem bodies, one failing `def` body, a second open site in one of
+  the theorems, and one D12 combined candidate. The batch holds the earliest
+  site of each theorem that has no D12 candidate. It holds no `def` site.
 - The gate's JSON reports every step passed.
 
-### S2b. Batched attempts in the Shell
+### S2b. Prefetched attempts in the Shell
 
-Implements P4, P5. Depends on S2a.
+Implements P3, P4, P5, P20. Depends on S2a, S0b.
 
-Files: `LeanMend/Shell/Target.lean`, `LeanMend/Shell/Driver.lean`,
+Files: `LeanMend/Shell/Driver.lean`, `LeanMend/Shell/Target.lean`,
 `scripts/gate.sh`.
 
 Acceptance check:
 - A new fixture `tests/fixtures/batch`: one module with several theorem bodies
-  broken by one rule. A runner `tests/batch.sh` asserts that the ledger holds
-  one `rebuilt` observation that covers every site, that the branch commits
-  each accepted patch in source order, and that the branch tree equals the
-  tree of a single-site run of the same fixture.
-- `scripts/gate.sh` runs `tests/batch.sh` as the step `batched attempts across
-  theorem bodies`, and the gate's JSON reports every step passed.
+  broken by one rule, and one theorem whose first candidate fails. A runner
+  `tests/batch.sh` asserts three facts. The ledger records a prefetched attempt
+  for each theorem site. Each accepted site uses its kept result with no second
+  attempt. The branch tree equals the tree of a `--prefetch 0` run on the same
+  fixture.
+- A second fixture has a `def` before a theorem site, and a candidate that
+  changes the body of that `def`. The runner asserts that the shell does not
+  use the theorem's kept result after that change. It also asserts that the
+  branch tree equals the tree of a `--prefetch 0` run.
+- `scripts/gate.sh` runs `tests/batch.sh` as the step `prefetched attempts
+  across theorem bodies`, and the gate's JSON reports every step passed.
 
 ### S3a. The fleet of Mending states in the Core
 
@@ -679,3 +844,9 @@ wall time. The report states both times.
   compares branch trees, not commit SHAs. A commit SHA also depends on the
   committer date. A byte-for-byte branch needs a fixed `GIT_COMMITTER_DATE` and
   `GIT_AUTHOR_DATE`. The slice must set both, or the check compares trees only.
+
+- **Memory of long-lived processes.** A Lean server keeps the elaborated state
+  of every command, so its resident size can be larger than the 2.2 GiB of one
+  `lean --json` run. A probe process keeps the imported environment for the
+  whole module. Slices S0a and S0b print both sizes. The scheduler (P17) counts
+  them.
