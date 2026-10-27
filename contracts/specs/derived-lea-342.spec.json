@@ -1,0 +1,149 @@
+{
+  "id": "derived-lea-342",
+  "original_statement": "What must hold? State the invariant or expectation this concerns. A rule in rules/proposed proposes a candidate that lean-mend accepts at the unsolvedGoals sites of EVMLean Ethereum/Theory/NoOutOfFuel.lean lines 215 and 217, the StopArith and CompBit cases of step_no_OutOfFuel. docs/breaking-changes.md lists the hand repair for these two sites.\nWhat holds now? Describe the current, observed state. EVMLean run 21 (lean-mend e357c63) left NoOutOfFuel 215 and 217 as residue. The ledger records gaveUp with class unsolvedGoals, case StopArith.ADD at 215 and case CompBit.LT at 217, with h : execBinOp ... in context. Both lines read: cases op <;> intro h <;> simp [step] at h. In the hand bump bcca6b1 (lines 218 and 225) both read: cases op <;> intro h <;> simp only [step, Id.run] at h <;> first | exact execBinOp_no_OutOfFuel _ _ h | exact execTriOp_no_OutOfFuel _ _ h | exact execUnOp_no_OutOfFuel _ _ h | simp_all [step]. rules/proposed has no rule that proposes this text.\nHow do you see it? Describe exactly how to observe this for yourself \u2014 the steps to reproduce, or how you would demo it. A fixture under tests/ with a lemma of the same shape (cases over an operator type, then intro h and simp [step] at h, where a v4.33.1 simp leaves goals that a per-case lemma closes) shows the rule accepted, through a runner that sources tests/lib/report.sh. Run scripts/gate.sh: stdout is one JSON object; the key 'steps.NoOutOfFuel step cases.ok' is true, and failed is 0.\nWhat constraints apply? State them in plain prose. Spec and Core import no Shell module (scripts/gate.sh checks it). Decision D10 holds: lean-mend adds no declaration to a target. lean-mend depends on Lean core only, not on Mathlib. Every committed text is in ASD-STE100 Simplified Technical English. Run export PATH=\"$HOME/.elan/bin:$PATH\" before a lean or lake command. Scratch files go in the gitignored .scratch/ directory, not /tmp. The worker task timeout is 3600 seconds. Do not run lean-mend on EVMLean: the operator runs it after the merge.\nWhere does this apply? (e.g. gateway route, mobile screen, CLI verb) rules/proposed/, docs/rules.md, tests/",
+  "restatement": "lean-mend must gain a proposed rule that repairs the two unsolvedGoals sites at EVMLean Ethereum/Theory/NoOutOfFuel.lean lines 215 and 217 (the StopArith and CompBit cases of step_no_OutOfFuel). Today both lines read 'cases op <;> intro h <;> simp [step] at h', and lean-mend gives up with unsolvedGoals because no rule in rules/proposed proposes the hand-repair text. The rule must propose the hand-repair from bump bcca6b1: 'cases op <;> intro h <;> simp only [step, Id.run] at h <;> first | exact execBinOp_no_OutOfFuel _ _ h | exact execTriOp_no_OutOfFuel _ _ h | exact execUnOp_no_OutOfFuel _ _ h | simp_all [step]'. The rule is documented in docs/rules.md. A fixture under tests/ with a lemma of the same shape shows the rule accepted through a runner that sources tests/lib/report.sh. The scripts/gate.sh run reports the step 'NoOutOfFuel step cases' ok and zero failures. Constraints: Spec and Core import no Shell module, the rule adds no declaration to a target (D10), and nothing depends on Mathlib. lean-mend is not run on EVMLean.",
+  "restatement_clauses": [
+    {
+      "id": "c1",
+      "text": "A rule file in rules/proposed proposes the candidate text 'cases op <;> intro h <;> simp only [step, Id.run] at h <;> first | exact execBinOp_no_OutOfFuel _ _ h | exact execTriOp_no_OutOfFuel _ _ h | exact execUnOp_no_OutOfFuel _ _ h | simp_all [step]' for the 'cases op <;> intro h <;> simp [step] at h' shape."
+    },
+    {
+      "id": "c2",
+      "text": "docs/rules.md documents the new rule."
+    },
+    {
+      "id": "c3",
+      "text": "A fixture under tests/ holds a lemma of the same shape (cases over an operator type, then intro h and simp [step] at h) and a runner that sources tests/lib/report.sh shows the rule accepted."
+    },
+    {
+      "id": "c4",
+      "text": "Running scripts/gate.sh prints one JSON object in which the key 'steps.NoOutOfFuel step cases.ok' is true and 'failed' is 0."
+    },
+    {
+      "id": "c5",
+      "text": "The new rule and fixture use Lean core only: they do not import Mathlib."
+    }
+  ],
+  "goal": "Add the proposed rule, its documentation and its accepted fixture so that lean-mend can repair the NoOutOfFuel 215/217 sites.",
+  "acceptance_criteria": [
+    "A file in the proposed rules directory contains the repair text that calls the per-case lemma execBinOp_no_OutOfFuel.",
+    "The rules guide mentions the new rule and its replacement text for the NoOutOfFuel cases.",
+    "A test file under tests/ sources the report helper and holds a lemma that uses 'intro h' then 'simp [step] at h'.",
+    "Running the gate script prints a result where the NoOutOfFuel step cases check is true and the failed count is 0.",
+    "No new rule or fixture file imports Mathlib."
+  ],
+  "request_clauses": [
+    {
+      "id": "c1",
+      "text": "A file in the proposed rules directory contains the repair text that calls the per-case lemma execBinOp_no_OutOfFuel."
+    },
+    {
+      "id": "c2",
+      "text": "The rules guide mentions the new rule and its replacement text for the NoOutOfFuel cases."
+    },
+    {
+      "id": "c3",
+      "text": "A test file under tests/ sources the report helper and holds a lemma that uses 'intro h' then 'simp [step] at h'."
+    },
+    {
+      "id": "c4",
+      "text": "Running the gate script prints a result where the NoOutOfFuel step cases check is true and the failed count is 0."
+    },
+    {
+      "id": "c5",
+      "text": "No new rule or fixture file imports Mathlib."
+    }
+  ],
+  "acceptance_tests": [
+    {
+      "type": "grep",
+      "description": "A file in the proposed rules directory contains the repair text that calls the per-case lemma execBinOp_no_OutOfFuel.",
+      "proves": "The rule proposes the hand-repair text from the request.",
+      "restatement_clause_id": "c1",
+      "pattern": "simp only \\[step, Id\\.run\\] at h <;> first \\| exact execBinOp_no_OutOfFuel _ _ h \\| exact execTriOp_no_OutOfFuel _ _ h \\| exact execUnOp_no_OutOfFuel _ _ h \\| simp_all \\[step\\]",
+      "files": [
+        "rules/proposed"
+      ],
+      "count": {
+        "unit": "files",
+        "op": "ge",
+        "value": 1
+      },
+      "clause_id": "c1"
+    },
+    {
+      "type": "grep",
+      "description": "The rules guide mentions the new rule and its replacement text for the NoOutOfFuel cases.",
+      "proves": "The rule is documented in docs/rules.md.",
+      "restatement_clause_id": "c2",
+      "pattern": "execBinOp_no_OutOfFuel",
+      "files": [
+        "docs/rules.md"
+      ],
+      "clause_id": "c2"
+    },
+    {
+      "type": "grep",
+      "description": "A test file under tests/ sources the report helper and holds a lemma that uses 'intro h' then 'simp [step] at h'.",
+      "proves": "A fixture and runner of the described shape exist.",
+      "restatement_clause_id": "c3",
+      "pattern": "report\\.sh",
+      "files": [
+        "tests"
+      ],
+      "additional_patterns": [
+        "simp \\[step\\] at h"
+      ],
+      "count": {
+        "unit": "patterns",
+        "op": "eq",
+        "value": 2
+      },
+      "clause_id": "c3"
+    },
+    {
+      "type": "behavior",
+      "description": "Running the gate script prints a result where the NoOutOfFuel step cases check is true and the failed count is 0.",
+      "proves": "The fixture shows the rule accepted and the whole gate, including the import checks, passes.",
+      "restatement_clause_id": "c4",
+      "when": {
+        "interpreter": "",
+        "script": "scripts/gate.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "stdout_json",
+          "field": "steps.NoOutOfFuel step cases.ok",
+          "op": "eq",
+          "value": true
+        },
+        {
+          "observe": "stdout_json",
+          "field": "failed",
+          "op": "eq",
+          "value": 0
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 3600,
+      "clause_id": "c4"
+    },
+    {
+      "type": "grep_absent",
+      "description": "No new rule or fixture file imports Mathlib.",
+      "proves": "The change depends on Lean core only.",
+      "restatement_clause_id": "c5",
+      "pattern": "import Mathlib",
+      "files": [
+        "rules/proposed",
+        "tests"
+      ],
+      "clause_id": "c5"
+    }
+  ],
+  "declared_new_entrypoints": [
+    "scripts/gate.sh"
+  ]
+}
