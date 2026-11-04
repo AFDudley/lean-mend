@@ -55,7 +55,7 @@ structure RunOpts where
   rules : Option System.FilePath := none
   annotate : Bool := false
   follow : Bool := false
-  speculate : Nat := 1
+  speculate : Nat := defaultSpeculate
 
 def usage : String :=
   "usage: lean-mend baseline <target>\n" ++

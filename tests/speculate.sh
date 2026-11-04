@@ -6,7 +6,7 @@
 #
 # This runs the fixture once with --speculate 3 (the parallel path: every
 # candidate attempts at the same time, each in its own worktree) and once
-# with no flag (the sequential path: one candidate at a time, as before).
+# with --speculate 1 (the sequential path: one candidate at a time).
 # It reads the parallel run's ledger for the concurrency and finish-order
 # facts, and reads each run's mend-branch commit for the accepted candidate.
 #
@@ -64,7 +64,7 @@ setup "$parApp"
 setup "$seqApp"
 
 "$bin" run "$parApp" --adopt --rules "$fx/rules" --speculate 3 >&2 || true
-"$bin" run "$seqApp" --adopt --rules "$fx/rules" >&2 || true
+"$bin" run "$seqApp" --adopt --rules "$fx/rules" --speculate 1 >&2 || true
 
 ledger="$parApp/.lean-mend/ledger.jsonl"
 attempts=$(jq -sc '[.[] | select(.obs == "speculateAttempt") | .detail]' "$ledger")

@@ -27,18 +27,23 @@ matter which member's worktree finished first (P10-P12). Only the driver
 ever edits the main checkout or runs `git commit` there, so it is the only
 writer of the mend branch (P11).
 
-By default (`--speculate 1`), an attempt runs in the module's own wave
-worktree, one candidate at a time; a rejected candidate is reverted by
-restoring the file's previous bytes. `--speculate <n>` attempts the next `n`
-head candidates at the same time, each in its own nested worktree
-(`docs/parallel.md` P14-P16, `speculateRounds`); the plan keeps the last
+By default (`--speculate 4`, `defaultSpeculate`), an attempt takes the next
+four head candidates at the same time, each in its own nested worktree
+(`docs/parallel.md` P14-P16, P21, `speculateRounds`); the plan keeps the last
 accepted candidate until the Core picks a winner, in rule order.
+`--speculate 1` attempts one candidate at a time in the module's own wave
+worktree; a rejected candidate is reverted by restoring the file's previous
+bytes.
 -/
 
 namespace LeanMend.Shell
 
 open System (FilePath)
 open Lean (Json toJson)
+
+/-- The default width of the speculative window at the head site
+(`docs/parallel.md` P21). -/
+def defaultSpeculate : Nat := 4
 
 structure Ctx where
   target : FilePath
@@ -56,10 +61,10 @@ structure Ctx where
   annotate : Bool
   /-- `--follow-definition-changes` (decision D12). -/
   follow : Bool
-  /-- `--speculate <n>` (`docs/parallel.md` P14-P16): the width of the
-  speculative window at the head site. `1` (the default) attempts one
-  candidate at a time, in the target checkout, as before. -/
-  speculate : Nat := 1
+  /-- `--speculate <n>` (`docs/parallel.md` P14-P16, P21): the width of the
+  speculative window at the head site. `1` attempts one candidate at a time,
+  in the module's own worktree. -/
+  speculate : Nat := defaultSpeculate
   /-- Rules accepted in a declaration body earlier in this run. -/
   followed : IO.Ref (List String)
   /-- Statement sites already warned about (decision D12). -/
@@ -273,7 +278,13 @@ list ends there and `planModule` resumes at the new head. Every candidate
 after the one it stops at is discarded without being recorded anywhere
 (P16): this function writes no ledger line and makes no mend-branch commit,
 by construction — only `replayRounds` ever does either, later, from the
-rounds this returns. -/
+rounds this returns.
+
+`dir` holds the earlier accepted edits of this module as uncommitted bytes of
+`file`, not as a commit. So each attempt worktree gets `dir`'s current `file`
+after `git worktree add`, and an accepted attempt's `file` is copied back into
+`dir` before the attempt worktrees are removed. Without both copies, the next
+round would attempt from the file as it was before the accepted edit. -/
 partial def speculateRounds (c : Ctx) (dir : FilePath) (followedSnapshot : List String)
     (mm : Mending) (file : FilePath) : IO (List WaveRound × Mending) := do
   let cands := mm.speculate c.speculate
@@ -282,9 +293,11 @@ partial def speculateRounds (c : Ctx) (dir : FilePath) (followedSnapshot : List 
   -- `git worktree add` writes the shared `.git/worktrees` directory, so the
   -- driver serializes it; the rebuild each starts is what runs at the same
   -- time.
+  let current ← IO.FS.readBinFile (dir / file)
   for d in dirs do
     discard <| git dir #["worktree", "add", "-q", "--detach", d.toString, base]
     symlinkLakeDirs c d
+    IO.FS.writeBinFile (d / file) current
   let tasks ← (dirs.zip cands).mapM fun (d, cd) =>
     IO.asTask
       (do
@@ -318,6 +331,9 @@ partial def speculateRounds (c : Ctx) (dir : FilePath) (followedSnapshot : List 
           pure (round :: rest', mmFinal)
         else pure ([round], mmc')
   let (rounds, mmFinal) ← consume tasks 0 mm
+  if let some r := rounds.getLast? then
+    if r.accepted then
+      IO.FS.writeBinFile (dir / file) (← IO.FS.readBinFile (r.worktree / file))
   for d in dirs do
     discard <| git dir #["worktree", "remove", "--force", d.toString]
   -- `speculateResult`'s `acceptedIndex`: the accepted candidate's rule-order
@@ -530,7 +546,7 @@ def prepareTree (tree : FilePath) : List String → IO Unit
 /-- `lean-mend run <target> --adopt [--targets <t,…>] [--prepare <cmd>] [--aliases-from <project>]…` -/
 def runAdopt (target : FilePath) (targets : List String) (aliasesFrom : List FilePath)
     (prepare : List String := []) (rules : List Rule := []) (annotate : Bool := false)
-    (follow : Bool := false) (speculate : Nat := 1) : IO RunState := do
+    (follow : Bool := false) (speculate : Nat := defaultSpeculate) : IO RunState := do
   -- Absolute paths: git and lake run with the target as their working
   -- directory, so a relative path would resolve one level too deep.
   let target ← IO.FS.realPath target

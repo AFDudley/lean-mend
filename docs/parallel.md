@@ -364,7 +364,8 @@ A stubborn site needs several candidates before one passes. The shell attempts
 the next N head candidates of that site at the same time, each in its own
 worktree (P14). The Core accepts the first candidate that passes in rule order,
 not the first worktree that finishes (P15). The shell discards every
-speculative result after the accepted candidate in rule order (P16).
+speculative result after the accepted candidate in rule order (P16). The
+default width is 4 (P21). `--speculate 1` attempts one candidate at a time.
 
 ### The Core change
 
@@ -404,6 +405,13 @@ rebuild, at a cost of k parallel workers. The mean k over EVMLean sites is
 small, because the first candidate is usually a named lemma that holds. So
 speculation mainly shortens the critical path, that is a deep chain with a
 narrow frontier where levels 1 and 2 give little. Its cost is wasted rebuilds.
+
+The default width of 4 covers every candidate of a site with up to four
+candidates in one round. In run 21's ledger, the first diagnosed site of
+`Ethereum.UInt256` had 4 candidates. One round of width 4 on
+`ReturnDataBound.lean` holds about 4 × 2.2 GiB of Lean processes. Until the
+scheduler (S5, P17) exists, nothing caps the product of the wave width and the
+speculative width. A run on a host with less free memory sets a lower width.
 
 ## The combined scheduler
 
@@ -571,6 +579,7 @@ P17. The scheduler bounds the live Lean process count by the available memory, n
 P18. An attempt worktree symlinks the shared dependency build and keeps its own root build directory.
 P19. A wallclock site is rebuilt alone, so its verdict is the quiescent verdict.
 P20. When the head candidate has a kept result with a valid key, the shell makes the module observation from that result and the current diagnostics of every other declaration, with no attempt.
+P21. The default speculative width is 4, and `--speculate 1` attempts one candidate at a time.
 X1. A site position is the pair (declaration index in source order, bytes from the error to the end of that declaration).
 X2. The Core sorts the open sites by that position, so the head site is the earliest error.
 X3. An edit is accepted when the earliest open position moves strictly toward the end of the file.

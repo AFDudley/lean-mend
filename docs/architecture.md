@@ -123,14 +123,13 @@ replace Lake.
    `lake build <module>` there. Lake rebuilds only that module, because its
    imports are built.
 
-Modules are handled in graph order (brief item 1). The design attempts
-independent frontier modules in parallel, each in its own worktree (concept
-D3). The current driver does not do this yet: by default it attempts one
-candidate at a time in the target checkout, and it reverts a rejected
-candidate by writing back the file's previous bytes. `--speculate <n>`
-attempts the next `n` candidates of the head site at the same time instead,
-each in its own worktree (`docs/parallel.md` Level 3); this is the one
-worktree-isolated attempt the driver runs today.
+Modules are handled in graph order (brief item 1). The driver mends every
+current frontier module at the same time, each in its own worktree
+(`docs/parallel.md` Level 2, concept D3). At the head site of a module, it
+attempts the next four candidates at the same time, each in its own nested
+worktree (`docs/parallel.md` Level 3, P21). `--speculate 1` attempts one
+candidate at a time in the module's worktree, and it reverts a rejected
+candidate by writing back the file's previous bytes.
 
 ## The two stores
 
