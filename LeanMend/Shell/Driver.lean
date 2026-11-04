@@ -520,9 +520,11 @@ partial def loop (c : Ctx) (s : RunState) : IO RunState := do
       | other => pure other
   | other => pure other
 
-/-- Run the `--prepare` command in a tree before its build, for example
-`lake exe cache get` when the target's own dependencies need fetching. It
-must succeed. -/
+/-- Run the `--prepare` command in a tree before any Lake command there, for
+example `lake exe cache get` when the target's own dependencies need fetching,
+or a copy of a saved `.lake`. The first Lake command (the probe's `lake env`)
+resolves the manifest and clones every package into a missing `.lake`, so a
+prepare that runs after it finds the tree already populated. It must succeed. -/
 def prepareTree (tree : FilePath) : List String → IO Unit
   | [] => pure ()
   | cmd :: args => discard <| runOk tree cmd args.toArray
@@ -542,11 +544,11 @@ def runAdopt (target : FilePath) (targets : List String) (aliasesFrom : List Fil
   IO.FS.writeFile ledger ""
   -- The bumped tree at HEAD: graph and build (this also builds the dependencies).
   let toolchain := (← IO.FS.readFile (target / "lean-toolchain")).trimAscii.toString
+  prepareTree target prepare
   let files ← moduleGraph target
   let order0 ← match topoOrder (files.map (·.1)) with
     | .ok o => pure o
     | .error r => throw <| IO.userError s!"{repr r}"
-  prepareTree target prepare
   let (order, built) ← buildAll target targets order0
   -- The alias map: the dependencies at HEAD, and every --aliases-from project.
   let names := order.map (·.name)
@@ -564,11 +566,11 @@ def runAdopt (target : FilePath) (targets : List String) (aliasesFrom : List Fil
   discard <| git target #["worktree", "prune"]
   if ← base.pathExists then discard <| git target #["worktree", "remove", "--force", base.toString]
   discard <| git target #["worktree", "add", "-q", "--detach", base.toString, "HEAD~1"]
+  prepareTree base prepare
   let baseFiles ← moduleGraph base
   let baseOrder0 ← match topoOrder (baseFiles.map (·.1)) with
     | .ok o => pure o
     | .error r => throw <| IO.userError s!"{repr r}"
-  prepareTree base prepare
   let (_, baseBuilt) ← buildAll base targets baseOrder0
   let baseToolchain := (← IO.FS.readFile (base / "lean-toolchain")).trimAscii.toString
   let baseCert ← certificate base baseToolchain (resolved.normalizeWith (Rule.prefixPairs rules)) baseFiles baseBuilt

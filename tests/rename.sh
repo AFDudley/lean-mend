@@ -54,4 +54,20 @@ check "without the alias source: done, App.Use residue, App blocked behind it" \
   '.state == "done" and .residue == ["App.Use", "App"]' "$out"
 n=$(git -C "$app" rev-list --count main..lean-mend/mend)
 [ "$n" = 0 ] && pass "no commit without an accepted patch" || { failed "commits: $n"; fail=1; }
+
+# --prepare runs in each tree before any Lake command there (docs/architecture.md,
+# the command line). The probe writes .lean-mend/Probe.lean just before its first
+# `lake env`, so the script records whether that file exists when it runs.
+rm -rf "$app/.lean-mend" "$app/.lake" && g switch -q main && g branch -q -D lean-mend/mend
+printf '%s\n' '#!/usr/bin/env bash' \
+  'if [ -e .lean-mend/Probe.lean ]; then echo "after-probe $PWD"; else echo "first $PWD"; fi >> "$1"' \
+  > "$work/prepare-order.sh"
+: > "$work/prepare-order.log"
+out=$(GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@lean-mend GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@lean-mend \
+  "$bin" run "$app" --adopt --aliases-from "$work/dep-v2" \
+  --prepare "bash $work/prepare-order.sh $work/prepare-order.log")
+order=$(cat "$work/prepare-order.log")
+[ "$(grep -c '^first ' <<<"$order")" = 2 ] && ! grep -q '^after-probe ' <<<"$order" \
+  && pass "--prepare runs in both trees before the first probe" \
+  || { failed "--prepare order"; echo "$order"; fail=1; }
 report
