@@ -205,6 +205,81 @@ partial def cmdNode (file : String) (offsets : List Nat) : IO Unit := do
     | none => loop st' msgs'
    loop st0 msgs0
 
+/-- The state of `axiomsOf`: Tarjan's strongly connected components over the
+constants, so that each constant's axiom set is computed once per process. -/
+structure AxState where
+  next : Nat := 0
+  index : Std.HashMap Name Nat := {}
+  low : Std.HashMap Name Nat := {}
+  stack : Array Name := #[]
+  onStack : Std.HashSet Name := {}
+  /-- The axioms a constant on the stack reaches outside its component. -/
+  acc : Std.HashMap Name (Std.HashSet Name) := {}
+  /-- The axioms of every constant whose component is complete. -/
+  done : Std.HashMap Name (Std.HashSet Name) := {}
+
+/-- The edges of `Lean.CollectAxioms.collect` (Lean v4.29.0): the constant
+itself when it is an axiom, and the constants that `collect` visits next. -/
+def axEdges (env : Environment) (c : Name) : Std.HashSet Name × Array Name :=
+  let used (e : Expr) := e.getUsedConstants
+  match env.checked.get.find? c with
+  | some (.axiomInfo v) => (({} : Std.HashSet Name).insert c, used v.type)
+  | some (.defnInfo v) => ({}, used v.type ++ used v.value)
+  | some (.thmInfo v) => ({}, used v.type ++ used v.value)
+  | some (.opaqueInfo v) => ({}, used v.type ++ used v.value)
+  | some (.quotInfo _) => ({}, #[])
+  | some (.ctorInfo v) => ({}, used v.type)
+  | some (.recInfo v) => ({}, used v.type)
+  | some (.inductInfo v) => ({}, used v.type ++ v.ctors.toArray)
+  | none => ({}, #[])
+
+def nameUnion (a b : Std.HashSet Name) : Std.HashSet Name := b.fold (fun s n => s.insert n) a
+
+/-- Visit `v` (Tarjan). Every constant of a component gets the union of the
+axioms its members reach, which is the set `collect` finds from any of them. -/
+partial def axVisit (env : Environment) (v : Name) : StateM AxState Unit := do
+  let i := (← get).next
+  modify fun s => { s with next := i + 1, index := s.index.insert v i, low := s.low.insert v i,
+                           stack := s.stack.push v, onStack := s.onStack.insert v }
+  let (own, succ) := axEdges env v
+  let mut acc := own
+  for w in succ do
+    let s ← get
+    if let some r := s.done[w]? then
+      acc := nameUnion acc r
+    else if s.index.contains w then
+      -- `w` is on the stack: same component as `v`.
+      modify fun s => { s with low := s.low.insert v (min (s.low.getD v i) (s.index.getD w i)) }
+    else
+      axVisit env w
+      let s ← get
+      if let some r := s.done[w]? then
+        acc := nameUnion acc r
+      else
+        modify fun s => { s with low := s.low.insert v (min (s.low.getD v i) (s.low.getD w i)) }
+  modify fun s => { s with acc := s.acc.insert v acc }
+  let s ← get
+  if s.low.getD v i == i then
+    -- `v` is the root of a component: pop its members, give each the union.
+    let rec pop (members : Array Name) (all : Std.HashSet Name) :
+        StateM AxState (Array Name × Std.HashSet Name) := do
+      let s ← get
+      let some w := s.stack.back? | return (members, all)
+      modify fun s => { s with stack := s.stack.pop, onStack := s.onStack.erase w }
+      let all := nameUnion all (s.acc.getD w {})
+      if w == v then return (members.push w, all) else pop (members.push w) all
+    let (members, all) ← pop #[] {}
+    modify fun s => members.foldl (fun s m => { s with done := s.done.insert m all,
+                                                       acc := s.acc.erase m }) s
+
+/-- The axioms that `n` depends on, as `#print axioms` reports them, from the
+state `st` that earlier calls filled. -/
+def axiomsOf (env : Environment) (st : IO.Ref AxState) (n : Name) : IO (Array Name) := do
+  let s ← st.get
+  let s := if s.done.contains n then s else (axVisit env n).run s |>.2
+  st.set s
+  return (s.done.getD n {}).toArray
+
 /-- Declarations of many modules, from one environment: the modules are
 imported once, so a large target does not pay the import cost per module.
 `pairs` are (module, file). -/
@@ -212,6 +287,7 @@ def cmdDecls (pairs : List (String × String)) : IO Unit := do
   let env ← importModules (pairs.toArray.map fun (m, _) => { module := m.toName }) {}
     (loadExts := true)
   let pmctx : Parser.ParserModuleContext := { env, options := {} }
+  let axSt ← IO.mkRef ({} : AxState)
   -- Declarations grouped by module index, in one pass over the environment.
   let mut byIdx : Std.HashMap Nat (Array (Name × ConstantInfo)) := {}
   for (n, ci) in env.constants.toList do
@@ -224,7 +300,6 @@ def cmdDecls (pairs : List (String × String)) : IO Unit := do
     let src ← IO.FS.readFile file
     let bytes := src.toUTF8
     let ictx := Parser.mkInputContext src file
-    let ctx : Core.Context := { fileName := file, fileMap := ictx.fileMap }
     for (n, ci) in byIdx.getD idx.toNat #[] do
       let some ranges := declRangeExt.find? env n | continue
       let (stx, _, _) := Parser.parseCommand ictx pmctx
@@ -239,7 +314,7 @@ def cmdDecls (pairs : List (String × String)) : IO Unit := do
         (d.getArgs.find? (·.isIdent)).map (·.getId)
       if let some w := written then
         unless w.components.isSuffixOf n.components do continue
-      let (axioms, _) ← (collectAxioms n : CoreM _).toIO ctx { env }
+      let axioms ← axiomsOf env axSt n
       emit <| Json.mkObj
         [("name", toJson n.toString), ("module", toJson module),
          ("kind", toJson (kindOf env n ci)),

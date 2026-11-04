@@ -33,10 +33,15 @@ def probeSource : String := include_str "../../probe/Probe.lean"
 
 def probePath : FilePath := ".lean-mend" / "Probe.lean"
 
-/-- Run one probe command inside the target. -/
+/-- Run one probe command inside the target. The probe source goes to a
+temporary file and is renamed into place, so a probe that another task starts
+at the same time never reads a file cut short (`certificate` runs probes in
+parallel). -/
 def probe (target : FilePath) (args : Array String) : IO String := do
   IO.FS.createDirAll (target / ".lean-mend")
-  IO.FS.writeFile (target / probePath) probeSource
+  let tmp := target / ".lean-mend" / s!"Probe.lean.{← IO.monoNanosNow}.{← IO.rand 0 999999999}.tmp"
+  IO.FS.writeFile tmp probeSource
+  IO.FS.rename tmp (target / probePath)
   runOk target "lake" (#["env", "lean", "--run", probePath.toString] ++ args)
 
 def parseOrThrow {α} (what : String) : Except String α → IO α
@@ -171,16 +176,23 @@ partial def declsOf (target list : FilePath) (norm : String → String)
   return decls ++ (← declsOf target list norm moved)
 
 /-- The certificate of the built modules (`docs/verification.md`). The probe
-reads `chunk` modules per process, from one environment (`declsOf`). -/
+reads `chunk` modules per process, from one environment (`declsOf`), and up to
+`jobs` processes run at once, each with its own list file. One probe process
+holds about 4 GB on EquiVM, so the default stays at 4. The rows keep the order
+of the chunks. -/
 def certificate (target : FilePath) (toolchain : String) (norm : String → String)
     (mods : List (Module × FilePath)) (st : List (String × ModStatus))
-    (chunk : Nat := 200) : IO Certificate := do
+    (chunk : Nat := 200) (jobs : Nat := 4) : IO Certificate := do
   let built := mods.filter fun (m, _) => st.lookup m.name == some .built
-  let list := target / ".lean-mend" / "decls-batch.txt"
-  let mut decls := []
-  for part in chunks chunk built do
-    decls := decls ++ (← declsOf target list norm part)
-  pure { toolchain := ⟨toolchain⟩, built := built.map (·.1.name), decls }
+  let parts := (chunks chunk built).toArray
+  let mut decls : Array (List Decl) := #[]
+  for wave in chunks jobs (List.range parts.size) do
+    let tasks ← wave.mapM fun i =>
+      let list := target / ".lean-mend" / s!"decls-batch-{i}.txt"
+      IO.asTask (declsOf target list norm parts[i]!) (prio := .dedicated)
+    for t in tasks do
+      decls := decls.push (← IO.ofExcept (← IO.wait t))
+  pure { toolchain := ⟨toolchain⟩, built := built.map (·.1.name), decls := decls.toList.flatten }
 
 /-- The byte offset of a `lean --json` position: `line` counts from 1 and
 `column` counts code points from 0. -/

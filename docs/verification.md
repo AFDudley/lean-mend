@@ -27,8 +27,8 @@ The probe writes a certificate for a list of modules. For each declaration:
   normalized;
 - `statementHash`: `String.hash` of `statement` after `AliasMap.normalize`;
 - `type`: the elaborated type, printed with `pp.all`, for the report only;
-- `axioms`: the axioms the declaration depends on, by the method of
-  `#print axioms`.
+- `axioms`: the axioms the declaration depends on, the set that
+  `#print axioms` reports (the probe's `axiomsOf`, see architecture.md).
   The shell keeps them as a sorted set, and it collapses every generated
   `native_decide` axiom (`X._native.native_decide.ax_1_12`) to the one name
   `native_decide`. Lean numbers those per declaration, so their names can
