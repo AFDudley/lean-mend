@@ -27,4 +27,14 @@ sed -i 's/:= n + n/:= Old.g n/' "$work/Fx/Basic.lean"
 out=$("$bin" baseline "$work" || true)
 check "broken target halts with baselineRed" '.state | startswith("halted LeanMend.Refusal.baselineRed")' "$out"
 check "importers of a broken module are not built" '.failing == ["Fx.Basic", "Fx.Uses", "Fx"] and (.decls | length) == 0' "$out"
+
+# Two modules that declare the same name (`main` of two executables) build one by
+# one, but Lean cannot import both into one environment. The certificate must
+# still read both, so the probe splits such a chunk instead of halting the run.
+rm -rf "$work" && mkdir -p "$work"
+cp -r "$root/tests/fixtures/probe-clash/." "$work/"
+echo "leanprover/lean4:v4.33.1" > "$work/lean-toolchain"
+out=$("$bin" baseline "$work")
+check "a target whose modules clash is baselined" '.state == "baselined"' "$out"
+check "certificate rows from both clashing modules" '([.decls[] | select(.name == "main")] | length) == 2 and ([.decls[].name] | (index("Cx.a_self") != null) and (index("Cx.b_self") != null))' "$out"
 report

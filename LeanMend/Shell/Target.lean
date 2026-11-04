@@ -137,8 +137,26 @@ def chunks {α} (n : Nat) (l : List α) : List (List α) :=
     | [] => [[x]]
   ((l.foldl step []).map List.reverse).reverse
 
+/-- The declarations of `part` from the probe's `decls-batch`, which imports
+the modules of `part` into one environment. Two modules that declare the same
+name, for example `main` of two executables or a constant that `native_decide`
+generates in two copies of one block, each build, but Lean refuses to import
+both: "environment already contains". Such a part is split in halves. A module
+that built can be imported by itself, so a part of one module that fails is a
+real failure, and any other error halts at once. -/
+partial def declsOf (target list : FilePath) (norm : String → String)
+    (part : List (Module × FilePath)) : IO (List Decl) := do
+  IO.FS.writeFile list ("\n".intercalate (part.map fun (m, f) => s!"{m.name}\t{f}"))
+  let out ← try probe target #["decls-batch", list.toString] catch e => do
+    let clash := (e.toString.splitOn "environment already contains").length > 1
+    unless clash && part.length > 1 do throw e
+    let half := part.length / 2
+    return (← declsOf target list norm (part.take half)) ++
+      (← declsOf target list norm (part.drop half))
+  parseOrThrow "probe decls-batch" (Parse.lines (Parse.decl norm) out)
+
 /-- The certificate of the built modules (`docs/verification.md`). The probe
-reads `chunk` modules per process, from one environment. -/
+reads `chunk` modules per process, from one environment (`declsOf`). -/
 def certificate (target : FilePath) (toolchain : String) (norm : String → String)
     (mods : List (Module × FilePath)) (st : List (String × ModStatus))
     (chunk : Nat := 200) : IO Certificate := do
@@ -146,9 +164,7 @@ def certificate (target : FilePath) (toolchain : String) (norm : String → Stri
   let list := target / ".lean-mend" / "decls-batch.txt"
   let mut decls := []
   for part in chunks chunk built do
-    IO.FS.writeFile list ("\n".intercalate (part.map fun (m, f) => s!"{m.name}\t{f}"))
-    let out ← probe target #["decls-batch", list.toString]
-    decls := decls ++ (← parseOrThrow "probe decls-batch" (Parse.lines (Parse.decl norm) out))
+    decls := decls ++ (← declsOf target list norm part)
   pure { toolchain := ⟨toolchain⟩, built := built.map (·.1.name), decls }
 
 /-- The byte offset of a `lean --json` position: `line` counts from 1 and

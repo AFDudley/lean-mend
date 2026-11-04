@@ -1,0 +1,8 @@
+name = "Cx"
+defaultTargets = ["Cx"]
+
+# Two modules that declare the same top-level name, and no root module that
+# imports both: each builds, but no single environment can import the two.
+[[lean_lib]]
+name = "Cx"
+globs = ["Cx.+"]
