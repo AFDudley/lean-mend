@@ -137,23 +137,38 @@ def chunks {α} (n : Nat) (l : List α) : List (List α) :=
     | [] => [[x]]
   ((l.foldl step []).map List.reverse).reverse
 
+/-- The module that Lean names in an import clash, "import X failed,
+environment already contains 'n' from Y": `X`, the module it could not add. -/
+def clashModule (err : String) : Option String := do
+  let after ← (err.splitOn "import ").getLast?
+  let x := (after.splitOn " failed, environment already contains").head!
+  if x == after then none else some x
+
 /-- The declarations of `part` from the probe's `decls-batch`, which imports
 the modules of `part` into one environment. Two modules that declare the same
 name, for example `main` of two executables or a constant that `native_decide`
 generates in two copies of one block, each build, but Lean refuses to import
-both: "environment already contains". Such a part is split in halves. A module
-that built can be imported by itself, so a part of one module that fails is a
-real failure, and any other error halts at once. -/
+both: "import X failed, environment already contains 'n' from Y". The probe
+then runs again without `X`, so each clash costs one probe run, and the moved
+modules form a part of their own. A module that built can be imported by
+itself, so a clash that names no other module of the part, and any other
+error, halts at once. -/
 partial def declsOf (target list : FilePath) (norm : String → String)
     (part : List (Module × FilePath)) : IO (List Decl) := do
-  IO.FS.writeFile list ("\n".intercalate (part.map fun (m, f) => s!"{m.name}\t{f}"))
-  let out ← try probe target #["decls-batch", list.toString] catch e => do
-    let clash := (e.toString.splitOn "environment already contains").length > 1
-    unless clash && part.length > 1 do throw e
-    let half := part.length / 2
-    return (← declsOf target list norm (part.take half)) ++
-      (← declsOf target list norm (part.drop half))
-  parseOrThrow "probe decls-batch" (Parse.lines (Parse.decl norm) out)
+  let rec go (cur moved : List (Module × FilePath)) :
+      IO (String × List (Module × FilePath)) := do
+    IO.FS.writeFile list ("\n".intercalate (cur.map fun (m, f) => s!"{m.name}\t{f}"))
+    try
+      let out ← probe target #["decls-batch", list.toString]
+      pure (out, moved)
+    catch e =>
+      let some x := clashModule e.toString | throw e
+      unless cur.length > 1 && cur.any (·.1.name == x) do throw e
+      go (cur.filter (·.1.name != x)) (moved ++ cur.filter (·.1.name == x))
+  let (out, moved) ← go part []
+  let decls ← parseOrThrow "probe decls-batch" (Parse.lines (Parse.decl norm) out)
+  if moved.isEmpty then return decls
+  return decls ++ (← declsOf target list norm moved)
 
 /-- The certificate of the built modules (`docs/verification.md`). The probe
 reads `chunk` modules per process, from one environment (`declsOf`). -/
