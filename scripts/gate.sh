@@ -45,6 +45,7 @@ step "lake build" build
 step "no LeanMend constant depends on sorryAx (docs/verification.md)" lake env lean tests/NoSorry.lean
 step "lake test" lake test
 step "probe matrix" tests/probe-matrix.sh
+step "one probe process per module" tests/probe-serve.sh
 step "lean-mend baseline on a real target" tests/baseline.sh
 step "lean-mend run --adopt on the rename fixture" tests/rename.sh
 step "lean-mend run --adopt --rules on the simp-set fixture" tests/simpset.sh

@@ -87,6 +87,12 @@ JSON to stdout. Its commands:
 | `node <file> <offset>…` | for each offset, the syntax nodes that contain it, innermost first: kind and byte range; tactic nodes also carry their tokens with ranges. The shell asks at a site's start and its end, because an error such as `unsolved goals` is reported at `by` with a range over the whole block |
 | `deprecated <module>…` | every `@[deprecated]` declaration in the environment of the modules, with its new name, from `Lean.Linter.deprecatedAttr` |
 | `goal <file> <pos>` | not built yet: the goal state at a position, from the info tree, for a residue packet |
+| `serve` | one JSON request per line of stdin, `{"file", "offsets"}`; one JSON reply per line of stdout, `{"regions", "nodes"}` — `regions <file>` and `node <file> <offsets>…` from one import, kept across requests and refreshed only when a request's file has a different import header (`docs/parallel.md` § Level 0, C1-C3) |
+
+`Shell/Target.lean` starts one `serve` process per module it mends
+(`probeServeStart`) and sends it one request per `diagnose` call
+(`probeServe`), so every attempt on a module shares one import, instead of a
+new probe process per `regions` or `node` call.
 
 `Shell/Target.lean` embeds the probe with `include_str`. A change to
 `probe/Probe.lean` alone did not rebuild the module in one observed case, so

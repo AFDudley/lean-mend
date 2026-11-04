@@ -28,13 +28,24 @@ Commands:
   `match` nodes.
 * `deprecated <module>…` — `{"name", "newName"}` for every `@[deprecated]`
   declaration in the environment of the given modules.
+* `serve` — one JSON request per line of stdin, `{"file", "offsets"}`; one
+  JSON reply per line of stdout, `{"regions", "nodes"}`: `regions <file>` and
+  `node <file> <offsets>…` from one import, kept across requests and
+  refreshed only when a request's file has a different import header
+  (`docs/parallel.md` C1-C3). Ends at end of file on stdin.
 -/
 
 open Lean
 
 namespace LeanMendProbe
 
-def emit (j : Json) : IO Unit := IO.println j.compress
+/-- Print one JSON line and flush it: `serve`'s caller reads one reply per
+request from a pipe, so a line that stays in stdio's buffer until the
+process exits never arrives. -/
+def emit (j : Json) : IO Unit := do
+  let out ← IO.getStdout
+  out.putStrLn j.compress
+  out.flush
 
 /-- Every node of kind `k` in `stx`, in source order. -/
 partial def nodesOfKind (k : SyntaxNodeKind) (stx : Syntax) : Array Syntax :=
@@ -102,27 +113,28 @@ def regions (stx : Syntax) : Option ((Nat × Nat) × (Nat × Nat)) := do
   -- region is the empty range where the body starts.
   pure ((byteRange sig).getD (b.1, b.1), b)
 
-/-- `regions <file>`: every declaration command in a file, parsed but not
-elaborated, so it works on a module that does not build. The environment is
-the file's imports (they build, because only a frontier module is read), so
-notation from imports parses; notation defined in the same file does not.
-Names are qualified by the enclosing `namespace` commands. -/
-partial def cmdRegions (file : String) : IO Unit := do
-  let src ← IO.FS.readFile file
-  let ictx := Parser.mkInputContext src file
-  let (hdr, st0, msgs0) ← Parser.parseHeader ictx
-  let explicit := (nodesOfKind ``Parser.Module.import hdr.raw).filterMap fun imp =>
+/-- The imports of a parsed header: its explicit `import` lines, with the
+implicit `Init` prepended unless the file declares `prelude`. Shared by every
+command that builds the file's own environment, so `serve` can tell whether a
+later request needs a new import (`docs/parallel.md` C2). -/
+def headerImports (hdr : Syntax) : Array Name :=
+  let explicit := (nodesOfKind ``Parser.Module.import hdr).filterMap fun imp =>
     (imp.getArgs.find? (·.isIdent)).map (·.getId)
-  -- Every file imports `Init` unless its header says `prelude`.
-  let isPrelude := !(nodesOfKind ``Parser.Module.prelude hdr.raw).isEmpty
-  let imports := if isPrelude then explicit else #[`Init] ++ explicit
-  let env ← importModules (imports.map fun n => { module := n }) {} (loadExts := true)
-  let pmctx : Parser.ParserModuleContext := { env, options := {} }
+  let isPrelude := !(nodesOfKind ``Parser.Module.prelude hdr).isEmpty
+  if isPrelude then explicit else #[`Init] ++ explicit
+
+/-- Every declaration command of a file, parsed but not elaborated, so it
+works on a module that does not build: one JSON object per declaration, in
+source order, the shape `regions <file>` emits one per line of. Names are
+qualified by the enclosing `namespace` commands. Shared by `cmdRegions` and
+`cmdServe`, from an environment either one already built. -/
+partial def regionsArray (ictx : Parser.InputContext) (pmctx : Parser.ParserModuleContext)
+    (st0 : Parser.ModuleParserState) (msgs0 : MessageLog) : IO (Array Json) := do
   -- The scope stack: `some ns` for a namespace, `none` for a section.
   let rec loop (st : Parser.ModuleParserState) (msgs : MessageLog)
-      (scopes : List (Option Name)) : IO Unit := do
+      (scopes : List (Option Name)) (acc : Array Json) : IO (Array Json) := do
     let (stx, st', msgs') := Parser.parseCommand ictx pmctx st msgs
-    if Parser.isTerminalCommand stx then return
+    if Parser.isTerminalCommand stx then return acc
     let k := stx.getKind
     let scopes :=
       if k == ``Parser.Command.namespace then
@@ -133,6 +145,7 @@ partial def cmdRegions (file : String) : IO Unit := do
     -- A `mutual` block holds several declarations: report each one.
     let decls := if k == ``Parser.Command.mutual then nodesOfKind ``Parser.Command.declaration stx
       else #[stx]
+    let mut acc := acc
     for d in decls do
       if let some (sig, body) := regions d then
         let written := (firstOfKinds [``Parser.Command.declId] d).bind fun i =>
@@ -140,11 +153,22 @@ partial def cmdRegions (file : String) : IO Unit := do
         let pre := scopes.reverse.filterMap id |>.foldl (fun acc n => acc ++ n) Name.anonymous
         let name := written.map (fun w => (pre ++ w).toString) |>.getD ""
         if let some r := byteRange d then
-          emit <| Json.mkObj
+          acc := acc.push <| Json.mkObj
             [("name", toJson name), ("range", rangeJson r),
              ("statementRange", rangeJson sig), ("bodyRange", rangeJson body)]
-    loop st' msgs' scopes
-  loop st0 msgs0 []
+    loop st' msgs' scopes acc
+  loop st0 msgs0 [] #[]
+
+/-- `regions <file>`: the environment is the file's imports (they build,
+because only a frontier module is read), so notation from imports parses;
+notation defined in the same file does not. -/
+def cmdRegions (file : String) : IO Unit := do
+  let src ← IO.FS.readFile file
+  let ictx := Parser.mkInputContext src file
+  let (hdr, st0, msgs0) ← Parser.parseHeader ictx
+  let env ← importModules ((headerImports hdr.raw).map fun n => { module := n }) {} (loadExts := true)
+  let pmctx : Parser.ParserModuleContext := { env, options := {} }
+  for j in ← regionsArray ictx pmctx st0 msgs0 do emit j
 
 /-- The nodes of `stx` that contain byte offset `pos`, outermost first. -/
 partial def pathTo (stx : Syntax) (pos : Nat) : List Syntax :=
@@ -168,23 +192,15 @@ partial def tokens (src : ByteArray) (stx : Syntax) : Array Json :=
     | none => #[]
   | _ => stx.getArgs.foldl (fun acc c => acc ++ tokens src c) #[]
 
-/-- `node <file> <offset>`: the syntax nodes that contain a byte offset,
-innermost first: kind and byte range; tactic nodes (kind under
-`Lean.Parser.Tactic`) also carry their tokens. The file is parsed, not
-elaborated, with the environment of its imports plus `Init`. -/
-partial def cmdNode (file : String) (offsets : List Nat) : IO Unit := do
-  let src ← IO.FS.readFile file
-  let bytes := src.toUTF8
-  let ictx := Parser.mkInputContext src file
-  let (hdr, st0, msgs0) ← Parser.parseHeader ictx
-  let explicit := (nodesOfKind ``Parser.Module.import hdr.raw).filterMap fun imp =>
-    (imp.getArgs.find? (·.isIdent)).map (·.getId)
-  let isPrelude := !(nodesOfKind ``Parser.Module.prelude hdr.raw).isEmpty
-  let imports := if isPrelude then explicit else #[`Init] ++ explicit
-  let env ← importModules (imports.map fun n => { module := n }) {} (loadExts := true)
-  let pmctx : Parser.ParserModuleContext := { env, options := {} }
-  for offset in offsets do
-   let rec loop (st : Parser.ModuleParserState) (msgs : MessageLog) : IO Unit := do
+/-- The syntax nodes that contain byte offset `offset`, innermost first: kind
+and byte range; tactic nodes (kind under `Lean.Parser.Tactic`) also carry
+their tokens. `{"file", "offset", "nodes"}`, the shape `node <file>
+<offset>…` emits one per line of. Shared by `cmdNode` and `cmdServe`, from an
+environment either one already built. -/
+partial def nodeAt (ictx : Parser.InputContext) (pmctx : Parser.ParserModuleContext)
+    (st0 : Parser.ModuleParserState) (msgs0 : MessageLog) (file : String) (bytes : ByteArray)
+    (offset : Nat) : IO Json := do
+  let rec loop (st : Parser.ModuleParserState) (msgs : MessageLog) : IO Json := do
     let (stx, st', msgs') := Parser.parseCommand ictx pmctx st msgs
     if Parser.isTerminalCommand stx then
       throw <| IO.userError s!"no command contains byte {offset} of {file}"
@@ -199,11 +215,23 @@ partial def cmdNode (file : String) (offsets : List Nat) : IO Unit := do
                 k == ``Parser.Term.match then
               Json.mkObj (base ++ [("tokens", Json.arr (tokens bytes n))])
             else Json.mkObj base
-        emit <| Json.mkObj [("file", toJson file), ("offset", toJson offset),
+        pure <| Json.mkObj [("file", toJson file), ("offset", toJson offset),
                             ("nodes", Json.arr nodes.toArray)]
       else loop st' msgs'
     | none => loop st' msgs'
-   loop st0 msgs0
+  loop st0 msgs0
+
+/-- `node <file> <offset>…`: the file is parsed, not elaborated, with the
+environment of its imports plus `Init`. -/
+def cmdNode (file : String) (offsets : List Nat) : IO Unit := do
+  let src ← IO.FS.readFile file
+  let bytes := src.toUTF8
+  let ictx := Parser.mkInputContext src file
+  let (hdr, st0, msgs0) ← Parser.parseHeader ictx
+  let env ← importModules ((headerImports hdr.raw).map fun n => { module := n }) {} (loadExts := true)
+  let pmctx : Parser.ParserModuleContext := { env, options := {} }
+  for offset in offsets do
+    emit (← nodeAt ictx pmctx st0 msgs0 file bytes offset)
 
 /-- The state of `axiomsOf`: Tarjan's strongly connected components over the
 constants, so that each constant's axiom set is computed once per process. -/
@@ -339,6 +367,58 @@ def cmdDeprecated (modules : List String) : IO Unit := do
         [("name", toJson n.toString),
          ("newName", toJson (e.newName?.map (·.toString)))]
 
+/-- One request's held import, for `serve`'s cache: the import names
+`headerImports` computed, and the environment they built. -/
+structure ServeCache where
+  imports : Array Name
+  env : Environment
+
+/-- `serve`: one request per line of stdin, `{"file", "offsets"}`; one reply
+per line of stdout, `{"regions", "nodes"}` — `regionsArray` over the whole
+file, and `nodeAt` at each of `offsets`, from one import kept across requests
+(`docs/parallel.md` C1). The import is rebuilt only when a request's file has
+a different header than the one the cache holds (C2); the same module's
+requests, with the same imports, all answer from the kept import (C3). Ends
+at end of file on stdin. -/
+partial def cmdServe : IO Unit := do
+  let stdin ← IO.getStdin
+  let cacheRef ← IO.mkRef (none : Option ServeCache)
+  let rec loop : IO Unit := do
+    let line ← stdin.getLine
+    if line.isEmpty then return
+    let line := line.trimAscii.toString
+    if line.isEmpty then loop else
+    let req ← match Json.parse line with
+      | .ok j => pure j
+      | .error e => throw <| IO.userError s!"serve: bad request: {e}"
+    let file : String ← match req.getObjValAs? String "file" with
+      | .ok f => pure f
+      | .error e => throw <| IO.userError s!"serve: {e}"
+    let offsets : List Nat := (req.getObjValAs? (List Nat) "offsets").toOption.getD []
+    let src ← IO.FS.readFile file
+    let bytes := src.toUTF8
+    let ictx := Parser.mkInputContext src file
+    let (hdr, st0, msgs0) ← Parser.parseHeader ictx
+    let imports := headerImports hdr.raw
+    let cached ← cacheRef.get
+    let env ← match cached with
+      | some c =>
+        if c.imports == imports then pure c.env
+        else do
+          let env ← importModules (imports.map fun n => { module := n }) {} (loadExts := true)
+          cacheRef.set (some { imports, env })
+          pure env
+      | none => do
+          let env ← importModules (imports.map fun n => { module := n }) {} (loadExts := true)
+          cacheRef.set (some { imports, env })
+          pure env
+    let pmctx : Parser.ParserModuleContext := { env, options := {} }
+    let regions ← regionsArray ictx pmctx st0 msgs0
+    let nodes ← offsets.toArray.mapM (nodeAt ictx pmctx st0 msgs0 file bytes)
+    emit <| Json.mkObj [("regions", Json.arr regions), ("nodes", Json.arr nodes)]
+    loop
+  loop
+
 end LeanMendProbe
 
 open LeanMendProbe in
@@ -352,7 +432,8 @@ unsafe def main (args : List String) : IO UInt32 := do
   | ["regions", f] => cmdRegions f
   | "node" :: f :: os => cmdNode f (os.map String.toNat!)
   | "deprecated" :: ms => cmdDeprecated ms
+  | ["serve"] => cmdServe
   | _ =>
-    IO.eprintln "usage: imports <file>… | decls <module> <file> | decls-batch <list> | regions <file> | node <file> <offset>… | deprecated <module>…"
+    IO.eprintln "usage: imports <file>… | decls <module> <file> | decls-batch <list> | regions <file> | node <file> <offset>… | deprecated <module>… | serve"
     return 2
   return 0

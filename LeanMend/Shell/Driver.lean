@@ -189,7 +189,7 @@ driver replays it, after the whole wave is planned. `none` (the sequential
 `--speculate 1` single-module path, outside a wave) reads `c.followed` live,
 as before. -/
 def attemptOne (c : Ctx) (target : FilePath) (mm : Mending) (file : FilePath) (cand : Candidate)
-    (followedSnapshot : Option (List String) := none) :
+    (session : ProbeSession) (followedSnapshot : Option (List String) := none) :
     IO (ByteArray × MendObs × List String × List (Site × List Node)) := do
   let saved ← applyEdit target file cand
   let followed ← match followedSnapshot with
@@ -197,7 +197,7 @@ def attemptOne (c : Ctx) (target : FilePath) (mm : Mending) (file : FilePath) (c
     | none => c.followed.get
   let done := followed ++
     (match cand.target with | .body _ => [(cand.rule.splitOn ": ").head!] | _ => [])
-  let (e, _, lints, opens0, nodesAt) ← diagnose target mm.module file c.aliases c.rules c.annotate c.follow
+  let (e, _, lints, opens0, nodesAt) ← diagnose session target mm.module file c.aliases c.rules c.annotate c.follow
     (if c.follow then done else [])
   let opens := opens0.filter fun o => !mm.residue.any (·.sameAs o.site)
   let editEnd := cand.start + cand.replacement.utf8ByteSize
@@ -289,7 +289,14 @@ partial def speculateRounds (c : Ctx) (dir : FilePath) (followedSnapshot : List 
     IO.asTask
       (do
         let startedAt ← IO.monoMsNow
-        let (_, obs, done, nodesAt) ← attemptOne c d mm file cd followedSnapshot
+        -- One probe process for this one nested attempt (`docs/parallel.md`
+        -- C1): each nested worktree is its own process's cwd, and the
+        -- candidates run at the same time, so they cannot share one. It stops
+        -- on every exit path, so no probe process outlives the attempt.
+        let session ← probeServeStart d
+        let (_, obs, done, nodesAt) ← (do
+          try attemptOne c d mm file cd session followedSnapshot
+          finally probeServeStop session)
         let finishedAt ← IO.monoMsNow
         pure (cd, d, obs, done, nodesAt, startedAt, finishedAt))
       (prio := .dedicated)
@@ -342,8 +349,8 @@ decides for a live run, but with no ledger write and no mend-branch commit
 per wave member, so every member's build happens at the same time; the
 driver only ever reads the returned rounds back, later, in the wave's own
 canonical order (`replayRounds`). -/
-partial def planModule (c : Ctx) (dir : FilePath) (followedSnapshot : List String) (mm : Mending) :
-    IO (List WaveRound) := do
+partial def planModule (c : Ctx) (dir : FilePath) (followedSnapshot : List String) (mm : Mending)
+    (session : ProbeSession) : IO (List WaveRound) := do
   let file := c.fileOf mm.module
   match mm.next with
   | .finish => pure []
@@ -358,14 +365,16 @@ partial def planModule (c : Ctx) (dir : FilePath) (followedSnapshot : List Strin
                                  ("text", toJson site.diagnostic.text)],
           cand := none, done := [], nodesAt := [], accepted := false,
           startedAt := now, finishedAt := now, worktree := dir }
-      pure (round :: (← planModule c dir followedSnapshot mm'))
+      pure (round :: (← planModule c dir followedSnapshot mm' session))
   | .attempt cand =>
     if c.speculate ≤ 1 then
       -- `dir` holds one attempt at a time, as `Mending.step` expects
       -- (concept D3: nested worktrees are level 3 only). A rejected edit is
-      -- reverted before the next attempt reuses this same worktree.
+      -- reverted before the next attempt reuses this same worktree. Every
+      -- attempt on this module, in this worktree, shares `session`
+      -- (`docs/parallel.md` C1).
       let startedAt ← IO.monoMsNow
-      let (saved, obs, done, nodesAt) ← attemptOne c dir mm file cand followedSnapshot
+      let (saved, obs, done, nodesAt) ← attemptOne c dir mm file cand session followedSnapshot
       let finishedAt ← IO.monoMsNow
       match mm.step obs with
       | .error r => throw <| IO.userError s!"lean-mend: {mm.module}: {repr r}"
@@ -376,10 +385,10 @@ partial def planModule (c : Ctx) (dir : FilePath) (followedSnapshot : List Strin
         let round : WaveRound :=
           { obs, name := "rebuilt", detail := rebuiltDetail cand.rule obs, cand := some cand,
             done, nodesAt, accepted, startedAt, finishedAt, worktree := dir }
-        pure (round :: (← planModule c dir followedSnapshot mm'))
+        pure (round :: (← planModule c dir followedSnapshot mm' session))
     else
       let (rounds, mm') ← speculateRounds c dir followedSnapshot mm file
-      pure (rounds ++ (← planModule c dir followedSnapshot mm'))
+      pure (rounds ++ (← planModule c dir followedSnapshot mm' session))
 
 /-- One wave member's plan: the module's initial diagnose (for the
 `.diagnosed` replay) and its full round sequence (for the `.mend` replays),
@@ -401,21 +410,33 @@ to be a member of `frontier ctx.mods st`), then plan the whole session
 member's plan in the wave's own canonical order (`loop`). -/
 def planWaveModule (c : Ctx) (ctx : Context) (st : Statuses) (followedSnapshot : List String)
     (dir : FilePath) (m : String) : IO WavePlan := do
-  let (_, decls, _, opens, nodesAt0) ← diagnose dir m (c.fileOf m) c.aliases c.rules c.annotate c.follow
-    (if c.follow then followedSnapshot else [])
-  let mm0 ← match RunState.step (.built ctx st) (.diagnosed m decls opens) with
-    | .mending _ _ f => soleMending f
-    | .halted r => throw <| IO.userError s!"lean-mend: {m}: {repr r}"
-    | _ => throw <| IO.userError s!"lean-mend: {m}: diagnosed did not enter mending"
-  let rounds ← planModule c dir followedSnapshot mm0
-  pure { module := m, decls, opens, nodesAt0, rounds, dir }
+  -- One probe process for the whole of `m`'s wave-mend session in `dir`
+  -- (`docs/parallel.md` C1): the initial diagnose below and every attempt
+  -- `planModule` makes share it. It stops once this plan is computed, or when
+  -- the plan fails, so no probe process outlives the run.
+  let session ← probeServeStart dir
+  try
+    let (_, decls, _, opens, nodesAt0) ← diagnose session dir m (c.fileOf m) c.aliases c.rules c.annotate c.follow
+      (if c.follow then followedSnapshot else [])
+    let mm0 ← match RunState.step (.built ctx st) (.diagnosed m decls opens) with
+      | .mending _ _ f => soleMending f
+      | .halted r => throw <| IO.userError s!"lean-mend: {m}: {repr r}"
+      | _ => throw <| IO.userError s!"lean-mend: {m}: diagnosed did not enter mending"
+    let rounds ← planModule c dir followedSnapshot mm0 session
+    pure { module := m, decls, opens, nodesAt0, rounds, dir }
+  finally probeServeStop session
 
 /-- Replay `plan`'s initial diagnose against the shared ledger and
 `RunState` (`docs/parallel.md` P12): the same warnings, in the same order,
 that the `.built` branch of `loop` wrote for one module before S3b, now
-written once per wave member, in the wave's own canonical order. -/
+written once per wave member, in the wave's own canonical order. Also
+records the one probe process `planWaveModule` started for this module
+(`docs/parallel.md` C1): the background computation phase writes no ledger
+line of its own, so the fact is recorded here, in canonical order, like
+every other observation this replay makes. -/
 def replayDiagnosed (c : Ctx) (s : RunState) (plan : WavePlan) : IO RunState := do
   let done ← c.followed.get
+  record c "probeStart" (Json.mkObj [("module", toJson plan.module)]) s
   warnFollow c plan.module done plan.nodesAt0
   -- Decision D11: without --annotate-binders, report the type narrowing the
   -- run would apply, and leave the site as residue.

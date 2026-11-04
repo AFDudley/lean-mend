@@ -33,15 +33,19 @@ def probeSource : String := include_str "../../probe/Probe.lean"
 
 def probePath : FilePath := ".lean-mend" / "Probe.lean"
 
-/-- Run one probe command inside the target. The probe source goes to a
-temporary file and is renamed into place, so a probe that another task starts
-at the same time never reads a file cut short (`certificate` runs probes in
-parallel). -/
-def probe (target : FilePath) (args : Array String) : IO String := do
+/-- Write the probe source into `target`. It goes to a temporary file and is
+renamed into place, so a probe that another task starts at the same time
+never reads a file cut short (`certificate` runs probes in parallel, and each
+wave module starts its own `serve` process). -/
+def writeProbe (target : FilePath) : IO Unit := do
   IO.FS.createDirAll (target / ".lean-mend")
   let tmp := target / ".lean-mend" / s!"Probe.lean.{← IO.monoNanosNow}.{← IO.rand 0 999999999}.tmp"
   IO.FS.writeFile tmp probeSource
   IO.FS.rename tmp (target / probePath)
+
+/-- Run one probe command inside the target. -/
+def probe (target : FilePath) (args : Array String) : IO String := do
+  writeProbe target
   runOk target "lake" (#["env", "lean", "--run", probePath.toString] ++ args)
 
 def parseOrThrow {α} (what : String) : Except String α → IO α
@@ -208,15 +212,16 @@ structure DeclRegion where
   statement : Nat × Nat
   body : Nat × Nat
 
-def readRegions (target : FilePath) (file : FilePath) : IO (List DeclRegion) := do
-  let out ← probe target #["regions", file.toString]
-  let pair (j : Lean.Json) (k : String) : Except String (Nat × Nat) := do
+/-- One `regions`-shaped JSON object (a line of the probe's `regions`
+command, or one entry of a probe serve reply's `"regions"` array) as a
+`DeclRegion`. -/
+def declRegionOf (j : Lean.Json) : Except String DeclRegion := do
+  let pair (k : String) : Except String (Nat × Nat) := do
     match ← j.getObjValAs? (List Nat) k with
     | [a, b] => pure (a, b)
     | _ => throw s!"field '{k}' is not a byte range"
-  parseOrThrow s!"probe regions {file}" <| Parse.lines (fun j => do
-    pure { name := ← j.getObjValAs? String "name", range := ← pair j "range",
-           statement := ← pair j "statementRange", body := ← pair j "bodyRange" }) out
+  pure { name := ← j.getObjValAs? String "name", range := ← pair "range",
+         statement := ← pair "statementRange", body := ← pair "bodyRange" }
 
 /-- The declaration and region that hold byte offset `pos`, with the
 declaration's index among `rs` in source order (`docs/parallel.md` X1). -/
@@ -232,21 +237,68 @@ def locate (rs : List DeclRegion) (pos : Nat) :
             else if inside d.statement then some .statement else none), some d.range.1,
      some d.body, some d.statement, some d.range, some i)
 
-/-- The probe's `node` output for some offsets of one file, in one process. -/
-def readNodes (target : FilePath) (file : FilePath) (offsets : List Nat) :
-    IO (List (Nat × List Node)) := do
-  if offsets.isEmpty then return []
+/-- A long-lived probe process for one module (`docs/parallel.md` C1): it
+serves every `probeServe` request of every attempt on the module, started by
+`probeServeStart` and stopped by `probeServeStop`. -/
+structure ProbeSession where
+  child : IO.Process.Child { stdin := .piped, stdout := .piped, stderr := .inherit }
+
+/-- Start one probe process inside `target`, running the probe's `serve`
+command (`docs/parallel.md` C1). Its stderr goes to lean-mend's own stderr:
+a pipe that nobody reads until the process exits would fill and block the
+probe, and lean-mend would then wait for a reply with no end. -/
+def probeServeStart (target : FilePath) : IO ProbeSession := do
+  writeProbe target
+  let child ← IO.Process.spawn
+    { cmd := "lake", args := #["env", "lean", "--run", probePath.toString, "serve"], cwd := target,
+      stdin := .piped, stdout := .piped, stderr := .inherit }
+  pure { child }
+
+/-- One request-reply round trip of `s`'s probe process. -/
+def probeServeRequest (s : ProbeSession) (file : FilePath) (offsets : List Nat) : IO Lean.Json := do
+  let req := Lean.Json.mkObj [("file", Lean.toJson file.toString), ("offsets", Lean.toJson offsets)]
+  s.child.stdin.putStrLn req.compress
+  s.child.stdin.flush
+  let line ← s.child.stdout.getLine
+  if line.isEmpty then
+    let code ← s.child.wait
+    throw <| IO.userError s!"probe serve: process exited {code} with no reply for {file} (its stderr is above)"
+  match Lean.Json.parse line with
+  | .ok j => pure j
+  | .error e => throw <| IO.userError s!"probe serve reply for {file}: {e}"
+
+/-- Stop `s`'s probe process: close its stdin, so the probe's `serve` loop
+sees end of file and exits, then wait for it. -/
+def probeServeStop (s : ProbeSession) : IO Unit := do
+  let (_stdin, child) ← s.child.takeStdin
+  discard <| child.wait
+
+/-- The declaration regions and the node paths at `offsets`, for the current
+text of `file`, from `s`'s one probe process (`docs/parallel.md` C1-C3): one
+probe request in place of the two separate `regions` and `node` probe runs. -/
+def probeServe (s : ProbeSession) (target : FilePath) (file : FilePath) (offsets : List Nat) :
+    IO (List DeclRegion × List (Nat × List Node)) := do
   let src ← IO.FS.readFile (target / file)
-  let out ← probe target (#["node", file.toString] ++ offsets.toArray.map toString)
-  parseOrThrow s!"probe node {file}" (Parse.lines (Parse.nodes src) out)
+  let reply ← probeServeRequest s file offsets
+  let rs ← parseOrThrow s!"probe serve regions {file}" <| do
+    let arr : List Lean.Json ← reply.getObjValAs? (List Lean.Json) "regions"
+    arr.mapM declRegionOf
+  let ns ← parseOrThrow s!"probe serve nodes {file}" <| do
+    let arr : List Lean.Json ← reply.getObjValAs? (List Lean.Json) "nodes"
+    arr.mapM (Parse.nodes src)
+  pure (rs, ns)
 
 /-- Compile one module with `lake env lean --json` and read its errors as
 sites, each with its declaration, region and candidates. The probe reads the
-syntax nodes only at sites whose class some rule answers. Returns the error
-count, the module's declaration count (`docs/parallel.md` X6), the linter
-warnings (kind `linter.*`) with their byte offsets and, for an unused simp
-argument, its name, and the open sites. -/
-def diagnose (target : FilePath) (module : String) (file : FilePath)
+syntax nodes only at sites whose class some rule answers, and returns them
+together with the whole file's declaration regions in one request to
+`session`'s probe process (`docs/parallel.md` C1-C3): the node offsets come
+from the diagnostics themselves, not from the regions, so both are known
+before either probe result is needed. Returns the error count, the module's
+declaration count (`docs/parallel.md` X6), the linter warnings (kind
+`linter.*`) with their byte offsets and, for an unused simp argument, its
+name, and the open sites. -/
+def diagnose (session : ProbeSession) (target : FilePath) (module : String) (file : FilePath)
     (aliases : AliasMap) (rules : List Rule) (annotate follow : Bool) (followed : List String) :
     IO (Nat × Nat × List (Nat × Option String) × List Open × List (Site × List Node)) := do
   let (_, out, _) ← run target "lake" #["env", "lean", "--json", file.toString]
@@ -260,11 +312,20 @@ def diagnose (target : FilePath) (module : String) (file : FilePath)
       let arg := if d.kind == "linter.unusedSimpArgs" then
         ((d.text.splitOn "\n").drop 1).head?.map (·.trimAscii.toString) else none
       (byteOffset src d.line d.column, arg)
-  let rs ← if errs.isEmpty then pure [] else readRegions target file
+  -- An error range can cover a whole tactic block (`unsolved goals` is
+  -- reported at `by`), so the probe reads the nodes at the range's start and
+  -- its end.
+  let rawLast (start stop : Nat) := if stop > start then stop - 1 else start
+  let offsetsOf (d : Diagnostic) : Nat × Nat :=
+    (byteOffset src d.line d.column, byteOffset src d.endLine d.endColumn)
+  let wantedOffsets := (errs.filter fun d => rules.any (·.cls == classify d)).flatMap fun d =>
+    let (start, stop) := offsetsOf d
+    [start, rawLast start stop]
+  let (rs, nodes) ← if errs.isEmpty then pure ([], []) else
+    probeServe session target file wantedOffsets.eraseDups
   let sites := errs.map fun d =>
-    let start := byteOffset src d.line d.column
+    let (start, stop) := offsetsOf d
     let (decl, region, declStart, bodyR, stmtR, declR, declIdx) := locate rs start
-    let stop := byteOffset src d.endLine d.endColumn
     let bytes := src.toUTF8
     { diagnostic := d, decl, region, declStart, start, stop, file := src,
       text := String.fromUTF8! (bytes.extract start stop),
@@ -272,11 +333,7 @@ def diagnose (target : FilePath) (module : String) (file : FilePath)
       statement := stmtR.map fun (a, b) => (a, String.fromUTF8! (bytes.extract a b)),
       declText := declR.map fun (a, b) => (a, String.fromUTF8! (bytes.extract a b)),
       declIndex := declIdx.getD 0 : Site }
-  -- An error range can cover a whole tactic block (`unsolved goals` is reported
-  -- at `by`), so the probe reads the nodes at the range's start and its end.
   let last (s : Site) := if s.stop > s.start then s.stop - 1 else s.start
-  let wanted := sites.filter fun s => rules.any (·.cls == classify s.diagnostic)
-  let nodes ← readNodes target file (wanted.flatMap fun s => [s.start, last s]).eraseDups
   let at_ (o : Nat) := (nodes.lookup o).getD []
   pure (errs.length, rs.length, lints,
     sites.map (fun s => ⟨s, proposeAll aliases rules (at_ s.start ++ at_ (last s)) annotate follow followed s⟩),
