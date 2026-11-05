@@ -94,32 +94,17 @@ def applyOp (op : EditOp) (n : Node) : Option String :=
       | u :: rest@(_ :: _) =>
         let before := String.fromUTF8! (n.text.toUTF8.extract (k.stop - n.start) (u.start - n.start))
         let simpPart := s!"simp{before.trimAsciiEnd.toString}"
-        let term := String.fromUTF8! (n.text.toUTF8.extract (u.stop - n.start) n.text.utf8ByteSize)
-        -- a term: name it first. A `have` inside a proof is not a
-        -- declaration (decision D10).
-        let named := s!"have := {term.trimAscii.toString}\n{pad}{simpPart} at this ⊢\n{pad}exact this"
         match rest with
         | [h] =>
-          if !(h.text.all identChar) then none
-          -- A dotted name (`hwf.d3`, a field of a hypothesis) is a term, not
-          -- a hypothesis: Lean refuses it after `at` ("expected single
-          -- reference to variable"). EquiVM `Reasoning.SolcRoutines` 1464.
-          else if h.text.contains '.' then some named
           -- a hypothesis name: simplify it in place
-          else some s!"{simpPart} at {h.text} ⊢\n{pad}exact {h.text}"
-        | _ => some named
+          if !(h.text.all identChar) then none else
+          some s!"{simpPart} at {h.text} ⊢\n{pad}exact {h.text}"
+        | _ =>
+          -- a term: name it first. A `have` inside a proof is not a
+          -- declaration (decision D10).
+          let term := String.fromUTF8! (n.text.toUTF8.extract (u.stop - n.start) n.text.utf8ByteSize)
+          some s!"have := {term.trimAscii.toString}\n{pad}{simpPart} at this ⊢\n{pad}exact this"
       | _ => none
-    | [] => none
-  | .simpaUsingBang =>
-    -- `using` becomes `using!`: the close at default transparency (Lean
-    -- v4.33 `simpa using!`). `simpa … using! T` has the token `using!`, so
-    -- it gives no candidate.
-    match n.tokens with
-    | k :: _ =>
-      if k.text != "simpa" then none else
-      match n.tokens.find? (·.text == "using") with
-      | some u => some (splice n.text (rel u).1 (rel u).2 "using!")
-      | none => none
     | [] => none
   | .keywordSwap a b =>
     match n.tokens with
@@ -163,34 +148,7 @@ def applyOp (op : EditOp) (n : Node) : Option String :=
   | .appendTactic t =>
     some (n.text ++ "\n" ++ String.ofList (List.replicate n.column ' ') ++ t)
   | .rename _ _ | .renamePrefix _ _ | .replaceInBody _ _ _ | .heartbeats _ | .valCompare
-  | .closeBullet _ | .simpArgAddPrior _ => none
-
-/-- The simp-family tactic that comes last before the site's own tactic, in
-the innermost indented tactic sequence that holds byte `site`, as a node of
-its own. A tactic of that sequence starts a line at the sequence's column; the
-site's own tactic is the last one that starts at or before `site`. The node
-ends where the next tactic starts, without the trailing white space. `none`
-if no simp-family tactic comes before the site's tactic in that sequence. -/
-def priorSimp (nodes : List Node) (site : Nat) : Option Node := do
-  let q ← nodes.find? (·.kind.endsWith "tacticSeq1Indented")
-  let bs := q.text.toUTF8
-  let between (a b : Nat) := String.fromUTF8! (bs.extract (a - q.start) (b - q.start))
-  -- only `q.column` spaces precede the token on its line
-  let heads := q.tokens.filter fun t =>
-    t.start == q.start ||
-      match (between q.start t.start).splitOn "\n" with
-      | _ :: rest@(_ :: _) =>
-        let l := rest.getLast!
-        l.length == q.column && l.all (· == ' ')
-      | _ => false
-  let own ← (heads.filter (·.start ≤ site)).getLast?
-  let prior ← (heads.filter (·.start < own.start)).reverse.find?
-    (TacticFamily.simp.keywords.contains ·.text)
-  let next ← heads.find? (·.start > prior.start)
-  let text := (between prior.start next.start).trimAsciiEnd.toString
-  let stop := prior.start + text.utf8ByteSize
-  pure { kind := "priorSimp", start := prior.start, stop, text, column := q.column,
-         tokens := q.tokens.filter fun t => prior.start ≤ t.start && t.stop ≤ stop }
+  | .closeBullet _ => none
 
 /-- The variable in Lean's message `Decidable (x✝ = n)`: `x`. -/
 def decidableVar (d : Diagnostic) : Option String :=
@@ -281,9 +239,12 @@ def ruleCandidates (follow : Bool) (r : Rule) (nodes : List Node) (s : Site) : L
     | _ => false
   if classify s.diagnostic != r.cls && !moves then [] else
   r.ops.filterMap fun op =>
+    -- The clean check reads what the edit adds (`docs/machine.md`, structural
+    -- check 2): a node that already holds `native_decide` keeps it.
     let mk (target : EditTarget) (a b : Nat) (repl : String) : Candidate :=
       { rule := s!"{r.name}: {repr op}", entrenchment := r.entrenchment, target,
-        start := a, stop := b, replacement := repl, tokens := replacementTokens repl }
+        start := a, stop := b, replacement := repl,
+        tokens := addedTokens (String.fromUTF8! (s.file.toUTF8.extract a b)) repl }
     match op, s.decl, s.region with
     | .heartbeats n, some d, _ =>
       s.declStart.map fun p => mk (.beforeDecl d) p p s!"set_option maxHeartbeats {n} in\n"
@@ -304,8 +265,7 @@ def ruleCandidates (follow : Bool) (r : Rule) (nodes : List Node) (s : Site) : L
       -- check the rest of it, which still has the old names.
       match renameAll a b s.file with
       | some (t, spans) =>
-        some { mk (.aliasRename a b) 0 s.file.utf8ByteSize t with
-               tokens := addedTokens s.file t, changed := spans }
+        some { mk (.aliasRename a b) 0 s.file.utf8ByteSize t with changed := spans }
       | none =>
         -- `open X (n …)`: Lean reports `X.n` at the token `n`; the namespace
         -- token `X` is the one that moves.
@@ -319,12 +279,6 @@ def ruleCandidates (follow : Bool) (r : Rule) (nodes : List Node) (s : Site) : L
       -- the innermost bullet that holds the site
       let n ← nodes.find? (·.kind == "Lean.cdot")
       pure (mk (.body d) n.start n.stop s!"· {t}")
-    | .simpArgAddPrior l, some d, some .body => do
-      -- the site's own tactic is of the rule's family; the edit is the simp before it
-      let _ ← pickNode r.family nodes
-      let n ← priorSimp nodes s.start
-      let repl ← applyOp (.simpArgAdd l) n
-      pure (mk (.body d) n.start n.stop repl)
     | .valCompare, some d, _ => do
       let (a, txt, t, spans) ← valCompareEdit s
       -- The pattern also occurs in `d`'s statement (X7): under
@@ -339,8 +293,7 @@ def ruleCandidates (follow : Bool) (r : Rule) (nodes : List Node) (s : Site) : L
                start := a, stop := a + txt.utf8ByteSize, replacement := t,
                tokens := addedTokens txt t, changed := spans }
       else
-        pure { mk (.body d) a (a + txt.utf8ByteSize) t with
-               tokens := addedTokens txt t, changed := spans }
+        pure { mk (.body d) a (a + txt.utf8ByteSize) t with changed := spans }
     | op, some d, some .body => do
       let n ← pickNode r.family nodes
       let repl ← applyOp op n

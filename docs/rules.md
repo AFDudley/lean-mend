@@ -52,10 +52,8 @@ for the site, and writes a replacement for that node's byte range only
 |---|---|---|
 | `rename` | replace a name with another (the derived alias rules) | the Batteries `RBMap` move |
 | `simpArgAdd` `lemma` | add `lemma` to the `[…]` list of a `simp`-family tactic, or add `[lemma]` if it has none | `pure` (530, 543), `Bool.and_self` (294, 365), `Option.option` (six sites), `Fin.getElem_fin`, the `U256_TONAT` set |
-| `simpArgAddPrior` `lemma` | `simpArgAdd` `lemma` on the simp-family tactic that comes last before the site's own tactic, in the indented tactic sequence that holds the site: that simp left a term which the site's tactic cannot use. A tactic of the sequence starts a line at the sequence's column. No simp before the site's tactic in that sequence gives no candidate | EquiVM `TransientPackedStorage` 59 (7 sites) and `SteleArithmetic` 223: at v4.33.1 `simp only [bind, Option.bind]` leaves `match pure x, f with …`, so a later `apply u256_inj` or `rw [if_neg]` fails; `pure` in that simp removed all 8 errors |
 | `simpaToExact` | `simpa […] using T` becomes `exact T` | the pc-sum defeq class (§14.3), `default : UInt256` |
-| `simpaSplit` | `simpa [L] using h` (h a hypothesis name) becomes `simp [L] at h ⊢` then `exact h`; for a term `T` after `using`, `have := T`, then `simp [L] at this ⊢`, then `exact this` (a `have` is not a declaration, D10; EVMLean `StaticStorage` 211, 247, as the hand bump did). A dotted name such as `hwf.d3` is a term, not a hypothesis name: Lean refuses it after `at` ("expected single reference to variable"). `exact` accepts the two sides up to definitional equality, so a hidden difference such as two different `Decidable` instances, or a sum of literals against one literal, no longer blocks the proof | EVMLean `AccountLocality` 2558, 2657, 2716, 2831: "Type mismatch: After simplification" with identical printed types; the hand bump made the same split at all four. EquiVM `Reasoning.SolcRoutines` 1464–1509: run 5 wrote `simp only [u256_add_assoc] at hwf.d3 ⊢`, which Lean refuses; the `have` form removed the error at 38 of 38 sites |
-| `simpaUsingBang` | `simpa [L] using T` becomes `simpa [L] using! T`. From Lean v4.31.0 ([#13636](https://github.com/leanprover/lean4/pull/13636)) `simpa … using` closes at reducible transparency; `using!` ([#13833](https://github.com/leanprover/lean4/pull/13833)) closes at default transparency, as `using` did before. The v4.31.0 release notes name this migration. It keeps the simp set and simplifies both sides, unlike `simpaToExact`. Like `simpaToExact`, it depends on definitional unfolding | EquiVM `Reasoning.SolcRoutines` 1464–1509 (38 sites, rule `simpa-close-transparency`): the term has `pc + { val := 3 }` and the abbrev `Operation.PUSH3`, the goal has `pc + (UInt256.ofNat 2 + { val := 1 })` and `Operation.Push Operation.POp.PUSH3`; `using!` removed the error at 38 of 38 sites |
+| `simpaSplit` | `simpa [L] using h` (h a hypothesis name) becomes `simp [L] at h ⊢` then `exact h`; for a term `T` after `using`, `have := T`, then `simp [L] at this ⊢`, then `exact this` (a `have` is not a declaration, D10; EVMLean `StaticStorage` 211, 247, as the hand bump did). `exact` accepts the two sides up to definitional equality, so a hidden difference such as two different `Decidable` instances no longer blocks the proof | EVMLean `AccountLocality` 2558, 2657, 2716, 2831: "Type mismatch: After simplification" with identical printed types; the hand bump made the same split at all four |
 | `keywordSwap` `from` `to` | replace the tactic keyword | `rw` → `erw` (§13.3) |
 | `deleteTactic` | remove the tactic | the no-op `dsimp only at h`; a trailing `decide +kernel` after the goal is closed |
 | `valCompare` | the class of a `Fin`-based value compared with a numeral (`missingDecidable`, Lean's message `Decidable (x = n)`): in the whole declaration, `match x with`, `x = n` and `x ≠ n` become `match x.val with`, `x.val = n` and `x.val ≠ n`, in one edit. A change that touches the statement goes through `--follow-definition-changes` (decision D12) | EVMLean `Semantics` 1040 (body) and `GasLemmas` `precompile_dispatch_match_eq_if` (statement and proof): the hand bump made the same change. Per-node `matchOnVal` changed only the `match`, so the lemma's two sides no longer matched and `split` timed out |
@@ -102,8 +100,8 @@ For one site, the candidates come from every matching rule, in this order
    person ratifies that order on the rule's Spec card. Prefer, in this order:
    1. a named lemma (`simpArgAdd` with the specific lemma), which is stable
       across releases and states the reason for the step;
-   2. `simpaToExact` or `simpaUsingBang`, which are valid but depend on
-      definitional unfolding that a later release can change;
+   2. `simpaToExact`, which is valid but depends on definitional unfolding
+      that a later release can change;
    3. `keywordSwap` `rw` → `erw`, which hides a mismatch instead of fixing it;
    4. `heartbeats`, which hides a cost regression upstream.
 
@@ -131,7 +129,7 @@ shows the break and its repair.
 | `typeMismatch` | text `Type mismatch`, for example between the literal forms `UInt256.ofNat N` and `{ val := N }`, or between `↑i` and `i.val` for `Fin` | literal forms: `rfl` → `by decide`, `show` with the other form, `simp only` with the constructor lemma; `Fin`: `Fin.val_cast_of_lt`, explicit `.val` |
 | `simpNoProgress` | text `` `simp` made no progress `` | `simp [Id.run]`; the named lemma that left the default set |
 | `unsolvedGoals` | kind `Tactic.unsolvedGoals` | the tactic with the lemma set from a rule; `first | … | …` chains |
-| `tacticFailed` | text `Tactic \`x\` failed` | `simpArgAddPrior` (a lemma in the simp before the failing tactic); `rw` → `erw`; `closeBullet` |
+| `tacticFailed` | text `Tactic \`x\` failed` | `closeBullet` |
 | `noGoals` | text `No goals to be solved`: a tactic after the goal is closed | `deleteTactic` (EquiVM: a trailing `decide +kernel`) |
 | `heartbeat` | kind `runtime.maxHeartbeats` | `set_option maxHeartbeats N in`, with N from the rule |
 | `wallclock` | a timeout without `deterministic` | no candidates; see [machine.md](machine.md) |

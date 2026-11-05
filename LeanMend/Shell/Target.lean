@@ -239,12 +239,9 @@ def locate (rs : List DeclRegion) (pos : Nat) :
 
 /-- A long-lived probe process for one module (`docs/parallel.md` C1): it
 serves every `probeServe` request of every attempt on the module, started by
-`probeServeStart` and stopped by `probeServeStop`. `exited` holds the exit
-code once a wait reaped the process: the operating system then knows the
-process no more, so a second wait fails with `ECHILD`. -/
+`probeServeStart` and stopped by `probeServeStop`. -/
 structure ProbeSession where
   child : IO.Process.Child { stdin := .piped, stdout := .piped, stderr := .inherit }
-  exited : IO.Ref (Option UInt32)
 
 /-- Start one probe process inside `target`, running the probe's `serve`
 command (`docs/parallel.md` C1). Its stderr goes to lean-mend's own stderr:
@@ -255,10 +252,9 @@ def probeServeStart (target : FilePath) : IO ProbeSession := do
   let child ← IO.Process.spawn
     { cmd := "lake", args := #["env", "lean", "--run", probePath.toString, "serve"], cwd := target,
       stdin := .piped, stdout := .piped, stderr := .inherit }
-  pure { child, exited := ← IO.mkRef none }
+  pure { child }
 
-/-- One request-reply round trip of `s`'s probe process. A probe that ends
-with no reply is reaped here, and its exit code goes in `s.exited`. -/
+/-- One request-reply round trip of `s`'s probe process. -/
 def probeServeRequest (s : ProbeSession) (file : FilePath) (offsets : List Nat) : IO Lean.Json := do
   let req := Lean.Json.mkObj [("file", Lean.toJson file.toString), ("offsets", Lean.toJson offsets)]
   s.child.stdin.putStrLn req.compress
@@ -266,20 +262,16 @@ def probeServeRequest (s : ProbeSession) (file : FilePath) (offsets : List Nat) 
   let line ← s.child.stdout.getLine
   if line.isEmpty then
     let code ← s.child.wait
-    s.exited.set (some code)
     throw <| IO.userError s!"probe serve: process exited {code} with no reply for {file} (its stderr is above)"
   match Lean.Json.parse line with
   | .ok j => pure j
   | .error e => throw <| IO.userError s!"probe serve reply for {file}: {e}"
 
 /-- Stop `s`'s probe process: close its stdin, so the probe's `serve` loop
-sees end of file and exits, then wait for it. A process that a request
-already reaped (`s.exited`) is not waited for again: a second wait fails
-with `ECHILD`, and that error would replace the request's own error. -/
+sees end of file and exits, then wait for it. -/
 def probeServeStop (s : ProbeSession) : IO Unit := do
-  if (← s.exited.get).isSome then return
   let (_stdin, child) ← s.child.takeStdin
-  s.exited.set (some (← child.wait))
+  discard <| child.wait
 
 /-- The declaration regions and the node paths at `offsets`, for the current
 text of `file`, from `s`'s one probe process (`docs/parallel.md` C1-C3): one

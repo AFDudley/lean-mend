@@ -143,8 +143,12 @@ The structural checks on an attempt (concept C2, structural):
    `admit`, `axiom`, `native_decide`, `implemented_by`, `extern`, `unsafe`,
    `opaque`, and no declaration keyword (`def`, `theorem`, `lemma`,
    `instance`, `abbrev`, `inductive`, `structure`, `class`, `example`,
-   `mutual`, `attribute`): decision D10. The probe supplies the tokens of the parsed candidate, so the
-   check reads syntax, not text (`Candidate.clean`).
+   `mutual`, `attribute`): decision D10. The check reads the identifier runs
+   that the edit adds: those in the replacement and not in the bytes it
+   replaces (`addedTokens`, `Candidate.clean`). A token that the node already
+   holds stays allowed. EquiVM run 5 rejected `simpaToExact` at the 47
+   `Tests/Pipeline/Vault/Dispatch.lean` sites, because each `simpa` term
+   already held `native_decide`.
 3. The candidate's rule passed the vacuity check when it was loaded
    (concept C9).
 4. Lean reports no linter warning (message kind `linter.*`) inside the

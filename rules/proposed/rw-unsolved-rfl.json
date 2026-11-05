@@ -1,0 +1,11 @@
+{
+  "name": "rw-unsolved-rfl",
+  "class": "unsolvedGoals",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "EquiVM run 5 residue, Examples/StringStoreLite/Getters.lean 3314: `simp [M, awCopy]` then `rw [show ((⟨32⟩ : UInt256) + ⟨128⟩).toNat = (⟨160⟩ : UInt256).toNat by native_decide]` leaves `… { val := 160 }.toNat … = … 160 …`. The adopt commit efbfb862 added `@[simp] u256_toNat_lit160` to Reasoning/Solc.lean, so `simp` rewrote the right side to `160`, and the two sides of the goal now differ only by a literal form. `rw` closes a goal only at reducible transparency; `rfl` checks the definitional equality at default transparency. Measured on a copy of the target file: `rfl` after the `rw` leaves the module with no error."
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.33.1" },
+  "node": "rw",
+  "candidates": [ { "op": "appendTactic", "tactic": "rfl" } ]
+}
