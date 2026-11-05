@@ -50,6 +50,7 @@ step "a site that no parsed command contains, on the probe-gap fixture" tests/pr
 step "lean-mend baseline on a real target" tests/baseline.sh
 step "lean-mend run --adopt on the rename fixture" tests/rename.sh
 step "lean-mend run --adopt --rules on the simp-set fixture" tests/simpset.sh
+step "rule simpa-close-transparency on the simpa-close fixture" tests/simpa-close.sh
 step "decision D11 on the binder fixture" tests/binder.sh
 step "decision D12 on the follow fixture" tests/follow.sh
 step "D12 body edit and statement follow as one candidate" \

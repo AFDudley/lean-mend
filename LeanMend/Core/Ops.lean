@@ -94,17 +94,32 @@ def applyOp (op : EditOp) (n : Node) : Option String :=
       | u :: rest@(_ :: _) =>
         let before := String.fromUTF8! (n.text.toUTF8.extract (k.stop - n.start) (u.start - n.start))
         let simpPart := s!"simp{before.trimAsciiEnd.toString}"
+        let term := String.fromUTF8! (n.text.toUTF8.extract (u.stop - n.start) n.text.utf8ByteSize)
+        -- a term: name it first. A `have` inside a proof is not a
+        -- declaration (decision D10).
+        let named := s!"have := {term.trimAscii.toString}\n{pad}{simpPart} at this ⊢\n{pad}exact this"
         match rest with
         | [h] =>
+          if !(h.text.all identChar) then none
+          -- A dotted name (`hwf.d3`, a field of a hypothesis) is a term, not
+          -- a hypothesis: Lean refuses it after `at` ("expected single
+          -- reference to variable"). EquiVM `Reasoning.SolcRoutines` 1464.
+          else if h.text.contains '.' then some named
           -- a hypothesis name: simplify it in place
-          if !(h.text.all identChar) then none else
-          some s!"{simpPart} at {h.text} ⊢\n{pad}exact {h.text}"
-        | _ =>
-          -- a term: name it first. A `have` inside a proof is not a
-          -- declaration (decision D10).
-          let term := String.fromUTF8! (n.text.toUTF8.extract (u.stop - n.start) n.text.utf8ByteSize)
-          some s!"have := {term.trimAscii.toString}\n{pad}{simpPart} at this ⊢\n{pad}exact this"
+          else some s!"{simpPart} at {h.text} ⊢\n{pad}exact {h.text}"
+        | _ => some named
       | _ => none
+    | [] => none
+  | .simpaUsingBang =>
+    -- `using` becomes `using!`: the close at default transparency (Lean
+    -- v4.33 `simpa using!`). `simpa … using! T` has the token `using!`, so
+    -- it gives no candidate.
+    match n.tokens with
+    | k :: _ =>
+      if k.text != "simpa" then none else
+      match n.tokens.find? (·.text == "using") with
+      | some u => some (splice n.text (rel u).1 (rel u).2 "using!")
+      | none => none
     | [] => none
   | .keywordSwap a b =>
     match n.tokens with

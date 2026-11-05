@@ -321,12 +321,18 @@ inductive EditOp where
   | renamePrefix (old new : String)
   | simpArgAdd (lemma : String)
   | simpaToExact
-  /-- `simpa [L] using h` (h a hypothesis name) becomes `simp [L] at h ⊢` then
-  `exact h`; `simpa [L] using T` (T a term) becomes `have := T`, then
+  /-- `simpa [L] using h` (h a hypothesis name, which is atomic) becomes
+  `simp [L] at h ⊢` then `exact h`; `simpa [L] using T` (T a term, a dotted
+  name such as `hwf.d3` included) becomes `have := T`, then
   `simp [L] at this ⊢`, then `exact this`. `exact` accepts the two sides up to definitional equality, so a
   hidden difference that `simpa` rejects, such as two different `Decidable`
-  instances in an `if`, no longer blocks the proof. -/
+  instances in an `if` or a sum of literals against one literal, no longer
+  blocks the proof. -/
   | simpaSplit
+  /-- `simpa [L] using T` becomes `simpa [L] using! T`. Lean v4.33 closes
+  `simpa … using` at reducible transparency; `using!` closes at default
+  transparency, as `simpa … using` did at v4.29. -/
+  | simpaUsingBang
   | keywordSwap (from_ to : String)
   | deleteTactic
   /-- In declaration `decl`, replace the text `old` with `new`. `old` must
