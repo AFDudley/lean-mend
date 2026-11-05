@@ -147,6 +147,7 @@ def editOp (j : Json) : Except String EditOp := do
   | "renamePrefix" => pure (.renamePrefix (← field j "old") (← field j "new"))
   | "replaceInBody" => pure (.replaceInBody (← field j "decl") (← field j "old") (← field j "new"))
   | "simpArgAdd" => pure (.simpArgAdd (← field j "lemma"))
+  | "simpArgAddPrior" => pure (.simpArgAddPrior (← field j "lemma"))
   | "simpaToExact" => pure .simpaToExact
   | "simpaSplit" => pure .simpaSplit
   | "simpaUsingBang" => pure .simpaUsingBang

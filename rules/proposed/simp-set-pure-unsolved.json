@@ -1,0 +1,11 @@
+{
+  "name": "simp-set-pure-unsolved",
+  "class": "unsolvedGoals",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "EquiVM v4.29.0 -> v4.33.1 (lean-mend run 5 residue), Reasoning.VyperDispatch 338: Lean v4.33.1 `simp [EvalResult.bind, bind, …]` no longer reduces `pure` of a user monad, and leaves `match pure (Value.int 0), fun rhsValue => … with …` unsolved. `pure` added to the simp removed the error in a copy of the real module, with no new error and no new warning."
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.33.1" },
+  "node": "simp",
+  "candidates": [ { "op": "simpArgAdd", "lemma": "pure" } ]
+}

@@ -163,7 +163,34 @@ def applyOp (op : EditOp) (n : Node) : Option String :=
   | .appendTactic t =>
     some (n.text ++ "\n" ++ String.ofList (List.replicate n.column ' ') ++ t)
   | .rename _ _ | .renamePrefix _ _ | .replaceInBody _ _ _ | .heartbeats _ | .valCompare
-  | .closeBullet _ => none
+  | .closeBullet _ | .simpArgAddPrior _ => none
+
+/-- The simp-family tactic that comes last before the site's own tactic, in
+the innermost indented tactic sequence that holds byte `site`, as a node of
+its own. A tactic of that sequence starts a line at the sequence's column; the
+site's own tactic is the last one that starts at or before `site`. The node
+ends where the next tactic starts, without the trailing white space. `none`
+if no simp-family tactic comes before the site's tactic in that sequence. -/
+def priorSimp (nodes : List Node) (site : Nat) : Option Node := do
+  let q ← nodes.find? (·.kind.endsWith "tacticSeq1Indented")
+  let bs := q.text.toUTF8
+  let between (a b : Nat) := String.fromUTF8! (bs.extract (a - q.start) (b - q.start))
+  -- only `q.column` spaces precede the token on its line
+  let heads := q.tokens.filter fun t =>
+    t.start == q.start ||
+      match (between q.start t.start).splitOn "\n" with
+      | _ :: rest@(_ :: _) =>
+        let l := rest.getLast!
+        l.length == q.column && l.all (· == ' ')
+      | _ => false
+  let own ← (heads.filter (·.start ≤ site)).getLast?
+  let prior ← (heads.filter (·.start < own.start)).reverse.find?
+    (TacticFamily.simp.keywords.contains ·.text)
+  let next ← heads.find? (·.start > prior.start)
+  let text := (between prior.start next.start).trimAsciiEnd.toString
+  let stop := prior.start + text.utf8ByteSize
+  pure { kind := "priorSimp", start := prior.start, stop, text, column := q.column,
+         tokens := q.tokens.filter fun t => prior.start ≤ t.start && t.stop ≤ stop }
 
 /-- The variable in Lean's message `Decidable (x✝ = n)`: `x`. -/
 def decidableVar (d : Diagnostic) : Option String :=
@@ -292,6 +319,12 @@ def ruleCandidates (follow : Bool) (r : Rule) (nodes : List Node) (s : Site) : L
       -- the innermost bullet that holds the site
       let n ← nodes.find? (·.kind == "Lean.cdot")
       pure (mk (.body d) n.start n.stop s!"· {t}")
+    | .simpArgAddPrior l, some d, some .body => do
+      -- the site's own tactic is of the rule's family; the edit is the simp before it
+      let _ ← pickNode r.family nodes
+      let n ← priorSimp nodes s.start
+      let repl ← applyOp (.simpArgAdd l) n
+      pure (mk (.body d) n.start n.stop repl)
     | .valCompare, some d, _ => do
       let (a, txt, t, spans) ← valCompareEdit s
       -- The pattern also occurs in `d`'s statement (X7): under

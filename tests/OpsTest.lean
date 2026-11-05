@@ -400,6 +400,39 @@ def run : IO Nat := do
     let ok2 := order == ["", "· omega", "· simp_all"]
     IO.println s!"{if ok2 then "ok  " else "FAIL"} a closer rule runs last: {repr order}"
     unless ok2 do failed := failed + 1
+  -- simpArgAddPrior: the simp before the site's own tactic, in the indented
+  -- sequence that holds the site (EquiVM TransientPackedStorage 59: `simp
+  -- only […, Option.bind]`, then `congr 2`, then `apply u256_inj` fails).
+  do
+    -- an indented sequence at byte 100, column 2; tokens as the probe reports them
+    let seq (text : String) : Node :=
+      let words := node (text.replace "\n" " ")
+      { words with kind := "Lean.Parser.Tactic.tacticSeq1Indented", text := text, column := 2 }
+    let at_ (text word : String) : Nat := 100 + ((text.splitOn word).head!).utf8ByteSize
+    let siteAt (a : Nat) : Site :=
+      { diagnostic := { module := "M", line := 1, column := 0, endLine := 1, endColumn := 1,
+                        severity := .error, kind := "[anonymous]",
+                        text := "Tactic `apply` failed: could not unify the conclusion of `Nat.add_comm`" },
+        decl := some "D.f", region := some .body, declStart := some 0, start := a, stop := a + 5 }
+    let r : Rule := { name := "prior", cls := .tacticFailed, entrenchment := .proposed, family := .any,
+                      ops := [.simpArgAddPrior "pure"] }
+    let t1 := "unfold store\n  simp only [toWord, bind, Option.bind]\n  congr 1\n  apply Nat.add_comm"
+    let t2 := "simp [a]\n  simp only [b]\n  rw [h]"
+    let simp1 := "simp only [toWord, bind, Option.bind]"
+    for (what, text, word, want) in
+        [("the simp two tactics before the site gains the lemma", t1, "apply",
+          [(at_ t1 "simp", at_ t1 "simp" + simp1.utf8ByteSize, "simp only [toWord, bind, Option.bind, pure]")]),
+         ("no simp before the site: no candidate", t1, "unfold", []),
+         ("of two simps, the nearer one", t2, "rw",
+          [(at_ t2 "simp only", at_ t2 "simp only" + "simp only [b]".utf8ByteSize, "simp only [b, pure]")])] do
+      let s := seq text
+      let site := siteAt (at_ text word)
+      let own : Node := { kind := "Lean.Parser.Tactic.test", start := site.start, stop := site.stop,
+                          text := word, column := 2, tokens := [⟨word, site.start, site.stop⟩] }
+      let got := (ruleCandidates false r [own, s] site).map fun c => (c.start, c.stop, c.replacement)
+      let ok := got == want
+      IO.println s!"{if ok then "ok  " else "FAIL"} simpArgAddPrior, {what}: {repr got}"
+      unless ok do failed := failed + 1
   for (what, cls, op, accept) in
       [("deleteTactic for noGoals is loaded", "noGoals", "deleteTactic", true),
        ("deleteTactic for typeMismatch is refused", "typeMismatch", "deleteTactic", false),

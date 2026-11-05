@@ -320,6 +320,12 @@ inductive EditOp where
   place. -/
   | renamePrefix (old new : String)
   | simpArgAdd (lemma : String)
+  /-- `simpArgAdd lemma` on the simp-family tactic that comes last before the
+  site's own tactic, in the indented tactic sequence that holds the site. The
+  site's tactic fails because that simp left a term which it no longer
+  reduces (EquiVM `TransientPackedStorage` 59: `simp only [bind,
+  Option.bind]` leaves `match pure x, f with …`, so a later `apply` fails). -/
+  | simpArgAddPrior (lemma : String)
   | simpaToExact
   /-- `simpa [L] using h` (h a hypothesis name, which is atomic) becomes
   `simp [L] at h ⊢` then `exact h`; `simpa [L] using T` (T a term, a dotted

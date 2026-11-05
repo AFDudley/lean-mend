@@ -64,4 +64,8 @@ exposure() {
 step "exposure of later errors" exposure
 step "a namespace move with no aliases, on the move fixture" tests/move.sh
 step "parallel frontier modules" tests/fleet.sh tests/fixtures/fleet
+step "rule simp-set-pure-prior on its fixture" tests/simp-set-pure-prior.sh
+step "rule simp-set-pure-unsolved on its fixture" tests/simp-set-pure-unsolved.sh
+step "rule simp-ite-nat-cond on its fixture" tests/simp-ite-nat-cond.sh
+step "rule rw-proof-arg-erw on its fixture" tests/rw-proof-arg-erw.sh
 summary 0
