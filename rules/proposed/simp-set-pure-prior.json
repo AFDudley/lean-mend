@@ -1,0 +1,11 @@
+{
+  "name": "simp-set-pure-prior",
+  "class": "tacticFailed",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "EquiVM v4.29.0 -> v4.33.1 (lean-mend run 5 residue). Lean v4.33.1 `simp only [bind, Option.bind]` no longer reduces `pure x`, so it leaves `match pure x, f with | none, _ => none | some a, f => f a`. The next tactics then fail: `apply u256_inj` could not unify (Reasoning.TransientPackedStorage 59, 96, 153, 202, 251, 302, 355) and `rw [if_neg]` did not find `if` (Reasoning.SteleArithmetic 223). `pure` added to the simp before the failing tactic removed all 8 errors in copies of the real modules. SteleArithmetic then builds. TransientPackedStorage then shows 4 later errors in the same declarations (82, 126, 330, 383: the `UInt256.ofNat N` / `{ val := N }` literal-form class)."
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.33.1" },
+  "node": "any",
+  "candidates": [ { "op": "simpArgAddPrior", "lemma": "pure" } ]
+}

@@ -1,0 +1,3 @@
+{ "name": "simpa-mismatch", "class": "typeMismatch", "entrenchment": "ratified",
+  "provenance": { "evidence": "tests/probe-gap.sh: a typeMismatch site that no parsed command contains" },
+  "node": "simp", "candidates": [ { "op": "simpaToExact" } ] }
