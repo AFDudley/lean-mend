@@ -144,6 +144,24 @@ def run : IO Nat := do
     let ok := LeanMend.Shell.probeSource == (← IO.FS.readFile "probe/Probe.lean")
     IO.println s!"{if ok then "ok  " else "FAIL"} the embedded probe equals probe/Probe.lean{if ok then "" else " (delete .lake/build/**/LeanMend/Shell/Target.* and rebuild)"}"
     unless ok do failed := failed + 1
+  -- A probe process that reads a request and exits with no reply (EquiVM
+  -- run 5): the request reaps it and throws its own error. The stop after
+  -- it must not wait again: a second wait fails with ECHILD ("no such
+  -- thing"), and that error replaced the request's error.
+  do
+    let child ← IO.Process.spawn
+      { cmd := "sh", args := #["-c", "read l; exit 3"],
+        stdin := .piped, stdout := .piped, stderr := .inherit }
+    let s : LeanMend.Shell.ProbeSession := { child, exited := ← IO.mkRef none }
+    let got ← try
+        try
+          discard <| LeanMend.Shell.probeServeRequest s "F.lean" [0]
+          pure "a reply"
+        finally LeanMend.Shell.probeServeStop s
+      catch e => pure (toString e)
+    let ok := got == "probe serve: process exited 3 with no reply for F.lean (its stderr is above)"
+    IO.println s!"{if ok then "ok  " else "FAIL"} probeServeStop after a probe that exited keeps the request's error: {got}"
+    unless ok do failed := failed + 1
   -- Decision D10: a candidate that adds a declaration is not clean.
   for (what, repl, want) in
       [("a helper lemma is refused", "rfl\n@[simp] theorem t : 1 = 1 := rfl", false),
