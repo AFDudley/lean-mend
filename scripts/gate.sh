@@ -46,9 +46,11 @@ step "no LeanMend constant depends on sorryAx (docs/verification.md)" lake env l
 step "lake test" lake test
 step "probe matrix" tests/probe-matrix.sh
 step "one probe process per module" tests/probe-serve.sh
+step "a site that no parsed command contains, on the probe-gap fixture" tests/probe-gap.sh
 step "lean-mend baseline on a real target" tests/baseline.sh
 step "lean-mend run --adopt on the rename fixture" tests/rename.sh
 step "lean-mend run --adopt --rules on the simp-set fixture" tests/simpset.sh
+step "rule simpa-close-transparency on the simpa-close fixture" tests/simpa-close.sh
 step "decision D11 on the binder fixture" tests/binder.sh
 step "decision D12 on the follow fixture" tests/follow.sh
 step "D12 body edit and statement follow as one candidate" \
@@ -62,4 +64,8 @@ exposure() {
 step "exposure of later errors" exposure
 step "a namespace move with no aliases, on the move fixture" tests/move.sh
 step "parallel frontier modules" tests/fleet.sh tests/fixtures/fleet
+step "rule simp-set-pure-prior on its fixture" tests/simp-set-pure-prior.sh
+step "rule simp-set-pure-unsolved on its fixture" tests/simp-set-pure-unsolved.sh
+step "rule simp-ite-nat-cond on its fixture" tests/simp-ite-nat-cond.sh
+step "rule rw-proof-arg-erw on its fixture" tests/rw-proof-arg-erw.sh
 summary 0

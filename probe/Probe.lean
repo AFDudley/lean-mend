@@ -196,14 +196,22 @@ partial def tokens (src : ByteArray) (stx : Syntax) : Array Json :=
 and byte range; tactic nodes (kind under `Lean.Parser.Tactic`) also carry
 their tokens. `{"file", "offset", "nodes"}`, the shape `node <file>
 <offset>…` emits one per line of. Shared by `cmdNode` and `cmdServe`, from an
-environment either one already built. -/
+environment either one already built.
+
+`nodes` is empty when no parsed command contains `offset`. The parser has
+only the imports' environment, so syntax that the file itself declares (a
+`macro`, `syntax` or `notation` command) does not parse. The parser then
+skips to the next command, and the bytes it skips are in no command. The
+site at such an offset gets no node, so no rule that needs a node proposes a
+candidate for it. -/
 partial def nodeAt (ictx : Parser.InputContext) (pmctx : Parser.ParserModuleContext)
     (st0 : Parser.ModuleParserState) (msgs0 : MessageLog) (file : String) (bytes : ByteArray)
     (offset : Nat) : IO Json := do
+  let reply (nodes : Array Json) : Json :=
+    Json.mkObj [("file", toJson file), ("offset", toJson offset), ("nodes", Json.arr nodes)]
   let rec loop (st : Parser.ModuleParserState) (msgs : MessageLog) : IO Json := do
     let (stx, st', msgs') := Parser.parseCommand ictx pmctx st msgs
-    if Parser.isTerminalCommand stx then
-      throw <| IO.userError s!"no command contains byte {offset} of {file}"
+    if Parser.isTerminalCommand stx then return reply #[]
     match byteRange stx with
     | some (a, b) =>
       if a ≤ offset && offset < b then
@@ -215,8 +223,7 @@ partial def nodeAt (ictx : Parser.InputContext) (pmctx : Parser.ParserModuleCont
                 k == ``Parser.Term.match then
               Json.mkObj (base ++ [("tokens", Json.arr (tokens bytes n))])
             else Json.mkObj base
-        pure <| Json.mkObj [("file", toJson file), ("offset", toJson offset),
-                            ("nodes", Json.arr nodes.toArray)]
+        pure (reply nodes.toArray)
       else loop st' msgs'
     | none => loop st' msgs'
   loop st0 msgs0

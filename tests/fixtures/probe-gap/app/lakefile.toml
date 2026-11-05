@@ -1,0 +1,9 @@
+name = "app"
+defaultTargets = ["App"]
+
+[[require]]
+name = "dep"
+path = "dep"
+
+[[lean_lib]]
+name = "App"

@@ -320,13 +320,25 @@ inductive EditOp where
   place. -/
   | renamePrefix (old new : String)
   | simpArgAdd (lemma : String)
+  /-- `simpArgAdd lemma` on the simp-family tactic that comes last before the
+  site's own tactic, in the indented tactic sequence that holds the site. The
+  site's tactic fails because that simp left a term which it no longer
+  reduces (EquiVM `TransientPackedStorage` 59: `simp only [bind,
+  Option.bind]` leaves `match pure x, f with …`, so a later `apply` fails). -/
+  | simpArgAddPrior (lemma : String)
   | simpaToExact
-  /-- `simpa [L] using h` (h a hypothesis name) becomes `simp [L] at h ⊢` then
-  `exact h`; `simpa [L] using T` (T a term) becomes `have := T`, then
+  /-- `simpa [L] using h` (h a hypothesis name, which is atomic) becomes
+  `simp [L] at h ⊢` then `exact h`; `simpa [L] using T` (T a term, a dotted
+  name such as `hwf.d3` included) becomes `have := T`, then
   `simp [L] at this ⊢`, then `exact this`. `exact` accepts the two sides up to definitional equality, so a
   hidden difference that `simpa` rejects, such as two different `Decidable`
-  instances in an `if`, no longer blocks the proof. -/
+  instances in an `if` or a sum of literals against one literal, no longer
+  blocks the proof. -/
   | simpaSplit
+  /-- `simpa [L] using T` becomes `simpa [L] using! T`. Lean v4.33 closes
+  `simpa … using` at reducible transparency; `using!` closes at default
+  transparency, as `simpa … using` did at v4.29. -/
+  | simpaUsingBang
   | keywordSwap (from_ to : String)
   | deleteTactic
   /-- In declaration `decl`, replace the text `old` with `new`. `old` must
