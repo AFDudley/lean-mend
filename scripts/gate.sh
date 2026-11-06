@@ -77,4 +77,6 @@ step "rule simp-unsolved-simp-all on its fixture" tests/simp-unsolved-simp-all.s
 step "rule rw-show-redundant on its fixture" tests/rw-show-redundant.sh
 step "rule simp-no-progress-delete on its fixture" tests/simp-no-progress-delete.sh
 step "rule heartbeat-raise on its fixture" tests/heartbeat-raise.sh
+step "rule simp-set-pure-mismatch on its fixture" tests/simp-set-pure-mismatch.sh
+step "rule simpa-using-bang-nested on its fixture" tests/simpa-using-bang-nested.sh
 summary 0

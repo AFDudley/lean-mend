@@ -152,6 +152,7 @@ def editOp (j : Json) : Except String EditOp := do
   | "simpaToExact" => pure .simpaToExact
   | "simpaSplit" => pure .simpaSplit
   | "simpaUsingBang" => pure .simpaUsingBang
+  | "simpaUsingBangNested" => pure .simpaUsingBangNested
   | "keywordSwap" => pure (.keywordSwap (← field j "from") (← field j "to"))
   | "deleteTactic" => pure .deleteTactic
   | "deleteShowRewrite" => pure .deleteShowRewrite

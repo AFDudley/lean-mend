@@ -63,6 +63,17 @@ private def splice (s : String) (a b : Nat) (ins : String) : String :=
   let bs := s.toUTF8
   String.fromUTF8! (bs.extract 0 a) ++ ins ++ String.fromUTF8! (bs.extract b bs.size)
 
+/-- The `using` token of each `simpa` in `ts`: the first `using` after it,
+with no other `simpa` or `using!` between. -/
+def simpaUsings : List Token → List Token
+  | [] => []
+  | t :: rest =>
+    let own := if t.text != "simpa" then [] else
+      match rest.find? (fun u => u.text == "using" || u.text == "using!" || u.text == "simpa") with
+      | some u => if u.text == "using" then [u] else []
+      | none => []
+    own ++ simpaUsings rest
+
 /-- The replacement text for node `n` under `op`, or `none` if `op` does not
 apply. Token ranges are absolute; `n.start` converts them to node offsets. -/
 def applyOp (op : EditOp) (n : Node) : Option String :=
@@ -140,6 +151,13 @@ def applyOp (op : EditOp) (n : Node) : Option String :=
       | some u => some (splice n.text (rel u).1 (rel u).2 "using!")
       | none => none
     | [] => none
+  | .simpaUsingBangNested =>
+    -- every `simpa`'s `using` in the node becomes `using!`. Fewer than two is
+    -- no nesting: that edit is `simpaUsingBang`'s.
+    let us := simpaUsings n.tokens
+    if (n.tokens.head?.map (·.text)) != some "simpa" || us.length < 2 then none
+    -- from the last token to the first, so earlier offsets stay valid
+    else some (us.foldr (fun u s => splice s (rel u).1 (rel u).2 "using!") n.text)
   | .keywordSwap a b =>
     match n.tokens with
     | k :: _ => if k.text == a then some (splice n.text (rel k).1 (rel k).2 b) else none
@@ -216,6 +234,15 @@ def priorSimp (nodes : List Node) (site : Nat) : Option Node := do
   let stop := prior.start + text.utf8ByteSize
   pure { kind := "priorSimp", start := prior.start, stop, text, column := q.column,
          tokens := q.tokens.filter fun t => prior.start ≤ t.start && t.stop ≤ stop }
+
+/-- The outermost `simpa` tactic among `nodes`: the earliest start, then the
+latest stop. -/
+def outermostSimpa (nodes : List Node) : Option Node :=
+  let simpas := nodes.filter fun n => !n.isSequence && (n.tokens.head?.map (·.text)) == some "simpa"
+  simpas.foldl (init := none) fun best n =>
+    match best with
+    | some b => if n.start < b.start || (n.start == b.start && n.stop > b.stop) then some n else some b
+    | none => some n
 
 /-- The variable in Lean's message `Decidable (x✝ = n)`: `x`. -/
 def decidableVar (d : Diagnostic) : Option String :=
@@ -367,6 +394,14 @@ def ruleCandidates (follow : Bool) (r : Rule) (nodes : List Node) (s : Site) : L
                tokens := addedTokens txt t, changed := spans }
       else
         pure { mk (.body d) a (a + txt.utf8ByteSize) t with changed := spans }
+    | .simpaUsingBangNested, some d, some .body => do
+      -- the site's own tactic is a `simpa`; the edit spans the outermost
+      -- `simpa` that holds it
+      let own ← pickNode r.family nodes
+      guard ((own.tokens.head?.map (·.text)) == some "simpa")
+      let n ← outermostSimpa nodes
+      let repl ← applyOp .simpaUsingBangNested n
+      pure (mk (.body d) n.start n.stop repl)
     | op, some d, some .body => do
       let n ← pickNode r.family nodes
       let repl ← applyOp op n

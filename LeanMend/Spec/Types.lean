@@ -341,6 +341,12 @@ inductive EditOp where
   `simpa … using` at reducible transparency; `using!` closes at default
   transparency, as `simpa … using` did at v4.29. -/
   | simpaUsingBang
+  /-- `simpaUsingBang` on the site's `simpa` and on every `simpa … using`
+  that holds it, in one edit over the outermost of them. While a `by` block in
+  a `simpa` term fails, Lean does not report the outer `simpa`'s own close.
+  After the inner repair it does, at an earlier position, so the inner edit
+  alone is rejected (EquiVM `ERC6909.SetOperator` 49). -/
+  | simpaUsingBangNested
   | keywordSwap (from_ to : String)
   | deleteTactic
   /-- Delete a `rw [show a = b by t, …]` (`rw`, `rewrite` or `erw`) whose

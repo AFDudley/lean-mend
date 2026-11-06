@@ -55,6 +55,11 @@ def cases : List (String × EditOp × String × Option String) :=
     ("simpa without using: no using! candidate", .simpaUsingBang, "simpa [x]", none),
     ("simpa already with using!: no candidate", .simpaUsingBang, "simpa [x] using! h", none),
     ("not simpa: no using! candidate", .simpaUsingBang, "simp [x] at h", none),
+    ("nested simpa: each simpa's using to using!", .simpaUsingBangNested,
+      "simpa [a] using f (by simpa [b] using h)", some "simpa [a] using! f (by simpa [b] using! h)"),
+    ("one simpa: no nested candidate", .simpaUsingBangNested, "simpa [a] using h", none),
+    ("inner simpa already with using!: no nested candidate", .simpaUsingBangNested,
+      "simpa [a] using f (by simpa [b] using! h)", none),
     ("simpa with nothing after using: no candidate", .simpaSplit, "simpa [x] using", none),
     ("not simpa: no candidate", .simpaToExact, "simp [x]", none),
     ("rw to erw", .keywordSwap "rw" "erw", "rw [h] at g", some "erw [h] at g"),
@@ -482,6 +487,30 @@ def run : IO Nat := do
       let got := (ruleCandidates false r [own, s] site).map fun c => (c.start, c.stop, c.replacement)
       let ok := got == want
       IO.println s!"{if ok then "ok  " else "FAIL"} simpArgAddPrior, {what}: {repr got}"
+      unless ok do failed := failed + 1
+  -- simpaUsingBangNested: the site is the inner `simpa`; the edit spans the
+  -- outer `simpa` that holds it (EquiVM ERC6909.SetOperator 44-49).
+  do
+    let outerText := "simpa [a] using f (by simpa [b] using h)"
+    let outer := node outerText
+    let a := 100 + ((outerText.splitOn "simpa [b]").head!).utf8ByteSize
+    let inner : Node := { kind := "Lean.Parser.Tactic.simpa", start := a, stop := outer.stop,
+                          text := "simpa [b] using h)", column := 4,
+                          tokens := outer.tokens.filter (·.start ≥ a) }
+    let siteAt (s : Nat) : Site :=
+      { diagnostic := { module := "M", line := 1, column := 0, endLine := 1, endColumn := 1,
+                        severity := .error, kind := "[anonymous]",
+                        text := "Type mismatch: After simplification, term\n  h\n has type" },
+        decl := some "D.f", region := some .body, declStart := some 0, start := s, stop := s + 5 }
+    let r : Rule := { name := "nested", cls := .typeMismatch, entrenchment := .proposed, family := .simp,
+                      ops := [.simpaUsingBangNested] }
+    for (what, nodes, site, want) in
+        [("both usings of the outermost simpa become using!", [inner, outer], siteAt a,
+          [(100, outer.stop, "simpa [a] using! f (by simpa [b] using! h)")]),
+         ("a simpa that no simpa holds: no candidate", [node "simpa [a] using h"], siteAt 100, [])] do
+      let got := (ruleCandidates false r nodes site).map fun c => (c.start, c.stop, c.replacement)
+      let ok := got == want
+      IO.println s!"{if ok then "ok  " else "FAIL"} simpaUsingBangNested, {what}: {repr got}"
       unless ok do failed := failed + 1
   for (what, cls, op, accept) in
       [("deleteTactic for noGoals is loaded", "noGoals", "deleteTactic", true),
