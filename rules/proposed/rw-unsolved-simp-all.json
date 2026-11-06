@@ -1,0 +1,11 @@
+{
+  "name": "rw-unsolved-simp-all",
+  "class": "unsolvedGoals",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "EquiVM v4.29.0 -> v4.33.1, lean-mend run 7 residue, Examples/UniswapV2Pair/ConstructorDomainSource.lean 27 (UniswapV2Pair.evalExpr_constructor_thisWord). `simp only [..., Fin.toNat, if_pos hlt, ...]` unfolds `Fin.toNat` and `Subtype.val` in the condition of an `if`, but not in its `Decidable` instance `(Fin.toNat x).decLt (EVM.twoPow ↑⟨256, _⟩)`. Lean v4.33.1 reports the term as not type-correct under the `implicit` transparency level, `if_pos hlt` is unused, and `rw [if_pos hlt]` does not find the `if`. The `rw` after the simp leaves `match if c then some v else none with … = .ok v` with `hlt : c` in the context. The run 7 candidate `rw-unsolved-rfl` (`rfl`) failed: `ite` with a variable condition does not reduce. `simp_all` rewrites the condition with the hypothesis by congruence, so it builds a new instance, and closes the goal. Measured on a copy of the real module at v4.33.1: `simp_all` after the `rw` leaves the module with 0 errors (also `simp [*]`; `simp only [if_pos hlt]` after it makes no progress)."
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.33.1" },
+  "node": "rw",
+  "candidates": [ { "op": "appendTactic", "tactic": "simp_all" } ]
+}

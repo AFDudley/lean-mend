@@ -37,6 +37,9 @@ private def classOfText (t : String) : ErrorClass :=
   else if has t "may have their binders kinds be overridden" then .binderOverride
   else if has t "failed to synthesize" && has t "Decidable" then .missingDecidable
   else if t.startsWith "Tactic `" && has t "` failed" then .tacticFailed
+  -- `omega` names no kind and does not say "Tactic `omega` failed". It fails
+  -- on its goal like any other tactic (EquiVM run 7: MathRoutines 38).
+  else if t.startsWith "omega could not prove the goal" then .tacticFailed
   else if has t "type mismatch" then .typeMismatch
   else if has t "made no progress" then .simpNoProgress
   else if has t "unsolved goals" then .unsolvedGoals

@@ -133,8 +133,8 @@ shows the break and its repair.
 | `missingDecidable` | kind `lean.synthInstanceFailed._namedError` with `Decidable` in the text | `match` on `p.val`; an `if` with `decide` |
 | `typeMismatch` | text `Type mismatch`, for example between the literal forms `UInt256.ofNat N` and `{ val := N }`, or between `↑i` and `i.val` for `Fin` | literal forms: `rfl` → `by decide`, `show` with the other form, `simp only` with the constructor lemma; `Fin`: `Fin.val_cast_of_lt`, explicit `.val` |
 | `simpNoProgress` | text `` `simp` made no progress `` | `simp [Id.run]`; the named lemma that left the default set |
-| `unsolvedGoals` | kind `Tactic.unsolvedGoals` | the tactic with the lemma set from a rule; `first | … | …` chains |
-| `tacticFailed` | text `Tactic \`x\` failed` | `simpArgAddPrior` (a lemma in the simp before the failing tactic); `rw` → `erw`; `closeBullet` |
+| `unsolvedGoals` | kind `Tactic.unsolvedGoals` | the tactic with the lemma set from a rule; `first | … | …` chains; `appendTactic` `simp_all` when the goal needs a hypothesis in the goal's normal form (EquiVM run 7: a new simp lemma rewrote the goal before the hypothesis matched; an `if` whose `Decidable` instance kept a folded name) |
+| `tacticFailed` | text `Tactic \`x\` failed`; text `omega could not prove the goal` (`omega` names no kind and no tactic; EquiVM run 7 put its four sites in `unknown`) | `simpArgAddPrior` (a lemma in the simp before the failing tactic); `rw` → `erw`; `closeBullet` |
 | `noGoals` | text `No goals to be solved`: a tactic after the goal is closed | `deleteTactic` (EquiVM: a trailing `decide +kernel`) |
 | `heartbeat` | kind `runtime.maxHeartbeats` | `set_option maxHeartbeats N in`, with N from the rule |
 | `wallclock` | a timeout without `deterministic` | no candidates; see [machine.md](machine.md) |
@@ -149,8 +149,8 @@ decides first, because it does not depend on wording. Where Lean names no kind
 (`[anonymous]`), the text decides, compared without case. The first version
 compared lowercase text only and put three classes into `unknown`, because Lean
 prints `Unknown identifier`, `Type mismatch` and `` `simp` made no progress ``.
-`tests/fixtures/diagnostics/` holds the real output of v4.29.0 and v4.35.0,
-and `tests/ClassifyTest.lean` checks every class against it. `classify` does not
+`tests/fixtures/diagnostics/` holds the real output of v4.29.0 and v4.35.0
+(and of v4.33.1 for `omega`), and `tests/ClassifyTest.lean` checks every class against it. `classify` does not
 use the rule set. A class with no rules is still a class.
 
 ## Attribution by bisect

@@ -72,6 +72,8 @@ step "rule simp-set-pure-prior on its fixture" tests/simp-set-pure-prior.sh
 step "rule simp-set-pure-unsolved on its fixture" tests/simp-set-pure-unsolved.sh
 step "rule simp-ite-nat-cond on its fixture" tests/simp-ite-nat-cond.sh
 step "rule rw-proof-arg-erw on its fixture" tests/rw-proof-arg-erw.sh
+step "rule rw-unsolved-simp-all on its fixture" tests/rw-unsolved-simp-all.sh
+step "rule simp-unsolved-simp-all on its fixture" tests/simp-unsolved-simp-all.sh
 step "rule rw-show-redundant on its fixture" tests/rw-show-redundant.sh
 step "rule simp-no-progress-delete on its fixture" tests/simp-no-progress-delete.sh
 step "rule heartbeat-raise on its fixture" tests/heartbeat-raise.sh
