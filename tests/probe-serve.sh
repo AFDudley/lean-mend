@@ -53,7 +53,7 @@ request_wall_ms=0
 for i in 0 1 2; do
   v="v$((i + 1))"
   cp "$work/$v.lean" "$work/Fx/Basic.lean"
-  req=$(jq -nc --arg f "Fx/Basic.lean" --argjson o "${offsets[i]}" '{file: $f, offsets: $o}')
+  req=$(jq -nc --arg f "Fx/Basic.lean" --argjson o "${offsets[i]}" '{op: "syntax", file: $f, offsets: $o}')
 
   start_ns=$(date +%s%N)
   echo "$req" >&7

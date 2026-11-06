@@ -1,10 +1,10 @@
 /-! S3b (`docs/parallel.md` P8, P10-P12): `tests/fleet.sh` breaks `ModA` and
-`ModB` in one commit. Neither module imports the other, so both become
-frontier modules in the same wave. `ModA`'s accepted fix makes the kernel
-decide a plain recursive count, so its wave attempt takes noticeably longer
-than `ModB`'s: the parallel driver must still replay `ModA` before `ModB` in
-the ledger and the mend-branch commits whenever that is their canonical
-(topological) order, not whichever module's worktree finishes first. -/
+`ModB` in one commit. Neither module imports the other, so both mends start
+at once. `ModA`'s accepted fix makes the kernel decide a plain recursive
+count, so its attempt takes noticeably longer than `ModB`'s: the parallel
+driver must still replay `ModA` and `ModB` in the ledger and the mend-branch
+commits in their canonical (topological) order, not in the order their
+worktrees finish. -/
 set_option maxRecDepth 1000000
 
 /-- A plain recursive count, not one of Lean's accelerated `Nat` operations

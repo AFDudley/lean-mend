@@ -75,6 +75,9 @@ The keys are flat on purpose: exophial reads a whole `stdout_json` field path
 as a top-level key first, so a spec can address one step or check by name,
 and a name that holds a dot (`Dep.new`, `v4.33.1`) still resolves. A nested
 object would split such a name at its dots.
+A runner that measures a number records it with `measure NAME N`, as the key
+`"measures.<NAME>": N`. A measure is not a check, and it does not change
+`passed` or `failed`.
 A runner builds what it runs. A runner that runs lean-mend sources
 `tests/lib/lean-mend.sh`, which builds the binary and sets `$bin`. exophial
 runs each check script alone in its gate container, so a runner cannot

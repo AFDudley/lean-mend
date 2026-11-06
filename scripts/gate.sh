@@ -46,6 +46,7 @@ step "no LeanMend constant depends on sorryAx (docs/verification.md)" lake env l
 step "lake test" lake test
 step "probe matrix" tests/probe-matrix.sh
 step "one probe process per module" tests/probe-serve.sh
+step "diagnostics from the Lean server" tests/server-diag.sh
 step "a site that no parsed command contains, on the probe-gap fixture" tests/probe-gap.sh
 step "lean-mend baseline on a real target" tests/baseline.sh
 step "lean-mend run --adopt on the rename fixture" tests/rename.sh
@@ -65,6 +66,8 @@ exposure() {
 step "exposure of later errors" exposure
 step "a namespace move with no aliases, on the move fixture" tests/move.sh
 step "parallel frontier modules" tests/fleet.sh tests/fixtures/fleet
+step "dataflow scheduling across modules" tests/dataflow.sh
+step "memory bound on live probe processes" tests/probe-bound.sh
 step "rule simp-set-pure-prior on its fixture" tests/simp-set-pure-prior.sh
 step "rule simp-set-pure-unsolved on its fixture" tests/simp-set-pure-unsolved.sh
 step "rule simp-ite-nat-cond on its fixture" tests/simp-ite-nat-cond.sh
