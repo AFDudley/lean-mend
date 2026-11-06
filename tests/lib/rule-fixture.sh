@@ -47,3 +47,31 @@ rule_fixture_checks() {
   if (cd "$app" && lake build -q >/dev/null)
   then pass "the mended app builds at v4.33.1"; else failed "the mended app builds at v4.33.1"; fi
 }
+
+# rule_fixture_run_dep RULE: as rule_fixture_run, for a break that a
+# dependency's change causes together with the bump (the EquiVM adopt commit
+# efbfb862 did both). tests/fixtures/RULE/ holds app/, dep-v1/ and dep-v2/.
+# The app is committed at v4.29.0 on dep v1, then bumped to v4.33.1 on dep v2.
+rule_fixture_run_dep() {
+  local rule=$1
+  local root="$_lm_root"
+  local fx="$root/tests/fixtures/$rule"
+  local work="$root/.scratch/rule-$rule"
+  export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@lean-mend GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@lean-mend
+  rm -rf "$work" && mkdir -p "$work/rules"
+  app="$work/app"
+  cp -r "$fx/app" "$app"
+  cp "$root/rules/proposed/$rule.json" "$work/rules/"
+  printf '/.lake\n/.lean-mend\nlake-manifest.json\n' > "$app/.gitignore"
+  _at() {  # _at TOOLCHAIN DEP: the app's toolchain and its dependency's version
+    echo "leanprover/lean4:$1" > "$app/lean-toolchain"
+    rm -rf "$app/dep" && cp -r "$fx/dep-$2" "$app/dep" && echo "leanprover/lean4:$1" > "$app/dep/lean-toolchain"
+  }
+  _at v4.29.0 v1
+  git -C "$app" init -q -b main && git -C "$app" add -A && git -C "$app" commit -q -m "app at v4.29.0 on dep v1"
+  _at v4.33.1 v2
+  git -C "$app" add -A && git -C "$app" commit -q -m "bump to v4.33.1 and dep v2"
+  out=$("$bin" run "$app" --adopt --rules "$work/rules")
+  echo "$out"
+  ledger=$(jq -s -c . "$app/.lean-mend/ledger.jsonl")
+}

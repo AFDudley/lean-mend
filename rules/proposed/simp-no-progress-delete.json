@@ -1,0 +1,11 @@
+{
+  "name": "simp-no-progress-delete",
+  "class": "simpNoProgress",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "EquiVM run 7 residue, Tests/Pipeline/VyperVault/Balances.lean 89: `have rd3 := vyperVaultBlocks.vyperVault_block_1244 (by simp) rd2`, then `simp only [vyperVaultBlocks.vyperVault_block_1233_fallthrough_stack] at rd3` fails with `` `simp` made no progress ``. `vyperVault_block_1244` takes its stack as `x0 :: R`, so the unifier unfolds `vyperVault_block_1233_fallthrough_stack` and the name is not in `rd3`. Lean v4.29.0 accepted that simp with only an unused-argument warning; v4.33.1 reports no progress as an error. The fixture tests/fixtures/simp-no-progress-delete shows the same change on Lean core alone. No rule had class simpNoProgress, so run 7 gave this site no candidate. Measured on a copy of the target file at 432020a3: deleting the simp line takes the module from 1 error to 0. The 2 warnings that appear (lines 47 and 121) are outside the edit."
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.33.1" },
+  "node": "simp",
+  "candidates": [ { "op": "deleteTactic" } ]
+}
