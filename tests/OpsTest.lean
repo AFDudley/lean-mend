@@ -60,6 +60,14 @@ def cases : List (String × EditOp × String × Option String) :=
     ("rw to erw", .keywordSwap "rw" "erw", "rw [h] at g", some "erw [h] at g"),
     ("keyword mismatch: no candidate", .keywordSwap "rw" "erw", "simp [h]", none),
     ("delete", .deleteTactic, "decide +kernel", some ""),
+    ("a rw of one show term is deleted", .deleteShowRewrite,
+      "rw [show (⟨32⟩ : W).toNat = 32 by native_decide]", some ""),
+    ("a rw of two show terms, at a hypothesis, is deleted", .deleteShowRewrite,
+      "rw [show a = b by rfl, show f [c, d] = e from h] at g", some ""),
+    ("a rw with a lemma after the show: no candidate", .deleteShowRewrite,
+      "rw [show a = b by rfl, h]", none),
+    ("a rw of a lemma: no candidate", .deleteShowRewrite, "rw [if_neg]", none),
+    ("rwa also closes the goal: no candidate", .deleteShowRewrite, "rwa [show a = b by rfl]", none),
     ("match on a literal to if", .matchToIf, "match val with | ⟨0⟩ => f val | _ => g val",
       some "if val = ⟨0⟩ then f val\n    else g val"),
     ("a pattern that binds: no candidate", .matchToIf, "match o with | some x => x | _ => 0", none),
@@ -158,17 +166,33 @@ def run : IO Nat := do
   -- thing"), and that error replaced the request's error.
   do
     let child ← IO.Process.spawn
-      { cmd := "sh", args := #["-c", "read l; exit 3"],
-        stdin := .piped, stdout := .piped, stderr := .inherit }
-    let s : LeanMend.Shell.ProbeSession := { child, exited := ← IO.mkRef none }
+      { cmd := "sh", args := #["-c", "read l; echo gone >&2; exit 3"],
+        stdin := .piped, stdout := .piped, stderr := .piped }
+    let s ← LeanMend.Shell.ProbeSession.ofChild child LeanMend.probeCap
     let got ← try
         try
-          discard <| LeanMend.Shell.probeServeRequest s "F.lean" [0]
+          discard <| LeanMend.Shell.probeServeRequest s "F.lean" (Lean.Json.mkObj [("op", Lean.toJson "syntax")])
           pure "a reply"
         finally LeanMend.Shell.probeServeStop s
       catch e => pure (toString e)
-    let ok := got == "probe serve: process exited 3 with no reply for F.lean (its stderr is above)"
+    let ok := got == "probe serve: process exited 3 with no reply for F.lean; its stderr:\ngone\n"
     IO.println s!"{if ok then "ok  " else "FAIL"} probeServeStop after a probe that exited keeps the request's error: {got}"
+    unless ok do failed := failed + 1
+  -- docs/parallel.md P24: a probe that Lean stopped at its `lean -M` cap
+  -- (the text of v4.29.0, v4.33.1 and v4.35.0, measured on kelce on
+  -- 2026-11-06) sets `overCap`, so the driver stops the run with the typed
+  -- `CapExceeded`.
+  do
+    let child ← IO.Process.spawn
+      { cmd := "sh", args := #["-c", "read l; echo \"excessive memory consumption detected at 'interpreter' (potential solution: increase memory consumption threshold)\" >&2; exit 1"],
+        stdin := .piped, stdout := .piped, stderr := .piped }
+    let s ← LeanMend.Shell.ProbeSession.ofChild child LeanMend.probeCap
+    try
+      try discard <| LeanMend.Shell.probeServeRequest s "F.lean" (Lean.Json.mkObj [("op", Lean.toJson "syntax")])
+      finally LeanMend.Shell.probeServeStop s
+    catch _ => pure ()
+    let ok ← s.overCap.get
+    IO.println s!"{if ok then "ok  " else "FAIL"} a probe that Lean stopped at its cap sets overCap"
     unless ok do failed := failed + 1
   -- Decision D10: a candidate that adds a declaration is not clean.
   for (what, repl, want) in
@@ -419,6 +443,13 @@ def run : IO Nat := do
     let ok2 := order == ["", "· omega", "· simp_all"]
     IO.println s!"{if ok2 then "ok  " else "FAIL"} a closer rule runs last: {repr order}"
     unless ok2 do failed := failed + 1
+    -- a rule that only raises maxHeartbeats runs after the closer rule
+    let hb : Rule := { name := "a-budget", cls := .tacticFailed, entrenchment := .proposed,
+                       family := .any, ops := [.heartbeats 400000] }
+    let order3 := (proposeAll ⟨[]⟩ [hb, r, other] nodes false false [] site).map (·.replacement)
+    let ok3 := order3 == ["", "· omega", "· simp_all", "set_option maxHeartbeats 400000 in\n"]
+    IO.println s!"{if ok3 then "ok  " else "FAIL"} a heartbeats rule runs after every other rule: {repr order3}"
+    unless ok3 do failed := failed + 1
   -- simpArgAddPrior: the simp before the site's own tactic, in the indented
   -- sequence that holds the site (EquiVM TransientPackedStorage 59: `simp
   -- only […, Option.bind]`, then `congr 2`, then `apply u256_inj` fails).
@@ -455,6 +486,8 @@ def run : IO Nat := do
   for (what, cls, op, accept) in
       [("deleteTactic for noGoals is loaded", "noGoals", "deleteTactic", true),
        ("deleteTactic for typeMismatch is refused", "typeMismatch", "deleteTactic", false),
+       ("deleteShowRewrite for tacticFailed is loaded", "tacticFailed", "deleteShowRewrite", true),
+       ("deleteShowRewrite for noGoals is refused", "noGoals", "deleteShowRewrite", false),
        ("node any on class unknown is refused", "unknown", "simpaToExact", false)] do
     let r := Lean.Json.parse (ruleJson cls op) >>= Parse.rule
     let ok := r.toBool == accept
@@ -482,6 +515,83 @@ def run : IO Nat := do
     IO.println s!"{if ok then "ok  " else "FAIL"} S3a: a fleet of two Mending states reaches \
       the same final state in either order"
     unless ok do failed := failed + 1
+  -- docs/parallel.md P8, P21, P22: the dataflow schedule on a chain A ← B ← C
+  -- with an unrelated D. A builds, so B is ready to build; C waits for B.
+  -- A `moduleBuild` unblocks only a ready blocked module, to built or
+  -- failing, and a module the run mended must build.
+  do
+    let mods : List Module :=
+      [⟨"A", []⟩, ⟨"D", []⟩, ⟨"B", ["A", "Init"]⟩, ⟨"C", ["B"]⟩]
+    let ctx : Context :=
+      { target := "t", base := { toolchain := ⟨"a"⟩, built := [], decls := [] }, mods,
+        aliases := ⟨[]⟩ }
+    let st : Statuses := fun n =>
+      if n == "B" || n == "C" then .blocked else if n == "D" then .failing else .built
+    let statusOf (s : RunState) (n : String) : Option ModStatus :=
+      match s with | .built _ st' => some (st' n) | _ => none
+    let isHalted (s : RunState) : Bool := match s with | .halted _ => true | _ => false
+    let base : RunState := .built ctx st
+    for (what, ok) in
+        [("ready names the open modules whose imports build, in module order",
+          ready mods st == ["D", "B"]),
+         ("a ready blocked module takes its build result",
+          statusOf (base.step (.moduleBuild "B" .failing)) "B" == some .failing),
+         ("a blocked module whose import does not build cannot take a result",
+          isHalted (base.step (.moduleBuild "C" .built))),
+         ("a build that reports a ready module blocked again halts",
+          isHalted (base.step (.moduleBuild "B" .blocked))),
+         ("a built module must build",
+          statusOf (base.step (.moduleBuild "A" .built)) "A" == some .built &&
+          isHalted (base.step (.moduleBuild "A" .failing))),
+         ("a failing module takes no module build",
+          isHalted (base.step (.moduleBuild "D" .built))),
+         ("C becomes ready once B builds",
+          ready mods (fun n => if n == "C" then .blocked else if n == "D" then .failing else .built)
+            == ["D", "C"]),
+         ("importClosure names every module C imports, directly or not, in module order",
+          importClosure mods "C" == ["A", "B"] && importClosure mods "D" == [])] do
+      IO.println s!"{if ok then "ok  " else "FAIL"} dataflow: {what}"
+      unless ok do failed := failed + 1
+  -- docs/parallel.md P24: the memory limit of a run. Sizes in KiB:
+  -- 10 GiB = 10485760, 15 GiB = 15728640, 16 GiB = 16777216, 21 GiB = 22020096.
+  do
+    let g (n : Nat) : KiB := KiB.ofGiB n
+    let est := workEstimate
+    let limit := g 21
+    let young : Load := { driver := ⟨100000⟩, tree := ⟨1500000⟩, probes := [some ⟨1300000⟩] }
+    let two : Load := { driver := ⟨100000⟩, tree := ⟨3000000⟩, probes := [some ⟨1300000⟩, none] }
+    let grown : Load := { driver := ⟨100000⟩, tree := ⟨13000000⟩, probes := [some (g 12)] }
+    let build (n : Nat) : Load := { driver := ⟨100000⟩, tree := ⟨2000000⟩, probes := [], others := n }
+    for (what, ok) in
+        [("one live probe and one new: charged 100000 + 2 * 10485760, measured 1500000 + 9185760 + 10485760",
+          young.charged est == ⟨21071520⟩ && young.measured est == ⟨21171520⟩ && admits limit est young),
+         ("a third probe does not fit 21 GiB: charged 100000 + 3 * 10485760",
+          two.charged est == ⟨31557280⟩ && !admits limit est two),
+         ("a probe that grew past its charge stops the next admission by the measured check",
+          grown.charged est == ⟨21071520⟩ && grown.measured est == ⟨23485760⟩ && !admits limit est grown),
+         ("a running build is charged: one fits beside a new probe, two do not",
+          admits limit est (build 1) && !admits limit est (build 2)),
+         ("when nothing runs, one item starts even past the limit",
+          admits limit est { driver := g 30, tree := g 30, probes := [] }),
+         ("the hard cap is the charge times 3/2: 15 GiB, lean -M 15360",
+          probeCap == ⟨15728640⟩ && probeCap.toMiB == 15360),
+         ("the default limit is MemAvailable minus 16 GiB: 34480068 - 16777216",
+          (MemoryLimit.available ⟨34480068⟩).limit == ⟨17702852⟩),
+         ("a MemAvailable below the reserve gives the limit 0",
+          (MemoryLimit.available ⟨1000⟩).limit == ⟨0⟩),
+         ("a round with no extra probe runs every candidate on its module's probe",
+          roundPlacement 3 0 == [.own, .own, .own]),
+         ("a round uses at most width - 1 extra probes",
+          roundPlacement 3 5 == [.own, .nested, .nested]),
+         ("a round with one extra probe runs the third candidate on its module's probe",
+          roundPlacement 3 1 == [.own, .nested, .own]),
+         ("processTree: a process, its child and its grandchild, not a sibling",
+          processTree [(10, 1), (11, 10), (12, 11), (13, 1), (14, 99)] 10 == [10, 11, 12]),
+         ("certificateJobs: 2 at 21 GiB, 1 at 1 GiB, 4 at 64 GiB",
+          certificateJobs (g 21) est == 2 && certificateJobs (g 1) est == 1 &&
+          certificateJobs (g 64) est == 4)] do
+      IO.println s!"{if ok then "ok  " else "FAIL"} memory limit: {what}"
+      unless ok do failed := failed + 1
   return failed
 
 end OpsTest

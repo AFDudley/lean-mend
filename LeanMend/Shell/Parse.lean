@@ -1,5 +1,6 @@
 import Lean.Data.Json
 import LeanMend.Spec.Types
+import LeanMend.Core.Sched
 
 /-!
 # Parse at the edge
@@ -153,6 +154,7 @@ def editOp (j : Json) : Except String EditOp := do
   | "simpaUsingBang" => pure .simpaUsingBang
   | "keywordSwap" => pure (.keywordSwap (← field j "from") (← field j "to"))
   | "deleteTactic" => pure .deleteTactic
+  | "deleteShowRewrite" => pure .deleteShowRewrite
   | "matchToIf" => pure .matchToIf
   | "matchOnVal" => pure .matchOnVal
   | "valCompare" => pure .valCompare
@@ -176,6 +178,52 @@ def rule (j : Json) : Except String Rule := do
   if fam == .any && cls == .unknown then throw s!"rule {name}: node any on class unknown (vacuous)"
   if ops.contains .deleteTactic && cls != .simpNoProgress && cls != .noGoals then
     throw s!"rule {name}: deleteTactic is allowed only for simpNoProgress and noGoals"
+  -- A rewrite that finds nothing has class tacticFailed ("Tactic `rewrite` failed").
+  if ops.contains .deleteShowRewrite && cls != .tacticFailed then
+    throw s!"rule {name}: deleteShowRewrite is allowed only for tacticFailed"
   pure { name, cls, entrenchment, family := fam, ops }
+
+/-- The words of one line of a `/proc` file, split at spaces and tabs. -/
+private def procWords (l : String) : List String :=
+  ((l.replace "\t" " ").splitOn " ").filter (· ≠ "")
+
+/-- The value of the `name:   <n> kB` line of a `/proc` file, in KiB, or
+`none` when the file has no such line. -/
+def kbField (text name : String) : Except String (Option KiB) := do
+  let some line := (text.splitOn "\n").find? (fun l => (procWords l).head? == some s!"{name}:")
+    | pure none
+  match procWords line with
+  | [_, n, "kB"] =>
+    match n.toNat? with
+    | some v => pure (some ⟨v⟩)
+    | none => throw s!"{name}: '{n}' is not a number"
+  | _ => throw s!"{name}: the line '{line}' is not '<n> kB'"
+
+/-- `MemAvailable` from the text of `/proc/meminfo`, the input of the default
+memory limit (`docs/parallel.md` P24). -/
+def memAvailable (meminfo : String) : Except String KiB := do
+  let some v ← kbField meminfo "MemAvailable" | throw "/proc/meminfo has no MemAvailable line"
+  pure v
+
+/-- The private resident memory of one process, from the text of
+`/proc/<pid>/status`: `RssAnon` plus `RssShmem` (`docs/parallel.md` P24).
+File pages (`RssFile`, the mapped `.olean` files) are shared between the
+processes and the kernel can drop them, so they do not count. A kernel thread
+or a zombie has neither line, and holds 0. -/
+def privateRss (status : String) : Except String KiB := do
+  let anon := ((← kbField status "RssAnon").map (·.val)).getD 0
+  let shmem := ((← kbField status "RssShmem").map (·.val)).getD 0
+  pure ⟨anon + shmem⟩
+
+/-- The parent pid from the text of `/proc/<pid>/stat`, its fourth field. The
+second field, the command name in parentheses, can hold spaces and `)`, so
+the fields are read after the last `)`. -/
+def statParent (stat : String) : Except String Nat := do
+  match procWords ((stat.splitOn ")").getLast!) with
+  | _ :: ppid :: _ =>
+    match ppid.toNat? with
+    | some n => pure n
+    | none => throw s!"/proc stat: parent '{ppid}' is not a number"
+  | _ => throw s!"/proc stat: no parent field in '{stat}'"
 
 end LeanMend.Parse

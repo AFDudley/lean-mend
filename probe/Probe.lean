@@ -28,11 +28,13 @@ Commands:
   `match` nodes.
 * `deprecated <module>…` — `{"name", "newName"}` for every `@[deprecated]`
   declaration in the environment of the given modules.
-* `serve` — one JSON request per line of stdin, `{"file", "offsets"}`; one
-  JSON reply per line of stdout, `{"regions", "nodes"}`: `regions <file>` and
-  `node <file> <offsets>…` from one import, kept across requests and
-  refreshed only when a request's file has a different import header
-  (`docs/parallel.md` C1-C3). Ends at end of file on stdin.
+* `serve` — one JSON request per line of stdin, one JSON reply per line of
+  stdout, from one long-lived process for one module (`docs/parallel.md`
+  C1-C5). A `syntax` request gives `regions <file>` and
+  `node <file> <offsets>…` from one kept import. An `elaborate` request gives
+  the messages of `lake env lean --json <file>`, and elaborates again only
+  from the first command that changed since the previous request. Ends at end
+  of file on stdin.
 -/
 
 open Lean
@@ -46,6 +48,20 @@ def emit (j : Json) : IO Unit := do
   let out ← IO.getStdout
   out.putStrLn j.compress
   out.flush
+
+/-- This process's peak resident size in KiB, `VmHWM` of `/proc/self/status`
+(`docs/parallel.md` P24). Each `serve` reply carries it, so the shell knows
+the probe's peak when Lean stops the probe at its `lean -M` cap. -/
+def peakKiB : IO Nat := do
+  let st ← IO.FS.readFile "/proc/self/status"
+  let words (l : String) := ((l.replace "\t" " ").splitOn " ").filter (· ≠ "")
+  match (st.splitOn "\n").find? (fun l => (words l).head? == some "VmHWM:") with
+  | some l => pure (((words l).getD 1 "0").toNat?.getD 0)
+  | none => pure 0
+
+/-- Emit one `serve` reply with the fields `fields` and `peakKiB`. -/
+def emitReply (fields : List (String × Json)) : IO Unit := do
+  emit <| Json.mkObj (fields ++ [("peakKiB", toJson (← peakKiB))])
 
 /-- Every node of kind `k` in `stx`, in source order. -/
 partial def nodesOfKind (k : SyntaxNodeKind) (stx : Syntax) : Array Syntax :=
@@ -380,16 +396,101 @@ structure ServeCache where
   imports : Array Name
   env : Environment
 
-/-- `serve`: one request per line of stdin, `{"file", "offsets"}`; one reply
-per line of stdout, `{"regions", "nodes"}` — `regionsArray` over the whole
-file, and `nodeAt` at each of `offsets`, from one import kept across requests
-(`docs/parallel.md` C1). The import is rebuilt only when a request's file has
-a different header than the one the cache holds (C2); the same module's
-requests, with the same imports, all answer from the kept import (C3). Ends
-at end of file on stdin. -/
+/-- The last elaboration of one file, for `serve`'s `elaborate` request: the
+snapshot tree that `Language.Lean.process` returned for the file's previous
+text. The next `elaborate` request on the same file passes it back, so Lean
+keeps the elaborated state of every command before the first changed one
+(`docs/parallel.md` C4). -/
+structure ElabCache where
+  file : String
+  snap : Language.Lean.InitialSnapshot
+
+/-- The options of `lake env lean --json <file>` (`runFrontend`, which
+`Lean.Shell` calls with no `-D` option): `Elab.async` on. One option
+differs: `internal.cmdlineSnapshots` is off, as in the language server.
+When it is on, Lean discards the syntax of each command after elaboration,
+so it cannot find the unchanged commands of the next text. It changes what
+Lean keeps, not what Lean reports (`docs/parallel.md` C5). -/
+def elabOptions : Options :=
+  internal.cmdlineSnapshots.set (Elab.async.set ({} : Options) true) false
+
+/-- The messages of one finished snapshot tree, in the order and the JSON
+shape that `lean --json` prints them (`Language.SnapshotTree.runAndReport`
+with no severity override): tree preorder, each unreported message, silent
+messages dropped. After `maxErrors` errors, Lean prints one error "maximum
+number of errors … reached, exiting" in place of the next error and stops;
+so does this function. -/
+def treeMessages (tree : Language.SnapshotTree) (opts : Options) : IO (Array Json) := do
+  let maxE := Language.maxErrors.get opts
+  let (_, _, out) ← tree.foldM (init := ((0 : Nat), false, (#[] : Array Json)))
+    fun acc s => s.diagnostics.msgLog.unreported.foldlM (init := acc) fun (n, stop, out) msg => do
+      if stop then return (n, stop, out)
+      let n := n + (if msg.severity matches .error then 1 else 0)
+      let reached := maxE != 0 && n > maxE
+      let msg : Message := if reached then
+        { msg with
+          data := s!"maximum number of errors ({maxE}; from option `maxErrors`) reached, exiting"
+          severity := .error }
+        else msg
+      if msg.isSilent then return (n, reached, out)
+      return (n, reached, out.push (← msg.toJson))
+  return out
+
+/-- The trust level of `lean <file>` with no `--trust` option:
+`Lean.defaultTrustLevel`, the believer trust level 1024 of the C++ kernel
+(`LEAN_BELIEVER_TRUST_LEVEL`) plus one. `Lean.Shell` does not export it, and
+the interpreter cannot call its `@[extern]` source, so the probe states it. -/
+def shellTrustLevel : UInt32 := 1025
+
+/-- Elaborate the current text of `file` as `lake env lean --json <file>`
+does (`Elab.runFrontend`): the same language processor, main module name,
+trust level and options (`elabOptions`). `old?` is the previous elaboration
+of the same file; Lean reuses its commands up to the first changed one.
+Returns the new elaboration and its messages, in `treeMessages` order. -/
+def elaborate (file : String) (old? : Option Language.Lean.InitialSnapshot) :
+    IO (Language.Lean.InitialSnapshot × Array Json) := do
+  let src ← IO.FS.readFile file
+  let opts := elabOptions
+  -- `Lean.Shell`: a file outside the module root gets the name `_stdin`.
+  let mainModuleName ← try moduleNameOfFileName file none catch _ => pure `_stdin
+  let setup (stx : Elab.HeaderSyntax) :
+      Language.ProcessingT IO (Except Language.Lean.HeaderProcessedSnapshot
+        Language.Lean.SetupImportsResult) :=
+    pure <| .ok { imports := stx.imports, isModule := stx.isModule, mainModuleName, opts,
+                  trustLevel := shellTrustLevel }
+  let ctx : Language.ProcessingContext := { Parser.mkInputContext src file with }
+  let snap ← Language.Lean.process setup old? ctx
+  let msgs ← treeMessages (Language.toSnapshotTree snap) opts
+  return (snap, msgs)
+
+/-- The environment for a parse of `imports`: the cached one when the
+imports are the same (`docs/parallel.md` C2), else a new import. -/
+def serveEnv (cacheRef : IO.Ref (Option ServeCache)) (imports : Array Name) : IO Environment := do
+  if let some c ← cacheRef.get then
+    if c.imports == imports then return c.env
+  let env ← importModules (imports.map fun n => { module := n }) {} (loadExts := true)
+  cacheRef.set (some { imports, env })
+  return env
+
+/-- `serve`: one request per line of stdin, one reply per line of stdout.
+Ends at end of file on stdin.
+
+* `{"op": "syntax", "file", "offsets"}` → `{"regions", "nodes"}`:
+  `regionsArray` over the whole file, and `nodeAt` at each of `offsets`, from
+  one import kept across requests (`docs/parallel.md` C1). The import is
+  rebuilt only when a request's file has a different header than the one the
+  cache holds (C2); the same module's requests, with the same imports, all
+  answer from the kept import (C3).
+* `{"op": "elaborate", "file"}` → `{"messages"}`: the messages of
+  `lake env lean --json <file>` on the file's current text (C5). The
+  elaboration starts again only from the first command that changed since the
+  previous `elaborate` request on the same file (C4). Its header environment
+  fills the import cache, so a later `syntax` request with the same imports
+  imports nothing. -/
 partial def cmdServe : IO Unit := do
   let stdin ← IO.getStdin
   let cacheRef ← IO.mkRef (none : Option ServeCache)
+  let elabRef ← IO.mkRef (none : Option ElabCache)
   let rec loop : IO Unit := do
     let line ← stdin.getLine
     if line.isEmpty then return
@@ -398,31 +499,31 @@ partial def cmdServe : IO Unit := do
     let req ← match Json.parse line with
       | .ok j => pure j
       | .error e => throw <| IO.userError s!"serve: bad request: {e}"
-    let file : String ← match req.getObjValAs? String "file" with
+    let field (k : String) : IO String := match req.getObjValAs? String k with
       | .ok f => pure f
       | .error e => throw <| IO.userError s!"serve: {e}"
-    let offsets : List Nat := (req.getObjValAs? (List Nat) "offsets").toOption.getD []
-    let src ← IO.FS.readFile file
-    let bytes := src.toUTF8
-    let ictx := Parser.mkInputContext src file
-    let (hdr, st0, msgs0) ← Parser.parseHeader ictx
-    let imports := headerImports hdr.raw
-    let cached ← cacheRef.get
-    let env ← match cached with
-      | some c =>
-        if c.imports == imports then pure c.env
-        else do
-          let env ← importModules (imports.map fun n => { module := n }) {} (loadExts := true)
-          cacheRef.set (some { imports, env })
-          pure env
-      | none => do
-          let env ← importModules (imports.map fun n => { module := n }) {} (loadExts := true)
-          cacheRef.set (some { imports, env })
-          pure env
-    let pmctx : Parser.ParserModuleContext := { env, options := {} }
-    let regions ← regionsArray ictx pmctx st0 msgs0
-    let nodes ← offsets.toArray.mapM (nodeAt ictx pmctx st0 msgs0 file bytes)
-    emit <| Json.mkObj [("regions", Json.arr regions), ("nodes", Json.arr nodes)]
+    let file ← field "file"
+    match ← field "op" with
+    | "elaborate" =>
+      let old? := (← elabRef.get).bind fun c => if c.file == file then some c.snap else none
+      let (snap, msgs) ← elaborate file old?
+      elabRef.set (some { file, snap })
+      if let some hp := snap.processedResult.get then
+        let (hdr, _, _) ← Parser.parseHeader (Parser.mkInputContext (← IO.FS.readFile file) file)
+        cacheRef.set (some { imports := headerImports hdr.raw, env := hp.cmdState.env })
+      emitReply [("messages", Json.arr msgs)]
+    | "syntax" =>
+      let offsets : List Nat := (req.getObjValAs? (List Nat) "offsets").toOption.getD []
+      let src ← IO.FS.readFile file
+      let bytes := src.toUTF8
+      let ictx := Parser.mkInputContext src file
+      let (hdr, st0, msgs0) ← Parser.parseHeader ictx
+      let env ← serveEnv cacheRef (headerImports hdr.raw)
+      let pmctx : Parser.ParserModuleContext := { env, options := {} }
+      let regions ← regionsArray ictx pmctx st0 msgs0
+      let nodes ← offsets.toArray.mapM (nodeAt ictx pmctx st0 msgs0 file bytes)
+      emitReply [("regions", Json.arr regions), ("nodes", Json.arr nodes)]
+    | op => throw <| IO.userError s!"serve: unknown op '{op}'"
     loop
   loop
 

@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 # tests/fleet.sh <fixture>: S3b (docs/parallel.md P8, P10-P12). The fixture
 # breaks two independent modules, ModA and ModB, in one commit, so both
-# become frontier modules in the same wave. ModA's accepted fix makes the
-# kernel decide a plain recursive count, so its wave attempt takes
-# noticeably longer than ModB's: the run must still replay ModA before
-# ModB in the ledger, and commit ModA before ModB on the mend branch, in
-# their canonical (topological) order — whichever module's worktree
-# finishes first.
+# start their mends at once. ModA's accepted fix makes the kernel decide a
+# plain recursive count, so its attempt takes noticeably longer than ModB's:
+# the run must still replay the two modules in the ledger, and commit them
+# on the mend branch, in their canonical (topological) order — whichever
+# module's worktree finishes first.
 #
 # stdout carries one JSON object and nothing else: {"max_concurrent_attempts",
 # "attempts_sharing_a_worktree", "mend_branch_writers_other_than_driver",
@@ -37,33 +36,35 @@ git -C "$app" add -A
 git -C "$app" commit -q -m "app builds"
 
 # Break ModA and ModB in one commit, so both open at once: neither module
-# imports the other, so both are frontier modules in the same wave.
+# imports the other, so both mends start at once.
 cp "$fx/ModA.lean" "$app/ModA.lean"
 cp "$fx/ModB.lean" "$app/ModB.lean"
 git -C "$app" add -A
 git -C "$app" commit -q -m "break ModA and ModB at once"
 
-"$bin" run "$app" --adopt --rules "$fx/rules" >&2 || true
+# A limit of 64 GiB admits both module probes at once (docs/parallel.md P24),
+# whatever memory the host has free.
+"$bin" run "$app" --adopt --rules "$fx/rules" --max-memory 64 >&2 || true
 
 ledger="$app/.lean-mend/ledger.jsonl"
 
-# waveOrder: the modules named by the one "waveStart" line, in the order
-# the driver computed the wave — the canonical (topological) order every
-# check below is measured against.
-waveOrder=$(jq -sc '[.[] | select(.obs == "waveStart")][0].detail.modules' "$ledger")
+# canonicalOrder: the modules of the first "build" line, which lists every
+# module of the run in the driver's canonical (topological) order — the
+# order every check below is measured against.
+canonicalOrder=$(jq -sc '[.[] | select(.obs == "build")][0].detail | map(split(": ")[0])' "$ledger")
 
 # diagnosedOrder: the modules named by "diagnosed" lines, in ledger
 # (replay) order — the order a one-module-at-a-time run would write them
 # in, since each module's "diagnosed" line is the first thing its replay
 # writes.
 diagnosedOrder=$(jq -sc '[.[] | select(.obs == "diagnosed") | .detail.module]' "$ledger")
-if [ "$waveOrder" = "$diagnosedOrder" ]; then ledgerMatchesSequentialOrder=true
+if [ "$canonicalOrder" = "$diagnosedOrder" ]; then ledgerMatchesSequentialOrder=true
 else ledgerMatchesSequentialOrder=false
 fi
 
-# attempts: every "waveAttempt" line's detail, carrying its module, its
-# own wave worktree, and its wall-clock span.
-attempts=$(jq -sc '[.[] | select(.obs == "waveAttempt") | .detail]' "$ledger")
+# attempts: every "moduleAttempt" line's detail, carrying its module, its
+# own worktree, and its wall-clock span.
+attempts=$(jq -sc '[.[] | select(.obs == "moduleAttempt") | .detail]' "$ledger")
 
 maxConcurrent=$(jq -n --argjson atts "$attempts" '
   ($atts | map({t: .startedAt, d: 1}) + ($atts | map({t: .finishedAt, d: -1}))) as $events
@@ -71,8 +72,8 @@ maxConcurrent=$(jq -n --argjson atts "$attempts" '
       {cur: (.cur + $e.d), mx: ([.mx, .cur + $e.d] | max)}) | .mx)')
 
 # attemptsSharingAWorktree: a worktree two different modules both used —
-# a module's own wave worktree must never be shared with another
-# module's (docs/parallel.md P8).
+# a module's own worktree must never be shared with another module's
+# (docs/parallel.md P8).
 attemptsSharingAWorktree=$(jq -n --argjson atts "$attempts" '
   [$atts | group_by(.worktree)[] | select((map(.module) | unique | length) > 1)] | length')
 
@@ -82,7 +83,7 @@ attemptsSharingAWorktree=$(jq -n --argjson atts "$attempts" '
 # whose own `repr` (`cand.rule`) wraps onto several lines.
 commitModuleOrder=$(git -C "$app" log --name-only --format= --reverse main..lean-mend/mend |
   grep -v '^$' | sed 's/\.lean$//' | jq -R . | jq -sc .)
-if [ "$commitModuleOrder" = "$waveOrder" ]; then commitsInTopologicalOrder=true
+if [ "$commitModuleOrder" = "$canonicalOrder" ]; then commitsInTopologicalOrder=true
 else commitsInTopologicalOrder=false
 fi
 

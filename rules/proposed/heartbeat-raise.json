@@ -1,0 +1,11 @@
+{
+  "name": "heartbeat-raise",
+  "class": "heartbeat",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "EquiVM run 7 residue, Examples/UniswapV2Pair/PermitDecode.lean 97, the one heartbeat site of run 7: in `permitDecodeABIValues_ok_core`, `simp [decodeABIValues?, legacyAddr, …, bind, Option.bind, hdec0, …, hdec192]` fails with `Tactic simp failed with a nested error: (deterministic) timeout …, maximum number of heartbeats (200000)`. No rule had class heartbeat, so run 7 gave this site no candidate. Measured on a copy of the target file at 432020a3: `set_option maxHeartbeats 400000 in` before the theorem takes the module from 1 error to 0, with no warning; `pure` added to the simp does not (the timeout stays). `lake env lean` on the whole module took 65 s with and without the option. The rule only answers the heartbeat limit itself (class heartbeat: Lean's kind runtime.maxHeartbeats or the text (deterministic) timeout). It hides a cost regression upstream (docs/rules.md, Entrenchment and order, item 4), so proposeAll runs a rule whose operations are all heartbeats after every other rule of its entrenchment. The commit subject names the rule, so a reader of the mend branch sees each raised limit."
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.33.1" },
+  "node": "any",
+  "candidates": [ { "op": "heartbeats", "n": 400000 }, { "op": "heartbeats", "n": 800000 } ]
+}

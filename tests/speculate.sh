@@ -63,7 +63,9 @@ seqApp="$work/sequential/app"
 setup "$parApp"
 setup "$seqApp"
 
-"$bin" run "$parApp" --adopt --rules "$fx/rules" --speculate 3 >&2 || true
+# A limit of 64 GiB admits the module probe and both nested probes at once
+# (docs/parallel.md P24), whatever memory the host has free.
+"$bin" run "$parApp" --adopt --rules "$fx/rules" --speculate 3 --max-memory 64 >&2 || true
 "$bin" run "$seqApp" --adopt --rules "$fx/rules" >&2 || true
 
 ledger="$parApp/.lean-mend/ledger.jsonl"

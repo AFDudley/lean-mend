@@ -27,6 +27,7 @@ LeanMend/
   * Graph.lean       module-graph order (topoOrder); a cycle is a refusal
   * Propose.lean     Site × AliasMap → ordered candidates (derived alias rules only); AliasMap.normalize
   * Ops.lean         EditOp on a tactic node → replacement; ruleCandidates; proposeAll (derived, then ratified, then proposed)
+  * Sched.lean       the memory limit of a run: charges, admission, the probe cap, speculative placement (docs/parallel.md P24)
   Shell/         IO. Parsing at the edge, Lake, git, files, the ledger.
   * Parse.lean       JSON → typed operands, once (concept B2)
   * Target.lean      processes, the probe (embedded by include_str), module graph, per-module lake build, certificate
@@ -34,7 +35,8 @@ LeanMend/
     Git.lean         the mend branch and attempt worktrees
     Ledger.lean      append and replay
   * Session.lean     the saved session (.lean-mend/session.json), card files, judgments from the ledger
-  * Driver.lean      the composition root (concept A3): `run --adopt`, the level-1 loop, the ledger
+  * Memory.lean      the memory gate: /proc measurement, the admission queue, the optional cgroup tree limit
+  * Driver.lean      the composition root (concept A3): `run --adopt`, the dataflow schedule over modules, the ledger
 * Main.lean      the `lean-mend` executable: `baseline` and `run --adopt`
 probe/
   Probe.lean     runs under the TARGET toolchain; writes JSON
@@ -87,12 +89,16 @@ JSON to stdout. Its commands:
 | `node <file> <offset>…` | for each offset, the syntax nodes that contain it, innermost first: kind and byte range; tactic nodes also carry their tokens with ranges. The shell asks at a site's start and its end, because an error such as `unsolved goals` is reported at `by` with a range over the whole block. The list is empty when no parsed command contains the offset: syntax that the same file declares does not parse, so the parser skips to the next command (`tests/probe-gap.sh`). The site then gets no node, and no rule that needs a node proposes a candidate |
 | `deprecated <module>…` | every `@[deprecated]` declaration in the environment of the modules, with its new name, from `Lean.Linter.deprecatedAttr` |
 | `goal <file> <pos>` | not built yet: the goal state at a position, from the info tree, for a residue packet |
-| `serve` | one JSON request per line of stdin, `{"file", "offsets"}`; one JSON reply per line of stdout, `{"regions", "nodes"}` — `regions <file>` and `node <file> <offsets>…` from one import, kept across requests and refreshed only when a request's file has a different import header (`docs/parallel.md` § Level 0, C1-C3) |
+| `serve` | one JSON request per line of stdin, one JSON reply per line of stdout (`docs/parallel.md` § Level 0, C1-C5). `{"op": "syntax", "file", "offsets"}` gives `{"regions", "nodes"}`: `regions <file>` and `node <file> <offsets>…` from one import, kept across requests and refreshed only when a request's file has a different import header. `{"op": "elaborate", "file"}` gives `{"messages"}`: the messages of `lake env lean --json <file>` for the file's current text, from `Lean.Language.Lean.process` with the processor, options, main module name and trust level of `lean --json`. The probe keeps the last elaboration, so the next `elaborate` request on the file elaborates again only from the first changed command. Its header environment also serves the `syntax` requests, so the process imports one time |
 
 `Shell/Target.lean` starts one `serve` process per module it mends
-(`probeServeStart`) and sends it one request per `diagnose` call
-(`probeServe`), so every attempt on a module shares one import, instead of a
-new probe process per `regions` or `node` call.
+(`probeServeStart`), under `lake env lean -M <MiB>` at the probe cap
+(`docs/parallel.md` P24). Each reply of `serve` also carries `peakKiB`, the
+probe's peak resident size. Each `diagnose` call sends one `elaborate`
+request (`probeElaborate`) and, when the module has errors, one `syntax`
+request (`probeServe`). So every attempt on a module shares one import and
+one kept elaboration, instead of a new `lean --json` process and a new probe
+process per call.
 
 `Shell/Target.lean` embeds the probe with `include_str`. A change to
 `probe/Probe.lean` alone did not rebuild the module in one observed case, so
@@ -122,21 +128,41 @@ replace Lake.
    Lake names in no line is not required by the targets, and it is outside the
    run. The first design ran `lake build <module>` once per module; on EquiVM
    (about 10,000 target modules) that is thousands of Lake start-ups.
-2. For each failing frontier module, the shell runs
-   `lake env lean --json <file>` and parses the diagnostics. This is the second
-   compile of a failing module only.
-3. An attempt edits one file in an attempt worktree and runs
-   `lake build <module>` there. Lake rebuilds only that module, because its
-   imports are built.
+2. For each failing frontier module, the shell gets the diagnostics of
+   `lake env lean --json <file>` from the module's probe `serve` process
+   (`elaborate`). This is the second compile of a failing module only.
+3. An attempt edits one file in an attempt worktree and sends the next
+   `elaborate` request to the same process. Lean elaborates again only from
+   the first command that the edit changed. A reverted edit is one more
+   change, back to the earlier text.
+4. When a module's mend ends with no residue, the shell runs
+   `lake build -v +<module>` in the main checkout (`Driver.buildModule`, which
+   calls `buildAll`). A blocked module gets the same one-module build when
+   every module that it imports builds. Only the modules that the run mends
+   or unblocks get one, so these are tens of Lake starts on EquiVM, not
+   thousands. One full `lake build -v` at the end checks every module's
+   status before the certificate.
 
-Modules are handled in graph order (brief item 1). The design attempts
-independent frontier modules in parallel, each in its own worktree (concept
-D3). The current driver does not do this yet: by default it attempts one
-candidate at a time in the target checkout, and it reverts a rejected
-candidate by writing back the file's previous bytes. `--speculate <n>`
-attempts the next `n` candidates of the head site at the same time instead,
-each in its own worktree (`docs/parallel.md` Level 3); this is the one
-worktree-isolated attempt the driver runs today.
+Modules are handled in dataflow order (`docs/parallel.md` § Level 2). A
+module starts its mend in its own worktree as soon as every module that it
+imports builds with its mended text. It does not wait for a module that it
+does not import. The driver commits and writes the ledger in the module
+topological order, not in completion order. Inside a module's worktree, the
+driver by default attempts one candidate at a time, and it reverts a
+rejected candidate by writing back the file's previous bytes.
+`--speculate <n>` attempts the next `n` candidates of the head site at the
+same time instead: the first on the module's own probe, each other one in
+its own nested worktree when the memory limit admits it (`docs/parallel.md`
+Level 3).
+
+One memory limit bounds the run (`docs/parallel.md` § The memory limit,
+P24): `--max-memory <GiB>`, or else `MemAvailable` at run start minus 16 GiB.
+A module or a nested probe starts only when its 10 GiB charge fits beside
+the charges of the running work and the driver's measured size, and the
+`/proc` measurement of the process tree agrees. Otherwise it waits, with no
+probe, until running work ends. When nothing runs, one item starts. A probe
+over its cap (`--probe-cap <MiB>`, default 15 GiB) stops the run with the
+typed error `CapExceeded` (exit 3).
 
 ## The two stores
 
