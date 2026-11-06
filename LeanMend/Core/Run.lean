@@ -51,6 +51,32 @@ theorem frontier_pairwise_indep (mods : List Module) (st : Statuses) (m n : Stri
   rw [hbuilt] at hnfail
   exact absurd hnfail (by decide)
 
+/-- Every open module whose imports all build, in `mods` order: the dataflow
+schedule (`docs/parallel.md` § Level 2, P8, P21). A `failing` one is ready to
+mend, and a `blocked` one is ready to build. A module does not wait for a
+module that it does not import. The head of the list is the next module of
+the canonical sequential order (P10, P12). -/
+def ready (mods : List Module) (st : Statuses) : List String :=
+  (mods.filter fun m => (st m.name).isOpen && m.imports.all (st · == .built)).map (·.name)
+
+/-- A ready module is open, and every module that it imports builds: the
+dataflow start condition (`docs/parallel.md` P8). -/
+theorem ready_imports_built (mods : List Module) (st : Statuses) (n : String)
+    (h : n ∈ ready mods st) :
+    ∃ m ∈ mods, m.name = n ∧ (st n).isOpen = true ∧ ∀ i ∈ m.imports, st i = .built := by
+  simp only [ready, List.mem_map, List.mem_filter, Bool.and_eq_true, beq_iff_eq,
+    List.all_eq_true] at h
+  obtain ⟨m, ⟨hm, hopen, himp⟩, rfl⟩ := h
+  exact ⟨m, hm, rfl, hopen, himp⟩
+
+/-- Every frontier module is ready: the frontier is the `failing` part of
+`ready`. -/
+theorem frontier_sub_ready (mods : List Module) (st : Statuses) (n : String)
+    (h : n ∈ frontier mods st) : n ∈ ready mods st := by
+  simp only [frontier, ready, List.mem_map, List.mem_filter, Bool.and_eq_true, beq_iff_eq] at h ⊢
+  obtain ⟨m, ⟨hm, hfail, himp⟩, rfl⟩ := h
+  exact ⟨m, ⟨hm, by simp [hfail, ModStatus.isOpen], himp⟩, rfl⟩
+
 def openCount (mods : List Module) (st : Statuses) : Nat :=
   mods.countP fun m => (st m.name).isOpen
 
@@ -85,8 +111,9 @@ structure Context where
   mods : List Module
   aliases : AliasMap
 
-/-- A set of concurrent `Mending` states, one per module of the current
-wave (`docs/parallel.md` § Level 2: parallel frontier modules). -/
+/-- A set of concurrent `Mending` states, one per module (`docs/parallel.md`
+§ Level 2). The driver replays one module at a time in the canonical order,
+so its ledger fills the fleet with one member at a time. -/
 structure Fleet where
   mendings : List Mending
   /-- Two members never mend the same module, so a module name picks out
@@ -191,6 +218,10 @@ inductive RunObs where
   /-- The shell saw `Mending.next = .finish` and left the named module's
   `Mending`. -/
   | mended (module : String)
+  /-- The status of one module after `lake build <module>`
+  (`docs/parallel.md` P13, P21): a `blocked` module once every module it
+  imports builds, or a module that the run mended with no residue. -/
+  | moduleBuild (module : String) (status : ModStatus)
   /-- The after certificate. -/
   | certificate (after : Certificate)
   | judgment (j : Judgment)
@@ -203,6 +234,42 @@ def RunState.close (c : Context) (after : Certificate) (residue : List String)
   | some f => .halted (.invariantBroken f.decl.module)
   | none => if fs.isEmpty then .done c after residue js else .awaiting c after residue js fs
 
+/-- The effect of one `moduleBuild name s` observation in `built`
+(`docs/parallel.md` P13, P21). A `blocked` module that is `ready` takes its
+build result, which must be `built` or `failing`: every module it imports
+builds, so Lake cannot report it blocked again. A `built` module, which the
+run just mended with no residue, must build. Any other observation halts. -/
+def RunState.moduleBuilt (c : Context) (st : Statuses) (name : String) (s : ModStatus) :
+    RunState :=
+  match st name with
+  | .blocked =>
+    if name ∈ ready c.mods st ∧ (s = .built ∨ s = .failing) then .built c (finish st name s)
+    else .halted (.observationMismatch s!"{name}: a module build that does not unblock it")
+  | .built =>
+    if s = .built then .built c st
+    else .halted (.observationMismatch s!"{name}: a closed module changed status")
+  | _ => .halted (.observationMismatch s!"{name}: a module build for a module that is not blocked or built")
+
+/-- A `moduleBuild` keeps every closed module as it was, so
+`openCount_settled` applies to it. -/
+theorem RunState.moduleBuilt_settled (c c' : Context) (st st' : Statuses) (name : String)
+    (s : ModStatus) (h : RunState.moduleBuilt c st name s = .built c' st') :
+    c' = c ∧ Settled c.mods st st' := by
+  unfold RunState.moduleBuilt at h
+  split at h
+  · rename_i hb
+    split at h
+    · cases h
+      refine ⟨rfl, fun m _ hclosed => ?_⟩
+      by_cases heq : m.name = name
+      · simp [heq, hb, ModStatus.isOpen] at hclosed
+      · simp [finish, heq]
+    · cases h
+  · split at h
+    · cases h; exact ⟨rfl, fun _ _ _ => rfl⟩
+    · cases h
+  · cases h
+
 def RunState.step : RunState → RunObs → RunState
   | .idle t, .baseline cert failing =>
     if failing.isEmpty then .baselined t cert else .halted (.baselineRed failing)
@@ -213,6 +280,7 @@ def RunState.step : RunState → RunObs → RunState
   | .built c st, .build st' =>
     if decide (Settled c.mods st st') then .built c st'
     else .halted (.observationMismatch "a closed module changed status")
+  | .built c st, .moduleBuild name s => RunState.moduleBuilt c st name s
   | .built c st, .diagnosed name decls sites =>
     if name ∈ frontier c.mods st then
       if hBound : ∀ o ∈ sites, o.site.declIndex < decls then

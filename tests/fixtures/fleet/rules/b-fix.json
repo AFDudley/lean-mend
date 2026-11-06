@@ -8,7 +8,7 @@
       "op": "replaceInBody",
       "decl": "fooB",
       "old": "exact unknownHeadB",
-      "new": "trivial"
+      "new": "have _slowB : slowCountB 40000 = 40000 := by decide\n  trivial"
     }
   ]
 }

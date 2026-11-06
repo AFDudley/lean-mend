@@ -1,0 +1,5 @@
+name = "diag"
+defaultTargets = ["Diag"]
+
+[[lean_lib]]
+name = "Diag"

@@ -36,7 +36,7 @@ def probePath : FilePath := ".lean-mend" / "Probe.lean"
 /-- Write the probe source into `target`. It goes to a temporary file and is
 renamed into place, so a probe that another task starts at the same time
 never reads a file cut short (`certificate` runs probes in parallel, and each
-wave module starts its own `serve` process). -/
+module that mends starts its own `serve` process). -/
 def writeProbe (target : FilePath) : IO Unit := do
   IO.FS.createDirAll (target / ".lean-mend")
   let tmp := target / ".lean-mend" / s!"Probe.lean.{← IO.monoNanosNow}.{← IO.rand 0 999999999}.tmp"
@@ -72,7 +72,7 @@ partial def sourceFiles (target : FilePath) : IO (List FilePath) := do
 
 /-- Every nested Lake package under `target` (a path dependency's own
 directory, the same test `sourceFiles` uses to stop there), at any depth —
-`target` itself is not included. A wave or speculative attempt worktree
+`target` itself is not included. A module or speculative attempt worktree
 symlinks each one's own `.lake` build directory from the main checkout
 (`docs/parallel.md` P18, `Shell.Driver.symlinkLakeDirs`): a `git worktree
 add` checkout holds every package's tracked source, never a package's
@@ -237,57 +237,105 @@ def locate (rs : List DeclRegion) (pos : Nat) :
             else if inside d.statement then some .statement else none), some d.range.1,
      some d.body, some d.statement, some d.range, some i)
 
-/-- A long-lived probe process for one module (`docs/parallel.md` C1): it
-serves every `probeServe` request of every attempt on the module, started by
-`probeServeStart` and stopped by `probeServeStop`. `exited` holds the exit
-code once a wait reaped the process: the operating system then knows the
-process no more, so a second wait fails with `ECHILD`. -/
+/-- A long-lived probe process for one module (`docs/parallel.md` C1, C4): it
+serves every `probeElaborate` and `probeServe` request of every attempt on
+the module, started by `probeServeStart` and stopped by `probeServeStop`. It
+keeps the module's last elaboration, so each attempt elaborates again only
+from the first command that the attempt's text changed. `exited` holds the
+exit code once a wait reaped the process: the operating system then knows the
+process no more, so a second wait fails with `ECHILD`.
+
+The memory cap (`docs/parallel.md` P24): the probe runs under `lean -M`, so
+Lean stops it with "excessive memory consumption detected" when its resident
+size passes `cap`. `peak` is the probe's peak resident size from its last
+reply, and `overCap` records that Lean stopped the probe at its cap. -/
 structure ProbeSession where
-  child : IO.Process.Child { stdin := .piped, stdout := .piped, stderr := .inherit }
+  child : IO.Process.Child { stdin := .null, stdout := .piped, stderr := .piped }
+  /-- The probe's stdin. `probeServeStop` drops it, the only reference, so
+  the pipe closes and the probe's `serve` loop sees end of file. A handle in
+  the child itself would stay open as long as the session lives. -/
+  stdin : IO.Ref (Option IO.FS.Handle)
   exited : IO.Ref (Option UInt32)
+  /-- The probe's stderr, read to its end (`readStderr`). -/
+  stderr : Task (Except IO.Error String)
+  cap : KiB
+  peak : IO.Ref KiB
+  overCap : IO.Ref Bool
+
+/-- Read `h` to its end. Each line also goes to lean-mend's own stderr, as
+before. A task reads it from the start, so the pipe never fills and never
+blocks the probe. -/
+partial def readStderr (h : IO.FS.Handle) : IO String := do
+  let rec go (acc : String) : IO String := do
+    let line ← h.getLine
+    if line.isEmpty then return acc
+    IO.eprint line
+    go (acc ++ line)
+  go ""
+
+/-- A session for a probe process `child` with the cap `cap`. -/
+def ProbeSession.ofChild (child : IO.Process.Child { stdin := .piped, stdout := .piped, stderr := .piped })
+    (cap : KiB) : IO ProbeSession := do
+  let stderr ← IO.asTask (readStderr child.stderr) (prio := .dedicated)
+  let (stdin, child) ← child.takeStdin
+  pure { child, stdin := ← IO.mkRef (some stdin), exited := ← IO.mkRef none, stderr, cap,
+         peak := ← IO.mkRef ⟨0⟩, overCap := ← IO.mkRef false }
 
 /-- Start one probe process inside `target`, running the probe's `serve`
-command (`docs/parallel.md` C1). Its stderr goes to lean-mend's own stderr:
-a pipe that nobody reads until the process exits would fill and block the
-probe, and lean-mend would then wait for a reply with no end. -/
-def probeServeStart (target : FilePath) : IO ProbeSession := do
+command (`docs/parallel.md` C1) under `lean -M` at `cap` (P24). -/
+def probeServeStart (target : FilePath) (cap : KiB) : IO ProbeSession := do
   writeProbe target
   let child ← IO.Process.spawn
-    { cmd := "lake", args := #["env", "lean", "--run", probePath.toString, "serve"], cwd := target,
-      stdin := .piped, stdout := .piped, stderr := .inherit }
-  pure { child, exited := ← IO.mkRef none }
+    { cmd := "lake", args := #["env", "lean", "-M", toString cap.toMiB, "--run", probePath.toString,
+                               "serve"],
+      cwd := target, stdin := .piped, stdout := .piped, stderr := .piped }
+  ProbeSession.ofChild child cap
+
+/-- The text that Lean writes when its resident size passes the `-M` cap
+(`check_memory` in the Lean runtime). -/
+def overCapText : String := "excessive memory consumption detected"
 
 /-- One request-reply round trip of `s`'s probe process. A probe that ends
-with no reply is reaped here, and its exit code goes in `s.exited`. -/
-def probeServeRequest (s : ProbeSession) (file : FilePath) (offsets : List Nat) : IO Lean.Json := do
-  let req := Lean.Json.mkObj [("file", Lean.toJson file.toString), ("offsets", Lean.toJson offsets)]
-  s.child.stdin.putStrLn req.compress
-  s.child.stdin.flush
+with no reply is reaped here, its exit code goes in `s.exited`, and the error
+holds its stderr. When the stderr shows that Lean stopped the probe at its
+cap, `s.overCap` is set. -/
+def probeServeRequest (s : ProbeSession) (file : FilePath) (req : Lean.Json) : IO Lean.Json := do
+  let some stdin ← s.stdin.get | throw <| IO.userError s!"probe serve: the probe for {file} is stopped"
+  stdin.putStrLn req.compress
+  stdin.flush
   let line ← s.child.stdout.getLine
   if line.isEmpty then
     let code ← s.child.wait
     s.exited.set (some code)
-    throw <| IO.userError s!"probe serve: process exited {code} with no reply for {file} (its stderr is above)"
+    let err ← IO.ofExcept (← IO.wait s.stderr)
+    if (err.splitOn overCapText).length > 1 then s.overCap.set true
+    throw <| IO.userError s!"probe serve: process exited {code} with no reply for {file}; its stderr:\n{err}"
   match Lean.Json.parse line with
-  | .ok j => pure j
+  | .ok j =>
+    if let .ok p := j.getObjValAs? Nat "peakKiB" then s.peak.set ⟨p⟩
+    pure j
   | .error e => throw <| IO.userError s!"probe serve reply for {file}: {e}"
 
 /-- Stop `s`'s probe process: close its stdin, so the probe's `serve` loop
-sees end of file and exits, then wait for it. A process that a request
-already reaped (`s.exited`) is not waited for again: a second wait fails
-with `ECHILD`, and that error would replace the request's own error. -/
+sees end of file and exits, then wait for it and for the end of its stderr.
+A process that a request already reaped (`s.exited`) is not waited for
+again: a second wait fails with `ECHILD`, and that error would replace the
+request's own error. -/
 def probeServeStop (s : ProbeSession) : IO Unit := do
+  s.stdin.set none
   if (← s.exited.get).isSome then return
-  let (_stdin, child) ← s.child.takeStdin
-  s.exited.set (some (← child.wait))
+  s.exited.set (some (← s.child.wait))
+  discard <| IO.ofExcept (← IO.wait s.stderr)
 
 /-- The declaration regions and the node paths at `offsets`, for the current
 text of `file`, from `s`'s one probe process (`docs/parallel.md` C1-C3): one
-probe request in place of the two separate `regions` and `node` probe runs. -/
+`syntax` request in place of the two separate `regions` and `node` probe
+runs. -/
 def probeServe (s : ProbeSession) (target : FilePath) (file : FilePath) (offsets : List Nat) :
     IO (List DeclRegion × List (Nat × List Node)) := do
   let src ← IO.FS.readFile (target / file)
-  let reply ← probeServeRequest s file offsets
+  let reply ← probeServeRequest s file <| Lean.Json.mkObj
+    [("op", Lean.toJson "syntax"), ("file", Lean.toJson file.toString), ("offsets", Lean.toJson offsets)]
   let rs ← parseOrThrow s!"probe serve regions {file}" <| do
     let arr : List Lean.Json ← reply.getObjValAs? (List Lean.Json) "regions"
     arr.mapM declRegionOf
@@ -296,11 +344,26 @@ def probeServe (s : ProbeSession) (target : FilePath) (file : FilePath) (offsets
     arr.mapM (Parse.nodes src)
   pure (rs, ns)
 
-/-- Compile one module with `lake env lean --json` and read its errors as
-sites, each with its declaration, region and candidates. The probe reads the
-syntax nodes only at sites whose class some rule answers, and returns them
-together with the whole file's declaration regions in one request to
-`session`'s probe process (`docs/parallel.md` C1-C3): the node offsets come
+/-- The diagnostics of `lake env lean --json <file>` for the current text of
+`file`, from `s`'s one probe process (`docs/parallel.md` C4, C5): one
+`elaborate` request. The probe elaborates the text with the same processor
+and options as `lean --json`, and reuses its previous elaboration of `file`
+up to the first changed command. A reverted edit is one more change: the next
+request sends the earlier text again. -/
+def probeElaborate (s : ProbeSession) (module : String) (file : FilePath) : IO (List Diagnostic) := do
+  let reply ← probeServeRequest s file <| Lean.Json.mkObj
+    [("op", Lean.toJson "elaborate"), ("file", Lean.toJson file.toString)]
+  parseOrThrow s!"probe serve messages {file}" <| do
+    let arr : List Lean.Json ← reply.getObjValAs? (List Lean.Json) "messages"
+    arr.mapM (Parse.diagnostic module)
+
+/-- Elaborate one module and read its errors as sites, each with its
+declaration, region and candidates. The diagnostics are those of
+`lake env lean --json` (`docs/parallel.md` C5), from an `elaborate` request
+to `session`'s probe process, which elaborates again only from the first
+changed command (C4). The probe reads the syntax nodes only at sites whose
+class some rule answers, and returns them together with the whole file's
+declaration regions in one `syntax` request (C1-C3): the node offsets come
 from the diagnostics themselves, not from the regions, so both are known
 before either probe result is needed. Returns the error count, the module's
 declaration count (`docs/parallel.md` X6), the linter warnings (kind
@@ -309,8 +372,7 @@ name, and the open sites. -/
 def diagnose (session : ProbeSession) (target : FilePath) (module : String) (file : FilePath)
     (aliases : AliasMap) (rules : List Rule) (annotate follow : Bool) (followed : List String) :
     IO (Nat × Nat × List (Nat × Option String) × List Open × List (Site × List Node)) := do
-  let (_, out, _) ← run target "lake" #["env", "lean", "--json", file.toString]
-  let ds ← parseOrThrow s!"lean --json {file}" (Parse.lines (Parse.diagnostic module) out)
+  let ds ← probeElaborate session module file
   let errs := ds.filter (·.severity == .error)
   let src ← IO.FS.readFile (target / file)
   -- Each linter warning: its byte offset, and for `linter.unusedSimpArgs` the
@@ -347,13 +409,16 @@ def diagnose (session : ProbeSession) (target : FilePath) (module : String) (fil
     sites.map (fun s => ⟨s, proposeAll aliases rules (at_ s.start ++ at_ (last s)) annotate follow followed s⟩),
     sites.map fun s => (s, at_ s.start ++ at_ (last s)))
 
+/-- `old` with bytes `[c.start, c.stop)` replaced by `c.replacement`. -/
+def spliceEdit (old : ByteArray) (c : Candidate) : ByteArray :=
+  old.extract 0 c.start ++ c.replacement.toUTF8 ++ old.extract c.stop old.size
+
 /-- Replace bytes `[c.start, c.stop)` of `file` with `c.replacement`. Returns
 the previous content, for a revert. -/
 def applyEdit (target : FilePath) (file : FilePath) (c : Candidate) : IO ByteArray := do
   let path := target / file
   let old ← IO.FS.readBinFile path
-  IO.FS.writeBinFile path
-    (old.extract 0 c.start ++ c.replacement.toUTF8 ++ old.extract c.stop old.size)
+  IO.FS.writeBinFile path (spliceEdit old c)
   pure old
 
 end LeanMend.Shell
