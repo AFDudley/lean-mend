@@ -42,6 +42,15 @@ def run : IO Nat := do
       IO.println s!"{if ok then "ok  " else "FAIL"} {v} tactic failed: {repr (classify d)}"
       unless ok do failed := failed + 1
     | _ => IO.println s!"FAIL {v} tactic-failed fixture"; failed := failed + 1
+  -- O.lean: `omega` cannot prove a goal it cannot read. Lean names no kind
+  -- and no "Tactic `omega` failed" (EquiVM run 7: MathRoutines 38).
+  for v in ["v4.29.0", "v4.33.1", "v4.35.0"] do
+    match Parse.lines (Parse.diagnostic "O") (← IO.FS.readFile s!"tests/fixtures/diagnostics/omega-{v}.jsonl") with
+    | .ok [d] =>
+      let ok := classify d == .tacticFailed
+      IO.println s!"{if ok then "ok  " else "FAIL"} {v} omega failed: {repr (classify d)}"
+      unless ok do failed := failed + 1
+    | _ => IO.println s!"FAIL {v} omega fixture"; failed := failed + 1
   -- B.lean: a constructor binder `{s t}` that repeats a section variable.
   -- v4.29.0 accepts it; v4.33.1 and v4.35.0 reject it (decision D11).
   match Parse.lines (Parse.diagnostic "B") (← IO.FS.readFile "tests/fixtures/diagnostics/binder-v4.35.0.jsonl") with
