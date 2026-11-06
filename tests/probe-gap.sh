@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# tests/probe-gap.sh: a site that no parsed command contains
-# (docs/architecture.md § The probe, `node`). App/Gap.lean declares the
-# tactic `gap_triv` and uses it before a `simpa` that dep v2 breaks. The probe
-# parses with the environment of the imports only, so the command that uses
-# `gap_triv` does not parse, and the parser skips the bytes of the `simpa`.
-# EquiVM run 5 stopped on this shape (Examples/VyperERC20/Allowance.lean,
-# byte 22618): the probe threw "no command contains byte", and the second
-# wait for the reaped probe process threw ECHILD.
+# tests/probe-gap.sh: a site after a use of syntax that the same file declares
+# (docs/architecture.md § The probe, `node`). App/Gap.lean declares the tactic
+# `gap_triv` and uses it before a `simpa` that dep v2 breaks. A parse with the
+# environment of the imports only does not parse the command that uses
+# `gap_triv`, so the `simpa` got no node and no candidate. EquiVM run 5
+# stopped on this shape (Examples/VyperERC20/Allowance.lean, byte 22618), and
+# run 7 left such sites as residue. The probe now reads the commands that the
+# elaboration of the file parsed, with the file's own syntax.
 #
-# Checks: the probe gives the offset an empty node list and exits 0, and
-# `lean-mend run --adopt --rules` ends with App.Gap as residue.
+# Checks: the probe's `node` command gives the `simpa` byte its `simpa` node,
+# and `lean-mend run --adopt --rules` repairs the site with the simpa rule.
 set -euo pipefail
 source "$(dirname "$0")/lib/report.sh"
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -43,10 +43,12 @@ else
   failed "the probe's node command exits 0 at byte $offset"
   reply='{}'
 fi
-check "the probe gives byte $offset an empty node list" ".offset == $offset and .nodes == []" "$reply"
+check "the probe gives byte $offset its simpa node, inside the theorem after the macro" \
+  ".offset == $offset and (.nodes | map(.kind) | index(\"Lean.Parser.Tactic.simpa\") != null)
+   and (.nodes | map(.kind) | index(\"Lean.Parser.Command.declaration\") != null)" "$reply"
 
-# The whole run: the site gets no node, so the simpa rule proposes no
-# candidate. App.Gap is residue, and App, which imports it, is residue too.
+# The whole run: the site gets its node, so the simpa rule proposes
+# `simpaToExact`, and the run repairs App.Gap; App, which imports it, builds.
 if out=$("$bin" run "$app" --adopt --rules "$fx/rules"); then
   pass "lean-mend run exits 0"
 else
@@ -54,11 +56,17 @@ else
 fi
 echo "$out"
 [ -n "$out" ] || out='{}'
-check "the run is done, with App.Gap and App as residue" \
-  '.state == "done" and (.residue | sort) == ["App", "App.Gap"]' "$out"
+check "the run is done with no residue" '.state == "done" and .residue == []' "$out"
 ledger=$(jq -s -c . "$app/.lean-mend/ledger.jsonl")
-check "App.Gap: one typeMismatch site, and lean-mend gave up on it" \
+check "App.Gap: one typeMismatch site, and lean-mend did not give up" \
   '(map(select(.obs == "diagnosed" and .detail.module == "App.Gap"))[0].detail.detail | map(.class))
      == ["LeanMend.ErrorClass.typeMismatch"]
-   and any(.[]; .obs == "gaveUp")' "$ledger"
+   and (any(.[]; .obs == "gaveUp") | not)' "$ledger"
+subjects=$(g log --format=%s main..lean-mend/mend)
+if [ "$(grep -c '^lean-mend: simpa-mismatch: ' <<<"$subjects")" = 1 ] && [ "$(wc -l <<<"$subjects")" = 1 ]
+then pass "the mend branch holds one commit, a candidate of simpa-mismatch"
+else failed "the mend branch holds one commit, a candidate of simpa-mismatch"; echo "$subjects"; fi
+if grep -q 'exact h' "$app/App/Gap.lean" && (cd "$app" && lake build -q >/dev/null)
+then pass "the mended app has 'exact h' and builds"
+else failed "the mended app has 'exact h' and builds"; cat "$app/App/Gap.lean"; fi
 report

@@ -8,7 +8,7 @@
       "op": "replaceInBody",
       "decl": "fooS2",
       "old": "exact unknownHeadS2",
-      "new": "have _slow2 : slowCount 199999 = 199999 := by decide\n  trivial"
+      "new": "trivial\n\n#eval barrierAwait [\"dep\"]"
     }
   ]
 }

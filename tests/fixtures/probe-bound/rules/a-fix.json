@@ -8,7 +8,7 @@
       "op": "replaceInBody",
       "decl": "fooA",
       "old": "exact unknownHeadA",
-      "new": "exact unknownHeadA\n  have _slow : slowCountA 60000 = 60000 := by decide"
+      "new": "exact unknownHeadA\n  have _slow : slowCountA 60000 = 60000 := by decide\n\n#eval barrierMark \"a\"\n\n#eval barrierAwait [\"a\", \"b\", \"c\"]"
     },
     {
       "op": "replaceInBody",

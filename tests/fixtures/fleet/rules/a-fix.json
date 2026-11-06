@@ -8,7 +8,7 @@
       "op": "replaceInBody",
       "decl": "fooA",
       "old": "exact unknownHeadA",
-      "new": "have _slowA : slowCountA 80000 = 80000 := by decide\n  trivial"
+      "new": "trivial\n\n#eval barrierMark \"a\"\n\n#eval barrierAwaitStopped \"b\""
     }
   ]
 }

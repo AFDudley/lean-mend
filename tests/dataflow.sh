@@ -3,8 +3,10 @@
 # § Level 2, P8, P10-P13, P21-P23). tests/fixtures/dataflow breaks three
 # modules in one commit. Slow and Fast do not import each other. Dep imports
 # Fast only. Clean imports Fast and has no break of its own, so it is blocked
-# until Fast builds. Each accepted fix of Slow makes the kernel decide a
-# plain recursive count, so Slow's two attempts take several seconds each.
+# until Fast builds. A test barrier in the fixture (see
+# tests/fixtures/dataflow/Slow.lean) makes each fix of Slow wait until Dep's
+# first attempt starts. So Slow's mend is open when Dep starts, at any host
+# load. Dep needs only Fast, so the wait always ends.
 #
 # Checks, from the run's ledger and its mend branch:
 # - Dep's first attempt starts before Slow's last attempt ends: Dep does not
@@ -53,8 +55,10 @@ g add -A && g commit -q -m "break Slow, Fast and Dep"
 
 t0=$(date +%s)
 # A limit of 64 GiB admits every module probe at once (docs/parallel.md P24),
-# whatever memory the host has free.
-out=$("$bin" run "$app" --adopt --rules "$fx/rules" --max-memory 64)
+# whatever memory the host has free. `rm -rf "$work"` above removes the
+# barrier markers of the last run.
+mkdir -p "$work/barrier"
+out=$(FIXTURE_BARRIER_DIR="$work/barrier" "$bin" run "$app" --adopt --rules "$fx/rules" --max-memory 64)
 t1=$(date +%s)
 echo "$out"
 ledger="$app/.lean-mend/ledger.jsonl"

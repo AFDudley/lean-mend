@@ -1,9 +1,10 @@
 import Dep
 
 /-! A proof that breaks after a use of a tactic that this file declares.
-The probe parses with the environment of the imports only, so the command
-that uses `gap_triv` does not parse, and no parsed command contains the
-`simpa` that dep v2 breaks (tests/probe-gap.sh). -/
+A parse with the environment of the imports only does not parse the command
+that uses `gap_triv`. The probe reads the commands that the elaboration of
+this file parsed, so the `simpa` that dep v2 breaks gets its node
+(tests/probe-gap.sh). -/
 
 macro "gap_triv" : tactic => `(tactic| trivial)
 

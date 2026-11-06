@@ -1,0 +1,8 @@
+name = "app"
+defaultTargets = ["Capped", "Held"]
+
+[[lean_lib]]
+name = "Capped"
+
+[[lean_lib]]
+name = "Held"

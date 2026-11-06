@@ -138,11 +138,13 @@ basis of Level 0. The earlier `ReturnDataBound` measure in this section
 ### Mechanism
 
 The shell starts one probe process for each module that it mends (C1). The
-process imports the module's imports one time. It then reads requests from its
-standard input. One request names one file version and a list of byte offsets.
-The reply holds the declaration regions and the nodes at the offsets (C3). The
-probe imports again only when a request's import header differs from the
-header that it loaded (C2).
+process reads requests from its standard input. One request names one file
+version and a list of byte offsets. The reply holds the declaration regions
+and the nodes at the offsets (C3). The probe reads them from the commands of
+its kept elaboration of the same text (the `elaborate` request below), so
+syntax that the file declares parses at its later uses. Lean's elaboration
+imports the header again only when the header differs from the header of the
+kept elaboration (C2).
 
 The same probe process also gives the diagnostics of an attempt (C4). It
 elaborates the module file and keeps the elaborated state after each command.
@@ -203,7 +205,8 @@ S0b checks it on fixtures, and the operator checks it on EVMLean.
 ### The determinism argument
 
 The probe reply for one file version is a function of the file text and the
-imports only. So a long-lived probe process gives the same reply as a new one.
+imports only: Lean parses and elaborates the same text the same way. So a
+long-lived probe process gives the same reply as a new one.
 The probe's elaboration gives the same messages as `lean --json` for the same
 text (C5). So each observation is the same as before, and the Core makes the
 same decisions in the same order.
@@ -723,6 +726,27 @@ charges fit the limit (`Core/Sched.lean`, `Shell/Memory.lean`).
    error `CapExceeded` (exit 3, ledger line `capExceeded`), which names the
    module, the cap and the probe's peak at its last reply. There is no
    retry.
+
+   The driver reads each probe's stderr in a task. At the cap text, that
+   task ends the probe at once, records `CapExceeded`, and stops the run. It
+   does not wait for the probe to exit. On 2026-11-06 a run with
+   `import Lean` fixtures saw probes that wrote the cap text, and the run
+   then made no progress for 3600 s. Each probe starts in its own session
+   (`setsid`), so one `SIGKILL` to its process group ends `lake env` and its
+   `lean` child. Both hold the probe's stdout, so the request that waits for
+   a reply reads end of file. `IO.Process.Child.takeStdin` loses the
+   `setsid` flag of the child in v4.35.0, so the session keeps the child
+   with its stdin, and the normal stop of a probe is the same kill.
+
+   The first stop of the run, `CapExceeded` or any other error, ends every
+   live probe and refuses every probe request that waits (`Gate.stop`).
+   Each task of the schedule then ends. The driver waits for every task,
+   removes the mend worktrees, and exits with the first stop
+   (`stopSchedule`). Before this, the driver left the schedule at the first
+   error and did not wait. The exit of a compiled Lean program waits for
+   its dedicated tasks, so a task that waited for a live probe held the
+   run. `tests/cap-stop.sh` checks the stop with a probe that writes the cap
+   text and does not exit.
 8. The ledger starts with a `memoryLimit` line: the limit and its inputs,
    the charge, the cap, the tree limit and the tree's measured size. Each
    `probeStart` line holds the charged and the measured totals, the tree and
@@ -793,7 +817,7 @@ the replay stop new admissions before they exhaust the limit.
 ## Decisions
 
 C1. The shell starts one probe process for each module that it mends, and that process serves every attempt on the module.
-C2. The probe imports the module's imports one time, and again only when a request's import header differs from the loaded header.
+C2. The probe imports the module's imports one time, in its elaboration of the module file, and again only when a request's import header differs from the loaded header.
 C3. One probe request returns the declaration regions and the nodes at given byte offsets of one file version.
 C4. The shell reads the diagnostics of an attempt from the module's one probe process, and that process keeps the elaborated state of the commands before the first changed command.
 C5. The probe's diagnostics for a file text equal the diagnostics of `lake env lean --json` for the same text, in severity, range and message text.
@@ -1040,7 +1064,8 @@ Acceptance check:
   and `blockedCount_moduleBuilt` exist with the statements in the Level 2
   table, and no LeanMend constant depends on `sorryAx`.
 - A new fixture `tests/fixtures/dataflow`: `Slow` and `Fast` are independent,
-  and `Dep` imports `Fast` only. Each accepted fix of `Slow` is slow. `Clean`
+  and `Dep` imports `Fast` only. Each accepted fix of `Slow` waits, in a test
+  barrier, until `Dep`'s first attempt starts. `Clean`
   imports `Fast` and has no break. A runner `tests/dataflow.sh` asserts from
   the ledger that `Dep`'s first attempt starts before `Slow`'s mend ends, that
   the commits on `lean-mend/mend` and the `diagnosed` lines follow the
@@ -1075,11 +1100,12 @@ Implements P17, P24. Depends on S3c, S4.
 Files: `LeanMend/Core/Sched.lean`, `LeanMend/Shell/Memory.lean`,
 `LeanMend/Shell/Driver.lean`, `LeanMend/Shell/Target.lean`,
 `LeanMend/Shell/Parse.lean`, `probe/Probe.lean`, `tests/probe-bound.sh`,
-`tests/fixtures/probe-bound`, `scripts/gate.sh`.
+`tests/fixtures/probe-bound`, `tests/cap-stop.sh`, `tests/fixtures/cap-stop`,
+`scripts/gate.sh`.
 
 Acceptance check:
 - `tests/fixtures/probe-bound`: four independent modules, each with one
-  break and two slow candidates. `tests/probe-bound.sh` runs it with
+  break and two candidates. `tests/probe-bound.sh` runs it with
   `--max-memory 21` and asserts from the `probeStart` and `probeStop` lines
   that at most 2 probes are live at any time, and that every admission fits
   the limit or ran when nothing ran. A run with `--max-memory 64` has more
@@ -1087,8 +1113,14 @@ Acceptance check:
   run with no flag records `MemAvailable` minus 16 GiB. Each run's branch
   tree equals the hand-written expected tree, and each run commits in the
   canonical order. A run with `--probe-cap 1200` stops with `CapExceeded`.
+- `tests/fixtures/cap-stop`: two modules whose probes give no reply and do
+  not exit. One of them writes the cap text. `tests/cap-stop.sh` asserts
+  that the run exits 3 with `capExceeded` for that module within 60 s of
+  the text, and that no probe of the run is left.
 - `scripts/gate.sh` runs `tests/probe-bound.sh` as the step `memory bound on
-  live probe processes`, and the gate's JSON reports every step passed.
+  live probe processes` and `tests/cap-stop.sh` as the step `a probe that
+  writes the cap text and does not exit stops the run with capExceeded`, and
+  the gate's JSON reports every step passed.
 
 P18 and P19 are not part of this slice.
 

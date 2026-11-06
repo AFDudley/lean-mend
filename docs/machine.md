@@ -133,6 +133,13 @@ A dependency package that does not build (`dependencyRed`) and a second
 wall-clock timeout (`hostTimeout`) are refusals the shell raises before it
 makes an observation.
 
+The shell takes a certificate only when the probe gives a row for each
+declaration that the certificate selects. When the probe cannot give one, the
+shell stops the run with the typed error `DeclUnread` before the `baseline`
+or `certificate` observation. The error names the module and the
+declaration (`docs/verification.md` § The certificate). Without the row,
+`compare` would not check the declaration.
+
 The structural checks on an attempt (concept C2, structural):
 
 1. The edit is inside the body region of its declaration, or it is an alias

@@ -58,6 +58,15 @@ for v in "${toolchains[@]}"; do
        and ([$k | keys[] | select(test("casesOn|recOn|\\.rec$|\\.mk$|Pt\\.x$|Color\\.red$"))] | length) == 0' "$basic"
   check "deriving-generated constants are not in decls" \
     'map(.name) | (index("Fx.instReprPt") == null) and (index("Fx.instBEqPt") == null)' "$basic"
+  check "an axiom has a row: its signature, and an empty body" \
+    'map(select(.name == "Fx.zero_eq_zero"))[0] | .kind == "axiom" and .body == "" and .statementTokens[0] == ":"' "$uses"
+  check "a _root_ declaration has a row under its root name" \
+    'map(select(.name == "fx_true")) | length == 1' "$uses"
+  check "a theorem that a command macro makes has a row, with each token once" \
+    'map(select(.name == "Fx.double_one"))[0].statementTokens == [":", "double", "1", "=", "2"]' "$uses"
+  check "decls gives a row for every declaration it selects: no unread line" \
+    'map(select(has("unread"))) | length == 0' "$basic
+$uses"
   check "deprecated alias" \
     'map(select(.name == "Fx.Old.f"))[0].newName == "Fx.New.f"' "$deprecated"
 done

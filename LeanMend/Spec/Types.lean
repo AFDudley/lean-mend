@@ -37,9 +37,10 @@ structure Decl where
   name : String
   module : String
   kind : DeclKind
-  /-- SHA-256 of the statement region, after the alias map. -/
+  /-- `String.hash` of the statement's token sequence, after the alias map
+  (`docs/verification.md` § The certificate). -/
   statementHash : String
-  /-- SHA-256 of the body region. -/
+  /-- `String.hash` of the body region's text, after the alias map. -/
   bodyHash : String
   axioms : List String
   deriving DecidableEq, Repr
@@ -54,6 +55,20 @@ structure Certificate where
   baseline. -/
   followed : List String := []
   deriving Repr
+
+/-- A declaration that the certificate selects but whose row the probe cannot
+give (`docs/verification.md` § The certificate). `compare` would not check a
+declaration with no row, so the run stops on it. -/
+structure DeclUnread where
+  module : String
+  decl : String
+  /-- The probe's reason, for example the byte where the declaration starts
+  and no command that parsed holds it. -/
+  reason : String
+  deriving DecidableEq, Repr
+
+def DeclUnread.message (e : DeclUnread) : String :=
+  s!"lean-mend: the certificate has no row for {e.decl} in {e.module}: {e.reason}"
 
 /-- Old name to final new name, from `@[deprecated]` under the new toolchain. -/
 structure AliasMap where

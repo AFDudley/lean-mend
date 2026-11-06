@@ -84,21 +84,27 @@ JSON to stdout. Its commands:
 |---|---|
 | `imports <file>…` | each file's imports, from its parsed header |
 | `decls-batch <list>` | `decls` for every `module<TAB>file` line of the list, from one environment; the shell sends 200 modules per probe process, and runs up to 4 such processes at once (`Target.certificate`; one process holds about 4 GB on EquiVM). Lean cannot import two modules that declare the same name into one environment ("environment already contains", for example `main` of two executables), so the shell runs the probe again without the module that Lean names ("import X failed, environment already contains 'n' from Y"), one run per clash, and reads the moved modules as a list of their own (`Target.declsOf`) |
-| `decls <module> <file>` | for each declaration of the built module: name, kind, statement text and byte range, body text and byte range, axioms (the set `#print axioms` reports: the edges of `collectAxioms` of Lean v4.29, walked once per probe process with a memo over strongly connected components, `axiomsOf`; per declaration, `collectAxioms` walks the whole closure again, and on EquiVM's `Reasoning.Solc` it costs 70.4 s against 37.3 s on v4.29 and 136.0 s against 50.4 s on v4.33.1, with equal sets on every row) |
-| `regions <file>` | each declaration command of a file, parsed without elaboration (so it works on a module that fails): qualified name, command range, statement and body ranges. The environment is the file's imports plus the implicit `Init`; notation defined in the same file does not parse |
-| `node <file> <offset>…` | for each offset, the syntax nodes that contain it, innermost first: kind and byte range; tactic nodes also carry their tokens with ranges. The shell asks at a site's start and its end, because an error such as `unsolved goals` is reported at `by` with a range over the whole block. The list is empty when no parsed command contains the offset: syntax that the same file declares does not parse, so the parser skips to the next command (`tests/probe-gap.sh`). The site then gets no node, and no rule that needs a node proposes a candidate |
+| `decls <module> <file>` | for each declaration of the built module that the certificate selects: name, kind, statement text and byte range, statement tokens (the atoms and identifiers of the statement region, in source order: the certificate hashes these, `docs/verification.md` § The certificate), body text and byte range, axioms (the set `#print axioms` reports: the edges of `collectAxioms` of Lean v4.29, walked once per probe process with a memo over strongly connected components, `axiomsOf`; per declaration, `collectAxioms` walks the whole closure again, and on EquiVM's `Reasoning.Solc` it costs 70.4 s against 37.3 s on v4.29 and 136.0 s against 50.4 s on v4.33.1, with equal sets on every row). The ranges and tokens come from the file's own commands, parsed with the scopes in effect at each command (`fileCommands`): the probe elaborates the scope commands and the `local` syntax commands, and no declaration or proof. When the probe cannot give the row of a declaration that it selects, it writes an `unread` line that names the declaration, and the shell stops the run with `DeclUnread` |
+| `regions <file>` | each declaration command of a file: qualified name, command range, statement and body ranges. The commands are those that the elaboration of the file parsed (`elabCommands`), so the file may fail, but its imports must build. Lean parses each command with the environment after the command before it, so syntax that the same file declares (`macro`, `syntax`, `notation`, `elab`) parses at its later uses |
+| `node <file> <offset>…` | for each offset, the syntax nodes that contain it, innermost first: kind and byte range; tactic nodes also carry their tokens with ranges. The commands are those of `regions`. The shell asks at a site's start and its end, because an error such as `unsolved goals` is reported at `by` with a range over the whole block. The list is empty when no command contains the offset: after a parse error, the parser skips to the next command. The site then gets no node, and no rule that needs a node proposes a candidate. Before `elabCommands`, the probe parsed with the imports' environment only, and every site after a use of the file's own syntax got no node (`tests/probe-gap.sh`; EquiVM run 7) |
 | `deprecated <module>…` | every `@[deprecated]` declaration in the environment of the modules, with its new name, from `Lean.Linter.deprecatedAttr` |
 | `goal <file> <pos>` | not built yet: the goal state at a position, from the info tree, for a residue packet |
-| `serve` | one JSON request per line of stdin, one JSON reply per line of stdout (`docs/parallel.md` § Level 0, C1-C5). `{"op": "syntax", "file", "offsets"}` gives `{"regions", "nodes"}`: `regions <file>` and `node <file> <offsets>…` from one import, kept across requests and refreshed only when a request's file has a different import header. `{"op": "elaborate", "file"}` gives `{"messages"}`: the messages of `lake env lean --json <file>` for the file's current text, from `Lean.Language.Lean.process` with the processor, options, main module name and trust level of `lean --json`. The probe keeps the last elaboration, so the next `elaborate` request on the file elaborates again only from the first changed command. Its header environment also serves the `syntax` requests, so the process imports one time |
+| `serve` | one JSON request per line of stdin, one JSON reply per line of stdout (`docs/parallel.md` § Level 0, C1-C5). `{"op": "elaborate", "file"}` gives `{"messages"}`: the messages of `lake env lean --json <file>` for the file's current text, from `Lean.Language.Lean.process` with the processor, options, main module name and trust level of `lean --json`. The probe keeps the last elaboration and its text, so the next `elaborate` request on the file elaborates again only from the first changed command. `{"op": "syntax", "file", "offsets"}` gives `{"regions", "nodes"}`: `regions <file>` and `node <file> <offsets>…` from the commands of the kept elaboration when its text is the file's current text; else the request elaborates the current text first |
 
 `Shell/Target.lean` starts one `serve` process per module it mends
 (`probeServeStart`), under `lake env lean -M <MiB>` at the probe cap
 (`docs/parallel.md` P24). Each reply of `serve` also carries `peakKiB`, the
 probe's peak resident size. Each `diagnose` call sends one `elaborate`
 request (`probeElaborate`) and, when the module has errors, one `syntax`
-request (`probeServe`). So every attempt on a module shares one import and
-one kept elaboration, instead of a new `lean --json` process and a new probe
-process per call.
+request (`probeServe`) on the same text. So every attempt on a module shares
+one kept elaboration, and its `syntax` request elaborates nothing, instead of
+a new `lean --json` process and a new probe process per call.
+
+The probe process starts in its own session (`setsid`). `probeServeStop`
+and `probeServeKill` end its process group, `lake env` and its `lean`
+child, with one `SIGKILL`. The stderr reader of the probe does the same at
+the text of the `-M` cap, and the first stop of the run ends every live
+probe (`docs/parallel.md` § The memory limit, item 7).
 
 `Shell/Target.lean` embeds the probe with `include_str`. A change to
 `probe/Probe.lean` alone did not rebuild the module in one observed case, so
@@ -162,7 +168,9 @@ the charges of the running work and the driver's measured size, and the
 `/proc` measurement of the process tree agrees. Otherwise it waits, with no
 probe, until running work ends. When nothing runs, one item starts. A probe
 over its cap (`--probe-cap <MiB>`, default 15 GiB) stops the run with the
-typed error `CapExceeded` (exit 3).
+typed error `CapExceeded` (exit 3). A certificate with no row for a
+declaration that it selects stops the run with the typed error `DeclUnread`
+(exit 3, `docs/verification.md` § The certificate).
 
 ## The two stores
 

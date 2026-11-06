@@ -52,6 +52,27 @@ namespace LeanMend.Shell
 open System (FilePath)
 open Lean (Json toJson)
 
+/-- A typed stop of the run (fail fast). `lean-mend run` prints it and exits
+3. -/
+inductive RunStop where
+  /-- A probe passed its memory cap (`docs/parallel.md` P24). -/
+  | capExceeded (x : CapExceeded)
+  /-- The certificate has no row for a declaration that it selects
+  (`docs/verification.md` § The certificate). -/
+  | declUnread (x : DeclUnread)
+
+def RunStop.message : RunStop → String
+  | .capExceeded x => x.message
+  | .declUnread x => x.message
+
+/-- The ledger note of the stop, and the fields that `lean-mend run` prints
+after its `state`. -/
+def RunStop.note : RunStop → String × List (String × Json)
+  | .capExceeded x => ("capExceeded",
+    [("module", toJson x.module), ("capKiB", toJson x.cap.val), ("peakKiB", toJson x.peak.val)])
+  | .declUnread x => ("declUnread",
+    [("module", toJson x.module), ("decl", toJson x.decl), ("reason", toJson x.reason)])
+
 structure Ctx where
   target : FilePath
   toolchain : String
@@ -78,8 +99,9 @@ structure Ctx where
   /-- The hard cap of each probe process (`docs/parallel.md` P24):
   `probeCap`, or `--probe-cap <MiB>`. -/
   probeCap : KiB
-  /-- The typed stop of the run, set when a probe passes its cap. -/
-  stop : IO.Ref (Option CapExceeded)
+  /-- The typed stop of the run, set when a probe passes its cap or the
+  certificate has no row for a declaration. -/
+  stop : IO.Ref (Option RunStop)
   /-- Rules accepted in a declaration body earlier in this run. -/
   followed : IO.Ref (List String)
   /-- Statement sites already warned about (decision D12). -/
@@ -322,21 +344,29 @@ structure ProbeRecord where
 /-- Run `f` on a new probe process for `module` in `dir`, on the admission
 `adm` of the gate, under the hard cap `c.probeCap`. The process stops, and
 then the gate releases its place, on every exit path, so the gate counts
-every live probe. When Lean stopped the probe at its cap, the run stops with
-`CapExceeded` (`c.stop`): the error names the module, the cap and the peak. -/
+every live probe. The gate knows the session from its start, so the stop of
+the run ends it (`Gate.stop`). When Lean stopped the probe at its cap, the
+run stops with `CapExceeded` (`c.stop`): the error names the module, the cap
+and the peak. -/
 def onProbe {α} (c : Ctx) (adm : Admission) (module : String) (dir : FilePath)
     (f : ProbeSession → IO α) : IO (α × ProbeRecord) := do
   try
     let startedAt ← IO.monoMsNow
-    let session ← probeServeStart dir c.probeCap
-    c.gate.started adm.ticket session.child.pid
-    -- The typed stop: Lean stopped the probe at its cap.
+    -- The typed stop (`docs/parallel.md` P24), at the cap text on the
+    -- probe's stderr: record `CapExceeded`, then stop the run at once. The
+    -- gate ends every other live probe (`Gate.stop`), also a nested probe of
+    -- a speculative round that `f` waits for, so the stop does not wait for
+    -- `f` to end.
+    let capStop (peak : KiB) : IO Unit := do
+      c.stop.modify (·.orElse fun _ => some (.capExceeded { module, cap := c.probeCap, peak }))
+      c.gate.stop
+    let session ← probeServeStart dir c.probeCap capStop
+    c.gate.started adm.ticket session
     let capped : IO α := do
       try f session
       catch e => do
         unless ← session.overCap.get do throw e
         let stop : CapExceeded := { module, cap := session.cap, peak := ← session.peak.get }
-        c.stop.modify (·.orElse fun _ => some stop)
         throw <| IO.userError stop.message
     let a ← try capped finally probeServeStop session
     pure (a, { admission := adm, startedAt, stoppedAt := ← IO.monoMsNow, peak := ← session.peak.get })
@@ -368,10 +398,10 @@ structure SpecResult where
 
 /-- One candidate of a speculative round (`Core.Sched.roundPlacement`): on
 the module's own probe, attempted when `consume` reaches it, or on a nested
-probe, already running. -/
+probe in the worktree `dir`, already running. -/
 inductive SpecRun where
   | own (cand : Candidate)
-  | nested (task : Task (Except IO.Error SpecResult))
+  | nested (dir : FilePath) (task : Task (Except IO.Error SpecResult))
 
 /-- Speculate across the head site's candidates of `mm`, inside `dir` (one
 module's own worktree): the next `c.speculate` candidates, attempted at the
@@ -402,7 +432,8 @@ accepted before this round. A candidate on `session` is reverted to that
 text after its attempt. An accepted candidate is applied to `dir` at the end,
 so `planModule`'s next round and the plan's final text hold it. The round
 waits for every nested probe to stop before it removes the nested
-worktrees, so no probe process outlives its worktree. -/
+worktrees, so no probe process outlives its worktree. It waits also when a
+candidate's attempt fails, and then throws the first error. -/
 partial def speculateRounds (c : Ctx) (dir : FilePath) (followed : List String)
     (mm : Mending) (file : FilePath) (session : ProbeSession) : IO (List ModuleRound × Mending) := do
   let cands := mm.speculate c.speculate
@@ -437,10 +468,10 @@ partial def speculateRounds (c : Ctx) (dir : FilePath) (followed : List String)
             pure (obs, done, follows, startedAt, ← IO.monoMsNow)
         pure { cand := cd, dir := d, obs, done, follows, startedAt, finishedAt,
                probe := some probe : SpecResult }
-      pure (SpecRun.nested t)
+      pure (SpecRun.nested d t)
     | _, _ => pure (SpecRun.own cd)
   let result : SpecRun → IO SpecResult
-    | .nested t => do IO.ofExcept (← IO.wait t)
+    | .nested _ t => do IO.ofExcept (← IO.wait t)
     | .own cd => do
       let startedAt ← IO.monoMsNow
       let (saved, obs, done, follows) ← attemptOne c dir mm file cd session followed
@@ -468,16 +499,21 @@ partial def speculateRounds (c : Ctx) (dir : FilePath) (followed : List String)
           let (rest', mmFinal) ← consume rest (i + 1) mmc'
           pure (round :: rest', mmFinal)
         else pure ([round], mmc')
-  let (rounds, mmFinal) ← consume runs 0 mm
+  let consumed ← (consume runs 0 mm).toBaseIO
   -- Every nested probe, also of a discarded candidate: wait for its stop,
-  -- then remove its worktree, and record its start and stop.
+  -- then remove its worktree. After an error too, so no probe process
+  -- outlives its worktree.
+  let ended ← (runs.filterMap fun | .nested d t => some (d, t) | .own _ => none).mapM fun (d, t) => do
+    let r ← IO.wait t
+    discard <| git dir #["worktree", "remove", "--force", d.toString]
+    pure r
+  let (rounds, mmFinal) ← IO.ofExcept consumed
+  -- The start and stop of each nested probe.
   let mut probes : List (String × Json) := []
-  for r in runs do
-    if let .nested t := r then
-      let res ← IO.ofExcept (← IO.wait t)
-      discard <| git dir #["worktree", "remove", "--force", res.dir.toString]
-      if let some pr := res.probe then
-        probes := probes ++ [pr.startLine mm.module res.dir, pr.stopLine mm.module res.dir]
+  for r in ended do
+    let res ← IO.ofExcept r
+    if let some pr := res.probe then
+      probes := probes ++ [pr.startLine mm.module res.dir, pr.stopLine mm.module res.dir]
   if let some last := rounds.getLast? then
     if last.accepted then
       let some cd := last.cand
@@ -667,11 +703,18 @@ def replayRounds (c : Ctx) (s : RunState) (plan : ModulePlan) : IO RunState := d
   stepL c s (.mended plan.module) "mended" (toJson plan.module)
 
 /-- The certificate, once no module is open with all its imports built: the
-`certificate` observation, the D11 type-change warnings and the cards. -/
+`certificate` observation, the D11 type-change warnings and the cards. A
+declaration with no certificate row stops the run with `DeclUnread`
+(`c.stop`). -/
 def certify (c : Ctx) (s : RunState) : IO RunState := do
   let .built ctx st := s | return s
-  let cert0 ← certificate c.target c.toolchain (c.aliases.normalizeWith (Rule.prefixPairs c.rules)) c.files (statusList c st)
-    (jobs := certificateJobs c.gate.limit c.gate.estimate)
+  let cert0 ← match ← certificate c.target c.toolchain
+      (c.aliases.normalizeWith (Rule.prefixPairs c.rules)) c.files (statusList c st)
+      (jobs := certificateJobs c.gate.limit c.gate.estimate) with
+    | .ok cert => pure cert
+    | .error x =>
+      c.stop.modify (·.orElse fun _ => some (.declUnread x))
+      throw <| IO.userError x.message
   let cert := { cert0 with followed := (← c.followedDecls.get).eraseDups }
   let next ← stepL c s (.certificate cert) "certificate"
     (Json.mkObj [("built", toJson cert.built), ("decls", toJson cert.decls.length)])
@@ -745,6 +788,27 @@ structure Flow where
 builds. -/
 def Flow.status (f : Flow) : Statuses := fun n => f.live.getD n .built
 
+/-- Remove the worktree of every mend that did not end. -/
+def removeMendWorktrees (c : Ctx) (f : Flow) : IO Unit := do
+  for (_, d) in f.dirs do
+    discard <| git c.target #["worktree", "remove", "--force", d.toString]
+
+/-- Stop the schedule at the run's first error `e`, and throw `e` (fail
+fast, `docs/parallel.md` P24). The gate ends every live probe and refuses
+every request that waits (`Gate.stop`), so each running task ends: a task
+that waits for a probe's reply reads end of file. The driver waits for every
+task, so that no Lean process outlives the run, and removes the worktrees of
+the mends. The typed stop of the run (`c.stop`) stays the one recorded before
+`e` arrived: a probe that the stop ended cannot replace it. -/
+def stopSchedule {α} (c : Ctx) (f : Flow) (e : IO.Error) : IO α := do
+  let first ← c.stop.get
+  c.gate.stop
+  for t in f.running do
+    discard <| IO.wait t
+  c.stop.set first
+  removeMendWorktrees c f
+  throw e
+
 /-- Start a task for every module that `Core.Run.ready` names on the live
 statuses and that has no task yet (`docs/parallel.md` P8, P21): a `blocked`
 module builds, and a `failing` module mends in a new worktree with its
@@ -756,26 +820,32 @@ A mend starts its probe only on an admission of `c.gate` (P24).
 plus the probe budget fits the limit, in request order, so the modules get
 their admissions in canonical order. The mend's task starts when the promise
 resolves (`IO.mapTask`): until then the module holds no probe and no thread.
-A build is running work of the gate (`Gate.spawn`). -/
+When the run stopped, the promise gives no admission, and the task ends with
+an error. A build is running work of the gate (`Gate.spawn`). An error here
+stops the schedule (`stopSchedule`), with the tasks that this call started. -/
 def launch (c : Ctx) (ctx : Context) (opens : List Module) (f : Flow) : IO Flow := do
   let mut f := f
   for n in ready opens f.status do
-    match f.status n with
-    | .blocked =>
-      unless f.builds.contains n do
-        let t ← c.gate.spawn (Finished.build n <$> buildModule c n)
-        f := { f with builds := f.builds.insert n, running := f.running ++ [t] }
-    | .failing =>
-      unless f.mends.contains n do
-        let dir ← addWorktree c n
-        let followed := (importClosure c.order n).flatMap (f.rules.getD · [])
-        let st := f.status
-        let admission ← c.gate.acquire
-        let t ← IO.mapTask (fun adm => Finished.plan <$> planSession c ctx st followed dir n adm)
-          admission.result! (prio := .dedicated)
-        f := { f with mends := f.mends.insert n, dirs := f.dirs.insert n dir,
-                      running := f.running ++ [t] }
-    | _ => pure ()
+    try
+      match f.status n with
+      | .blocked =>
+        unless f.builds.contains n do
+          let t ← c.gate.spawn (Finished.build n <$> buildModule c n)
+          f := { f with builds := f.builds.insert n, running := f.running ++ [t] }
+      | .failing =>
+        unless f.mends.contains n do
+          let dir ← addWorktree c n
+          let followed := (importClosure c.order n).flatMap (f.rules.getD · [])
+          let st := f.status
+          let admission ← c.gate.acquire
+          let t ← IO.mapTask (prio := .dedicated) (fun
+              | some adm => Finished.plan <$> planSession c ctx st followed dir n adm
+              | none => throw <| IO.userError s!"lean-mend: {n}: the run stopped before its probe started")
+            admission.result!
+          f := { f with mends := f.mends.insert n, dirs := f.dirs.insert n dir,
+                        running := f.running ++ [t] }
+      | _ => pure ()
+    catch e => stopSchedule c f e
   pure f
 
 /-- Take one task's result into `f` (`docs/parallel.md` P13). An ended mend
@@ -826,17 +896,33 @@ partial def advance (c : Ctx) (opens : List Module) (f : Flow) (s : RunState) :
     advance c opens { f with plans := f.plans.erase n, checked := f.checked.erase n } s
   | other => throw <| IO.userError s!"lean-mend: the ready module {n} is {repr other}"
 
+/-- The machine halted: wait for every running task, then remove the
+worktrees of the mends. A task error stops the schedule (`stopSchedule`). -/
+partial def endHalted (c : Ctx) (f : Flow) : IO Unit := do
+  match f.running with
+  | [] => removeMendWorktrees c f
+  | t :: ts =>
+    let (r, rest) ← IO.waitAny' (t :: ts)
+    let f := { f with running := rest }
+    match r with
+    | .ok _ => endHalted c f
+    | .error e => stopSchedule c f e
+
 /-- The dataflow schedule (`docs/parallel.md` § Level 2): start every ready
 module, replay what the canonical order can take, then wait for the next
-task to end. It ends when no task runs. A halt stops the schedule: the
+task to end. It ends when no task runs. A halt ends the schedule: the
 driver waits for the running tasks, so that no Lean process outlives the
-run, and removes their worktrees. -/
+run, and removes their worktrees (`endHalted`). The first error, of a task
+or of the driver, stops the schedule at once (`stopSchedule`). -/
 partial def dataflow (c : Ctx) (ctx : Context) (opens : List Module) (f : Flow) (s : RunState) :
     IO RunState := do
   let f ← launch c ctx opens f
-  let (f, s) ← advance c opens f s
-  -- The replay freed the plans it took, so the gate checks its queue again.
-  c.gate.recheck
+  let (f, s) ← try
+      let r ← advance c opens f s
+      -- The replay freed the plans it took, so the gate checks its queue again.
+      c.gate.recheck
+      pure r
+    catch e => stopSchedule c f e
   match s with
   | .built _ st =>
     match f.running with
@@ -846,12 +932,14 @@ partial def dataflow (c : Ctx) (ctx : Context) (opens : List Module) (f : Flow) 
       pure s
     | t :: ts =>
       let (r, rest) ← IO.waitAny' (t :: ts)
-      dataflow c ctx opens (← settle c { f with running := rest } (← IO.ofExcept r)) s
+      let f := { f with running := rest }
+      match r with
+      | .error e => stopSchedule c f e
+      | .ok x =>
+        let f ← try settle c f x catch e => stopSchedule c f e
+        dataflow c ctx opens f s
   | _ =>
-    for t in f.running do
-      discard <| IO.ofExcept (← IO.wait t)
-    for (_, d) in f.dirs do
-      discard <| git c.target #["worktree", "remove", "--force", d.toString]
+    endHalted c f
     pure s
 
 /-- The level-1 run, after the first `build`. Termination is the theorem set
@@ -904,11 +992,13 @@ def memoryLimitDetail (l : MemoryLimit) (cap : KiB) (treeLimit : TreeLimit) (tre
 `maxMemory` is the `--max-memory <GiB>` flag; `none` computes the limit from
 the available memory (`memoryLimit`). `probeCapMiB` is `--probe-cap <MiB>`;
 `none` gives `probeCap`. A run that a probe stops at its cap ends with
-`CapExceeded` (`docs/parallel.md` P24), recorded in the ledger. -/
+`CapExceeded` (`docs/parallel.md` P24), and a certificate with no row for a
+declaration ends it with `DeclUnread` (`docs/verification.md` § The
+certificate). The ledger records each stop. -/
 def runAdopt (target : FilePath) (targets : List String) (aliasesFrom : List FilePath)
     (prepare : List String := []) (rules : List Rule := []) (annotate : Bool := false)
     (follow : Bool := false) (speculate : Nat := 1) (maxMemory : Option Nat := none)
-    (probeCapMiB : Option Nat := none) : IO (Except CapExceeded RunState) := do
+    (probeCapMiB : Option Nat := none) : IO (Except RunStop RunState) := do
   -- Absolute paths: git and lake run with the target as their working
   -- directory, so a relative path would resolve one level too deep.
   let target ← IO.FS.realPath target
@@ -957,8 +1047,14 @@ def runAdopt (target : FilePath) (targets : List String) (aliasesFrom : List Fil
     | .error r => throw <| IO.userError s!"{repr r}"
   let (_, baseBuilt) ← buildAll base targets baseOrder0
   let baseToolchain := (← IO.FS.readFile (base / "lean-toolchain")).trimAscii.toString
-  let baseCert ← certificate base baseToolchain (resolved.normalizeWith (Rule.prefixPairs rules)) baseFiles baseBuilt
-    (jobs := certificateJobs gate.limit gate.estimate)
+  let baseCert ← match ← certificate base baseToolchain
+      (resolved.normalizeWith (Rule.prefixPairs rules)) baseFiles baseBuilt
+      (jobs := certificateJobs gate.limit gate.estimate) with
+    | .ok cert => pure cert
+    | .error x =>
+      let (name, fields) := (RunStop.declUnread x).note
+      appendNote ledger name (Json.mkObj fields)
+      return .error (.declUnread x)
   let baseFailing := baseBuilt.filterMap fun (n, s) => if s == .built then none else some n
   -- A namespace move also renames declarations the target itself declares
   -- under the moved prefix (EVMLean: `def Batteries.RBMap.partition`). Give
@@ -984,14 +1080,15 @@ def runAdopt (target : FilePath) (targets : List String) (aliasesFrom : List Fil
     (toJson (built.map fun (n, x) => s!"{n}: {repr x}"))
   discard <| git target #["switch", "-q", "-c", "lean-mend/mend"]
   let start := ((← git target #["rev-parse", "HEAD"]).splitOn "\n").head!
-  -- A probe that passes its cap stops the run at once (fail fast): the
-  -- error of its task ends the schedule, and the typed stop names the
-  -- module, the cap and the peak. Any other error stays an error.
+  -- A probe that passes its cap, or a certificate with no row for a
+  -- declaration, stops the run at once (fail fast): the schedule ends every
+  -- live probe, waits for its tasks and throws (`stopSchedule`), and the
+  -- typed stop names the module. Any other error stays an error.
   let final ← try runModules { c with start } s
     catch e => do
       let some x ← stop.get | throw e
-      appendNote ledger "capExceeded" (Json.mkObj
-        [("module", toJson x.module), ("capKiB", toJson x.cap.val), ("peakKiB", toJson x.peak.val)])
+      let (name, fields) := x.note
+      appendNote ledger name (Json.mkObj fields)
       return .error x
   discard <| git target #["worktree", "remove", "--force", base.toString]
   pure (.ok final)

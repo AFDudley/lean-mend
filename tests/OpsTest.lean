@@ -173,7 +173,7 @@ def run : IO Nat := do
     let child ← IO.Process.spawn
       { cmd := "sh", args := #["-c", "read l; echo gone >&2; exit 3"],
         stdin := .piped, stdout := .piped, stderr := .piped }
-    let s ← LeanMend.Shell.ProbeSession.ofChild child LeanMend.probeCap
+    let s ← LeanMend.Shell.ProbeSession.ofChild child LeanMend.probeCap fun _ => pure ()
     let got ← try
         try
           discard <| LeanMend.Shell.probeServeRequest s "F.lean" (Lean.Json.mkObj [("op", Lean.toJson "syntax")])
@@ -191,13 +191,32 @@ def run : IO Nat := do
     let child ← IO.Process.spawn
       { cmd := "sh", args := #["-c", "read l; echo \"excessive memory consumption detected at 'interpreter' (potential solution: increase memory consumption threshold)\" >&2; exit 1"],
         stdin := .piped, stdout := .piped, stderr := .piped }
-    let s ← LeanMend.Shell.ProbeSession.ofChild child LeanMend.probeCap
+    let s ← LeanMend.Shell.ProbeSession.ofChild child LeanMend.probeCap fun _ => pure ()
     try
       try discard <| LeanMend.Shell.probeServeRequest s "F.lean" (Lean.Json.mkObj [("op", Lean.toJson "syntax")])
       finally LeanMend.Shell.probeServeStop s
     catch _ => pure ()
     let ok ← s.overCap.get
     IO.println s!"{if ok then "ok  " else "FAIL"} a probe that Lean stopped at its cap sets overCap"
+    unless ok do failed := failed + 1
+  -- docs/parallel.md P24: a probe can write the cap text and then not exit
+  -- (tests/cap-stop.sh). Its session ends its process group at the text and
+  -- runs onCap, so the request reads end of file at once, not after the
+  -- 600 s wait.
+  do
+    let child ← IO.Process.spawn
+      { cmd := "sh", args := #["-c", "read l; echo \"excessive memory consumption detected at 'interpreter' (potential solution: increase memory consumption threshold)\" >&2; sleep 600"],
+        stdin := .piped, stdout := .piped, stderr := .piped, setsid := true }
+    let onCap ← IO.mkRef false
+    let s ← LeanMend.Shell.ProbeSession.ofChild child LeanMend.probeCap fun _ => onCap.set true
+    let start ← IO.monoMsNow
+    try
+      try discard <| LeanMend.Shell.probeServeRequest s "F.lean" (Lean.Json.mkObj [("op", Lean.toJson "syntax")])
+      finally LeanMend.Shell.probeServeStop s
+    catch _ => pure ()
+    let secs := ((← IO.monoMsNow) - start) / 1000
+    let ok := (← s.overCap.get) && (← onCap.get) && secs < 60
+    IO.println s!"{if ok then "ok  " else "FAIL"} a probe that writes the cap text and then waits ends at the text and runs onCap ({secs} s)"
     unless ok do failed := failed + 1
   -- Decision D10: a candidate that adds a declaration is not clean.
   for (what, repl, want) in

@@ -8,7 +8,7 @@
       "op": "replaceInBody",
       "decl": "fooD",
       "old": "exact unknownHeadD",
-      "new": "rfl"
+      "new": "rfl\n\n#eval barrierMark \"dep\""
     }
   ]
 }
