@@ -154,6 +154,7 @@ def editOp (j : Json) : Except String EditOp := do
   | "simpaUsingBang" => pure .simpaUsingBang
   | "keywordSwap" => pure (.keywordSwap (← field j "from") (← field j "to"))
   | "deleteTactic" => pure .deleteTactic
+  | "deleteShowRewrite" => pure .deleteShowRewrite
   | "matchToIf" => pure .matchToIf
   | "matchOnVal" => pure .matchOnVal
   | "valCompare" => pure .valCompare
@@ -177,6 +178,9 @@ def rule (j : Json) : Except String Rule := do
   if fam == .any && cls == .unknown then throw s!"rule {name}: node any on class unknown (vacuous)"
   if ops.contains .deleteTactic && cls != .simpNoProgress && cls != .noGoals then
     throw s!"rule {name}: deleteTactic is allowed only for simpNoProgress and noGoals"
+  -- A rewrite that finds nothing has class tacticFailed ("Tactic `rewrite` failed").
+  if ops.contains .deleteShowRewrite && cls != .tacticFailed then
+    throw s!"rule {name}: deleteShowRewrite is allowed only for tacticFailed"
   pure { name, cls, entrenchment, family := fam, ops }
 
 /-- The words of one line of a `/proc` file, split at spaces and tabs. -/

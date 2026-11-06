@@ -74,4 +74,7 @@ step "rule simp-ite-nat-cond on its fixture" tests/simp-ite-nat-cond.sh
 step "rule rw-proof-arg-erw on its fixture" tests/rw-proof-arg-erw.sh
 step "rule rw-unsolved-simp-all on its fixture" tests/rw-unsolved-simp-all.sh
 step "rule simp-unsolved-simp-all on its fixture" tests/simp-unsolved-simp-all.sh
+step "rule rw-show-redundant on its fixture" tests/rw-show-redundant.sh
+step "rule simp-no-progress-delete on its fixture" tests/simp-no-progress-delete.sh
+step "rule heartbeat-raise on its fixture" tests/heartbeat-raise.sh
 summary 0

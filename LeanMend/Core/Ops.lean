@@ -39,6 +39,25 @@ def pickNode (f : TacticFamily) (nodes : List Node) : Option Node :=
     | t :: _ => f == .any || f.keywords.contains t.text
     | [] => false
 
+/-- `ts` are the tokens after the `[` of a rewrite rule list. True if the list
+closes and every rule in it starts with `show`. A `,` separates two rules only
+outside brackets, so `show f (a, b) = c` stays one rule. -/
+private def showRules (ts : List Token) : Bool :=
+  let opens := ["(", "[", "{", "⟨"]
+  let closes := [")", "]", "}", "⟩"]
+  -- (depth inside the list, next token starts a rule, every rule is `show`, closed)
+  let (_, _, allShow, closed) := ts.foldl (init := ((0 : Nat), true, true, false))
+    fun (d, first, ok, done) t =>
+      if done then (d, first, ok, done)
+      else
+        let ok := ok && (!first || t.text == "show")
+        if opens.contains t.text then (d + 1, false, ok, false)
+        else if closes.contains t.text then
+          if d == 0 then (0, false, ok, t.text == "]") else (d - 1, false, ok, false)
+        else if t.text == "," && d == 0 then (d, true, ok, false)
+        else (d, false, ok, false)
+  allShow && closed
+
 /-- Bytes of `s` before and after the byte range `[a, b)`, relative to `s`. -/
 private def splice (s : String) (a b : Nat) (ins : String) : String :=
   let bs := s.toUTF8
@@ -160,6 +179,12 @@ def applyOp (op : EditOp) (n : Node) : Option String :=
             String.fromUTF8! (bs.extract (w.start - n.start) bs.size))
     | _, _ => none
   | .deleteTactic => some ""
+  | .deleteShowRewrite =>
+    match n.tokens with
+    | k :: b :: rest =>
+      if ["rw", "rewrite", "erw"].contains k.text && b.text == "[" && showRules rest then some ""
+      else none
+    | _ => none
   | .appendTactic t =>
     some (n.text ++ "\n" ++ String.ofList (List.replicate n.column ' ') ++ t)
   | .rename _ _ | .renamePrefix _ _ | .replaceInBody _ _ _ | .heartbeats _ | .valCompare
@@ -441,10 +466,14 @@ def proposeAll (m : AliasMap) (rules : List Rule) (nodes : List Node)
     (annotate follow : Bool) (followed : List String) (s : Site) : List Candidate :=
   -- A rule that only closes bullets replaces the author's proof: the least
   -- preferred repair, so it runs after every other rule of its entrenchment.
+  -- A rule that only raises `maxHeartbeats` hides a cost regression upstream
+  -- (`docs/rules.md` § Entrenchment and order, item 4), so it runs last.
   let closer (r : Rule) := r.ops.all fun | .closeBullet _ => true | _ => false
+  let budget (r : Rule) := r.ops.all fun | .heartbeats _ => true | _ => false
   let byE (e : Entrenchment) :=
     let rs := rules.filter (·.entrenchment == e)
-    (rs.filter (!closer ·) ++ rs.filter closer).flatMap (ruleCandidates follow · nodes s)
+    (rs.filter (fun r => !closer r && !budget r) ++ rs.filter closer ++ rs.filter budget).flatMap
+      (ruleCandidates follow · nodes s)
   let all := propose m s ++ (if annotate then typeCandidates s else []) ++
     byE .ratified ++ byE .proposed ++
     followCandidates (rules.filter (followed.contains ·.name)) nodes s

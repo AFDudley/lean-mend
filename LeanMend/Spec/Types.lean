@@ -343,6 +343,14 @@ inductive EditOp where
   | simpaUsingBang
   | keywordSwap (from_ to : String)
   | deleteTactic
+  /-- Delete a `rw [show a = b by t, …]` (`rw`, `rewrite` or `erw`) whose
+  every rewrite rule is a `show` term: a local equation that only changes the
+  form of a term. The simp before it already rewrites `a`, so the rewrite finds
+  nothing (EquiVM `Examples.BlindAuction.Reveal.Common` 2814: `simp [M]` with
+  the lemmas `u256_toNat_lit*` rewrites `(⟨32⟩ : UInt256).toNat`). A rule list
+  with any other rule gives no candidate: a lemma such as `if_neg` is a step
+  of the proof, and its deletion only moves the error. -/
+  | deleteShowRewrite
   /-- In declaration `decl`, replace the text `old` with `new`. `old` must
   occur exactly once in the declaration's body. The form in which an agent or a
   person returns a residue repair (`docs/rules.md` § From residue to rule). -/

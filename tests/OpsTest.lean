@@ -60,6 +60,14 @@ def cases : List (String × EditOp × String × Option String) :=
     ("rw to erw", .keywordSwap "rw" "erw", "rw [h] at g", some "erw [h] at g"),
     ("keyword mismatch: no candidate", .keywordSwap "rw" "erw", "simp [h]", none),
     ("delete", .deleteTactic, "decide +kernel", some ""),
+    ("a rw of one show term is deleted", .deleteShowRewrite,
+      "rw [show (⟨32⟩ : W).toNat = 32 by native_decide]", some ""),
+    ("a rw of two show terms, at a hypothesis, is deleted", .deleteShowRewrite,
+      "rw [show a = b by rfl, show f [c, d] = e from h] at g", some ""),
+    ("a rw with a lemma after the show: no candidate", .deleteShowRewrite,
+      "rw [show a = b by rfl, h]", none),
+    ("a rw of a lemma: no candidate", .deleteShowRewrite, "rw [if_neg]", none),
+    ("rwa also closes the goal: no candidate", .deleteShowRewrite, "rwa [show a = b by rfl]", none),
     ("match on a literal to if", .matchToIf, "match val with | ⟨0⟩ => f val | _ => g val",
       some "if val = ⟨0⟩ then f val\n    else g val"),
     ("a pattern that binds: no candidate", .matchToIf, "match o with | some x => x | _ => 0", none),
@@ -435,6 +443,13 @@ def run : IO Nat := do
     let ok2 := order == ["", "· omega", "· simp_all"]
     IO.println s!"{if ok2 then "ok  " else "FAIL"} a closer rule runs last: {repr order}"
     unless ok2 do failed := failed + 1
+    -- a rule that only raises maxHeartbeats runs after the closer rule
+    let hb : Rule := { name := "a-budget", cls := .tacticFailed, entrenchment := .proposed,
+                       family := .any, ops := [.heartbeats 400000] }
+    let order3 := (proposeAll ⟨[]⟩ [hb, r, other] nodes false false [] site).map (·.replacement)
+    let ok3 := order3 == ["", "· omega", "· simp_all", "set_option maxHeartbeats 400000 in\n"]
+    IO.println s!"{if ok3 then "ok  " else "FAIL"} a heartbeats rule runs after every other rule: {repr order3}"
+    unless ok3 do failed := failed + 1
   -- simpArgAddPrior: the simp before the site's own tactic, in the indented
   -- sequence that holds the site (EquiVM TransientPackedStorage 59: `simp
   -- only […, Option.bind]`, then `congr 2`, then `apply u256_inj` fails).
@@ -471,6 +486,8 @@ def run : IO Nat := do
   for (what, cls, op, accept) in
       [("deleteTactic for noGoals is loaded", "noGoals", "deleteTactic", true),
        ("deleteTactic for typeMismatch is refused", "typeMismatch", "deleteTactic", false),
+       ("deleteShowRewrite for tacticFailed is loaded", "tacticFailed", "deleteShowRewrite", true),
+       ("deleteShowRewrite for noGoals is refused", "noGoals", "deleteShowRewrite", false),
        ("node any on class unknown is refused", "unknown", "simpaToExact", false)] do
     let r := Lean.Json.parse (ruleJson cls op) >>= Parse.rule
     let ok := r.toBool == accept
