@@ -1,0 +1,1 @@
+{"caption":"","data":"omega could not prove the goal:\na possible counterexample may satisfy the constraints\n  0 ≤ a ≤ 3\nwhere\n a := ↑n","endPos":{"column":7,"line":3},"fileName":"O.lean","isSilent":false,"keepFullRange":false,"kind":"[anonymous]","pos":{"column":2,"line":3},"severity":"error"}

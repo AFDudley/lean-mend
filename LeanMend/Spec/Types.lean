@@ -78,7 +78,8 @@ inductive ErrorClass where
   parameters appearing in the declaration header may have their binders kinds
   be overridden"). -/
   | binderOverride
-  /-- A tactic could not act on its goal ("Tactic `split` failed: …"). -/
+  /-- A tactic could not act on its goal ("Tactic `split` failed: …", "omega
+  could not prove the goal: …"). -/
   | tacticFailed
   /-- A tactic ran after its goal was closed ("No goals to be solved"). -/
   | noGoals
