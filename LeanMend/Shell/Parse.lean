@@ -75,15 +75,30 @@ def axiomSet (raw : List String) : List String :=
 
 /-- One line of the probe's `decls` output. `norm` rewrites region text
 before it is hashed (`AliasMap.normalize`), so the same alias map applies to
-the baseline and the after certificate. -/
+the baseline and the after certificate. The statement hash is of the
+statement's token sequence (`statementTokens`, one space between tokens), not
+of its text, so whitespace and comments do not count
+(`docs/verification.md` § The certificate). A space is not an identifier
+character, so `norm` sees each token as it would alone. -/
 def decl (norm : String → String) (j : Json) : Except String Decl := do
+  let tokens : List String ← field j "statementTokens"
   pure {
     name := ← field j "name"
     module := ← field j "module"
     kind := ← declKind (← field j "kind")
-    statementHash := textHash (norm (← field j "statement"))
+    statementHash := textHash (norm (" ".intercalate tokens))
     bodyHash := textHash (norm (← field j "body"))
     axioms := axiomSet (← field j "axioms") }
+
+/-- One line of the probe's `decls` output: a row (`decl`), or an `unread`
+line, which names a declaration that the certificate selects but whose row
+the probe cannot give (`docs/verification.md` § The certificate). -/
+def declLine (norm : String → String) (j : Json) : Except String (Except DeclUnread Decl) :=
+  match j.getObjVal? "unread" with
+  | .ok _ => do
+    pure (.error { module := ← field j "module", decl := ← field j "name",
+                   reason := ← field j "unread" })
+  | .error _ => .ok <$> decl norm j
 
 /-- One line of the probe's `deprecated` output: old name and new name. A
 deprecation with no new name gives no alias. -/

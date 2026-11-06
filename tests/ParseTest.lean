@@ -59,6 +59,25 @@ def run : IO Nat := do
         (Parse.memAvailable "MemTotal: 1 kB\n").toOption.isNone)] do
     IO.println s!"{if ok then "ok  " else "FAIL"} {what}"
     unless ok do failed := failed + 1
+  -- `Parse.declLine`: the probe's `unread` line becomes the typed
+  -- `DeclUnread` (docs/verification.md § The certificate); a row stays a row.
+  let line (s : String) := (Lean.Json.parse s).toOption.getD .null
+  let unread := line
+    "{\"name\":\"App.local_sum\",\"module\":\"App.T\",\"unread\":\"no command that parsed holds byte 9\"}"
+  let row := line ("{\"name\":\"App.t\",\"module\":\"App.T\",\"kind\":\"theorem\"," ++
+    "\"statementTokens\":[\":\",\"True\"],\"body\":\":= trivial\",\"axioms\":[]}")
+  for (what, ok) in
+      [("declLine: an unread line is DeclUnread with its module, declaration and reason",
+        match Parse.declLine id unread with
+        | .ok (.error x) => x == { module := "App.T", decl := "App.local_sum",
+                                   reason := "no command that parsed holds byte 9" }
+        | _ => false),
+       ("declLine: a row is a Decl",
+        match Parse.declLine id row with
+        | .ok (.ok d) => d.name == "App.t" && d.module == "App.T"
+        | _ => false)] do
+    IO.println s!"{if ok then "ok  " else "FAIL"} {what}"
+    unless ok do failed := failed + 1
   return failed
 
 end ParseTest

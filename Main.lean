@@ -25,7 +25,9 @@ def baseline (target : System.FilePath) : IO UInt32 := do
     | .ok o => pure o
     | .error r => throw <| IO.userError s!"{repr r}"
   let (order, st) ← buildAll target [] order
-  let cert ← certificate target toolchain id mods st
+  let cert ← match ← certificate target toolchain id mods st with
+    | .ok cert => pure cert
+    | .error x => throw <| IO.userError x.message
   let failing := st.filterMap fun (n, s) => if s == .built then none else some n
   let next := (RunState.idle target.toString).step (.baseline cert failing)
   IO.println <| Json.compress <| Json.mkObj
@@ -107,11 +109,13 @@ def runCmd (t : String) (rest : List String) : IO UInt32 := do
         o.maxMemory o.probeCap
       match r with
       | .error x =>
-        -- A probe passed its hard cap (`docs/parallel.md` P24): exit 3.
+        -- A typed stop: a probe passed its hard cap (`docs/parallel.md`
+        -- P24), or the certificate has no row for a declaration
+        -- (`docs/verification.md` § The certificate). Exit 3.
         IO.eprintln x.message
+        let (name, fields) := x.note
         IO.println <| Json.compress <| Json.mkObj
-          [("state", toJson "halted capExceeded"), ("module", toJson x.module),
-           ("capKiB", toJson x.cap.val), ("peakKiB", toJson x.peak.val)]
+          ([("state", toJson s!"halted {name}")] ++ fields)
         return 3
       | .ok s =>
         let target ← IO.FS.realPath t

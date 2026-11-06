@@ -16,6 +16,9 @@ request that `admits` refuses waits in a queue, in request order. The gate
 checks the queue again when a probe stops (`release`), when a build ends
 (`spawn`), and when the driver's replay frees plans (`recheck`). The wait is
 on those events: there is no poll, no sleep and no timeout.
+
+The gate also knows every live probe of the run, so it ends them when the
+run stops (`stop`).
 -/
 
 namespace LeanMend.Shell
@@ -82,13 +85,16 @@ def Admission.fields (a : Admission) : List (String × Lean.Json) :=
 
 structure GateState where
   next : Nat := 0
-  /-- Every live probe by ticket: the pid of its `lake env` process, or
-  `none` before the process starts. -/
-  live : Std.HashMap Nat (Option UInt32) := {}
+  /-- Every live probe by ticket: its session, or `none` before its process
+  starts. -/
+  live : Std.HashMap Nat (Option ProbeSession) := {}
   /-- The running work that is not a probe: the module builds (`Gate.spawn`). -/
   others : Nat := 0
-  /-- The requests that wait, in request order. -/
-  waiters : Std.Queue (IO.Promise Admission) := .empty
+  /-- The requests that wait, in request order. A request gets `none` when
+  the run stopped (`Gate.stop`). -/
+  waiters : Std.Queue (IO.Promise (Option Admission)) := .empty
+  /-- The run stopped (`Gate.stop`): the gate admits no more probes. -/
+  stopped : Bool := false
 
 instance : Nonempty GateState := ⟨{}⟩
 
@@ -104,14 +110,15 @@ structure Gate where
 def Gate.new (limit estimate : KiB) : IO Gate := do
   pure { limit, estimate, driver := ← IO.Process.getPID, state := ← Std.Mutex.new {} }
 
-/-- Measure the tree, and admit one probe if `admits` allows it. Runs with
-the gate's lock held. -/
+/-- Measure the tree, and admit one probe if the run did not stop and
+`admits` allows it. Runs with the gate's lock held. -/
 def Gate.tryAdmit (g : Gate) : Std.AtomicT GateState IO (Option Admission) := do
   let st ← get
+  if st.stopped then return none
   let parents ← procParents
   let tree ← treePrivate parents g.driver.toNat
   let driver ← procPrivate g.driver.toNat
-  let probes ← st.live.toList.mapM fun (_, pid?) => pid?.mapM fun pid => treePrivate parents pid.toNat
+  let probes ← st.live.toList.mapM fun (_, s?) => s?.mapM fun s => treePrivate parents s.child.pid.toNat
   let load : Load := { driver, tree, probes, others := st.others }
   unless admits g.limit g.estimate load do return none
   set { st with next := st.next + 1, live := st.live.insert st.next none }
@@ -121,19 +128,23 @@ def Gate.tryAdmit (g : Gate) : Std.AtomicT GateState IO (Option Admission) := do
 
 /-- Request one probe. The promise resolves at the admission: at once, when
 no request waits and `admits` allows it, or else at a later `release` or
-`recheck`, in request order. -/
-def Gate.acquire (g : Gate) : IO (IO.Promise Admission) := do
+`recheck`, in request order. It resolves to `none` when the run stopped
+(`stop`). -/
+def Gate.acquire (g : Gate) : IO (IO.Promise (Option Admission)) := do
   let p ← IO.Promise.new
   let now ← g.state.atomically do
-    if (← get).waiters.isEmpty then
-      if let some a ← g.tryAdmit then return some a
+    let st ← get
+    if st.stopped then return some none
+    if st.waiters.isEmpty then
+      if let some a ← g.tryAdmit then return some (some a)
     modify fun st => { st with waiters := st.waiters.enqueue p }
     pure none
   if let some a := now then p.resolve a
   pure p
 
-/-- Request one probe with no wait: `none` when a request waits or `admits`
-refuses. A speculative round uses it for its nested probes. -/
+/-- Request one probe with no wait: `none` when a request waits, when
+`admits` refuses, or when the run stopped. A speculative round uses it for
+its nested probes. -/
 def Gate.tryAcquire (g : Gate) : IO (Option Admission) :=
   g.state.atomically do
     if (← get).waiters.isEmpty then g.tryAdmit else pure none
@@ -142,7 +153,7 @@ def Gate.tryAcquire (g : Gate) : IO (Option Admission) :=
 Returns the promises to resolve, with their admissions. Each call admits
 one request or stops, and the queue is finite. -/
 partial def Gate.admitWaiting (g : Gate) :
-    Std.AtomicT GateState IO (List (IO.Promise Admission × Admission)) := do
+    Std.AtomicT GateState IO (List (IO.Promise (Option Admission) × Admission)) := do
   let some (p, rest) := (← get).waiters.dequeue? | return []
   let some a ← g.tryAdmit | return []
   modify fun st => { st with waiters := rest }
@@ -151,11 +162,32 @@ partial def Gate.admitWaiting (g : Gate) :
 /-- Check the queue again: a task of the schedule ended, so its memory is
 free. -/
 def Gate.recheck (g : Gate) : IO Unit := do
-  for (p, a) in ← g.state.atomically g.admitWaiting do p.resolve a
+  for (p, a) in ← g.state.atomically g.admitWaiting do p.resolve (some a)
 
-/-- The probe of `ticket` started, as process `pid`. -/
-def Gate.started (g : Gate) (ticket : Nat) (pid : UInt32) : IO Unit :=
-  g.state.atomically do modify fun st => { st with live := st.live.insert ticket (some pid) }
+/-- The probe of `ticket` started, as the session `s`. When the run stopped
+before this call (`stop`), the gate ends the probe at once, so `stop` misses
+no probe. -/
+def Gate.started (g : Gate) (ticket : Nat) (s : ProbeSession) : IO Unit := do
+  let stopped ← g.state.atomically do
+    let st ← get
+    set { st with live := st.live.insert ticket (some s) }
+    pure st.stopped
+  if stopped then probeServeKill s
+
+/-- The run stopped (fail fast, `docs/parallel.md` P24): admit no more
+probes, give `none` to every request that waits, and end every live probe
+(`probeServeKill`). A task that waits for a reply of a live probe then reads
+end of file and ends with an error, so every task of the schedule ends. Only
+the first call acts: a probe that starts later ends in `started`. -/
+def Gate.stop (g : Gate) : IO Unit := do
+  let ended ← g.state.atomically do
+    let st ← get
+    if st.stopped then return none
+    set { st with stopped := true, waiters := .empty }
+    pure (some (st.live.toList.filterMap (·.2), st.waiters.toArray))
+  let some (live, waiters) := ended | return
+  for p in waiters do p.resolve none
+  for s in live do probeServeKill s
 
 /-- The probe of `ticket` stopped: free its place and check the queue. -/
 def Gate.release (g : Gate) (ticket : Nat) : IO Unit := do

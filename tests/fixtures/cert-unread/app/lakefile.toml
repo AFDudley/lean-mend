@@ -1,0 +1,5 @@
+name = "app"
+defaultTargets = ["App"]
+
+[[lean_lib]]
+name = "App"

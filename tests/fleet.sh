@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # tests/fleet.sh <fixture>: S3b (docs/parallel.md P8, P10-P12). The fixture
 # breaks two independent modules, ModA and ModB, in one commit, so both
-# start their mends at once. ModA's accepted fix makes the kernel decide a
-# plain recursive count, so its attempt takes noticeably longer than ModB's:
-# the run must still replay the two modules in the ledger, and commit them
-# on the mend branch, in their canonical (topological) order — whichever
-# module's worktree finishes first.
+# start their mends at once. A test barrier in the fixture (see
+# tests/fixtures/fleet/ModA.lean) makes ModA's attempt wait until ModB's probe
+# stops, and ModB's attempt wait until ModA's attempt starts. So the two
+# attempts overlap (max_concurrent_attempts), and ModA's attempt ends last,
+# at any host load. The run must still replay the two modules in the ledger,
+# and commit them on the mend branch, in their canonical (topological) order.
+# The runner gives --max-memory 64, so both module probes start at once. If
+# one probe could not start, the barrier would fail after 600 s.
 #
 # stdout carries one JSON object and nothing else: {"max_concurrent_attempts",
 # "attempts_sharing_a_worktree", "mend_branch_writers_other_than_driver",
@@ -43,8 +46,11 @@ git -C "$app" add -A
 git -C "$app" commit -q -m "break ModA and ModB at once"
 
 # A limit of 64 GiB admits both module probes at once (docs/parallel.md P24),
-# whatever memory the host has free.
-"$bin" run "$app" --adopt --rules "$fx/rules" --max-memory 64 >&2 || true
+# whatever memory the host has free. `rm -rf "$work"` above removes the
+# barrier markers of the last run.
+mkdir -p "$work/barrier"
+FIXTURE_BARRIER_DIR="$work/barrier" \
+  "$bin" run "$app" --adopt --rules "$fx/rules" --max-memory 64 >&2 || true
 
 ledger="$app/.lean-mend/ledger.jsonl"
 

@@ -1,0 +1,14 @@
+{
+  "name": "cap-stop-held",
+  "class": "unknownIdentifier",
+  "entrenchment": "ratified",
+  "node": "any",
+  "candidates": [
+    {
+      "op": "replaceInBody",
+      "decl": "fooHeld",
+      "old": "exact unknownHeadHeld",
+      "new": "exact unknownHeadHeld\n\n#eval holdProbe"
+    }
+  ]
+}

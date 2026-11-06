@@ -1,0 +1,14 @@
+{
+  "name": "cap-stop-capped",
+  "class": "unknownIdentifier",
+  "entrenchment": "ratified",
+  "node": "any",
+  "candidates": [
+    {
+      "op": "replaceInBody",
+      "decl": "fooCapped",
+      "old": "exact unknownHeadCapped",
+      "new": "exact unknownHeadCapped\n\n#eval capThenHold"
+    }
+  ]
+}

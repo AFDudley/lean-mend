@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # tests/probe-bound.sh: the memory limit on the lean-mend process tree
 # (docs/parallel.md P17, P24, slice S5). tests/fixtures/probe-bound breaks
-# four independent modules in one commit. Each module's rule has two slow
-# candidates: the first keeps the break, the second fixes it. So each module
-# holds its probe for two slow attempts, and the four mends overlap when the
-# limit admits them.
+# four independent modules in one commit. Each module's rule has two
+# candidates: the first keeps the break, the second fixes it with a slow
+# decided count. So each module holds its probe for two attempts, and the
+# four mends overlap when the limit admits them.
 #
 # Each work item is charged 10 GiB (Core/Sched.lean, workEstimate). When
 # something runs, an admission needs the driver plus the charges of the
@@ -15,7 +15,12 @@
 #   at most 2 probes are live at any time, from the probeStart and
 #   probeStop times.
 # - reference: --max-memory 64, which admits all 4 probes. More than 2
-#   probes are live at one time, so the bounded case has an effect.
+#   probes are live at one time, so the bounded case has an effect. A test
+#   barrier in the fixture (see tests/fixtures/probe-bound/ModA.lean) makes
+#   this true at any host load: the first attempts of ModA, ModB and ModC
+#   each wait until all three started. The runner sets FIXTURE_BARRIER_DIR
+#   only for this case. The bounded and speculate cases admit fewer than 3
+#   probes at once, so there the barrier would not end.
 # - speculate: --max-memory 1 --speculate 3. The limit is below one charge,
 #   so each probe starts only when nothing runs (the progress rule), and a
 #   round gets no nested probe. The run must finish.
@@ -38,6 +43,8 @@ fx="$root/tests/fixtures/probe-bound"
 work="$root/.scratch/probe-bound"
 fail=0
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@lean-mend GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@lean-mend
+# Only the reference case below may see the barrier's marker directory.
+unset FIXTURE_BARRIER_DIR
 gib=$((1024 * 1024))
 
 rm -rf "$work"
@@ -117,7 +124,9 @@ else failed "bounded: the ledger starts with the limit of 21 GiB and the tree li
 if [ "$live" -le 2 ]; then pass "bounded: at most 2 probes are live at any time"
 else failed "bounded: at most 2 probes are live at any time ($live)"; fi
 
-runCase reference --max-memory 64
+# `rm -rf "$work"` above removes the barrier markers of the last run.
+mkdir -p "$work/barrier"
+FIXTURE_BARRIER_DIR="$work/barrier" runCase reference --max-memory 64
 if [ "$live" -gt 2 ]; then pass "reference: more than 2 probes are live at one time"
 else failed "reference: more than 2 probes are live at one time ($live)"; fi
 

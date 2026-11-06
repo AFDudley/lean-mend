@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 # tests/speculate.sh: S4 (docs/parallel.md P14-P16). tests/fixtures/speculate
 # has one open site with three candidates, in rule order: the first two
-# leave the site open and add a slow, decided computation, so their
-# rebuild takes noticeably longer; the third fixes the site and is fast.
+# leave the site open, and the third fixes the site. A test barrier in the
+# fixture (`barrierMark` and `barrierAwaitStopped` in App.lean) makes the
+# first two wait until the probe of the third stops. So the third finishes
+# first at any host load, and finish_order_inverted does not depend on time.
+#
+# The barrier needs the three candidates in one round at the same time. The
+# run gives --speculate 3 and --max-memory 64: the gate then admits two
+# nested probes, so `roundPlacement` puts the third candidate on its own probe,
+# which starts before the round attempts the first candidate. The runner sets
+# FIXTURE_BARRIER_DIR only for that run. The sequential run attempts the
+# first two candidates before the third, so there the barrier must be off.
 #
 # This runs the fixture once with --speculate 3 (the parallel path: every
 # candidate attempts at the same time, each in its own worktree) and once
@@ -20,6 +29,8 @@ source "$root/tests/lib/lean-mend.sh"
 fx="$root/tests/fixtures/speculate"
 work="$root/.scratch/speculate"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@lean-mend GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@lean-mend
+# Only the parallel run below may see the barrier's marker directory.
+unset FIXTURE_BARRIER_DIR
 
 rm -rf "$work"
 mkdir -p "$work"
@@ -52,8 +63,8 @@ committedIndex() {
   if [ "$n" -ne 1 ]; then echo 0; return; fi
   diff=$(git -C "$app" show --format= lean-mend/mend)
   if grep -qF '+  trivial' <<<"$diff"; then echo 3
-  elif grep -qF 'slowCount 75000' <<<"$diff"; then echo 2
-  elif grep -qF 'slowCount 80000' <<<"$diff"; then echo 1
+  elif grep -qF -- '-- slow candidate 2' <<<"$diff"; then echo 2
+  elif grep -qF -- '-- slow candidate 1' <<<"$diff"; then echo 1
   else echo 0
   fi
 }
@@ -64,8 +75,11 @@ setup "$parApp"
 setup "$seqApp"
 
 # A limit of 64 GiB admits the module probe and both nested probes at once
-# (docs/parallel.md P24), whatever memory the host has free.
-"$bin" run "$parApp" --adopt --rules "$fx/rules" --speculate 3 --max-memory 64 >&2 || true
+# (docs/parallel.md P24), whatever memory the host has free. `rm -rf "$work"`
+# above removes the markers of the last run.
+mkdir -p "$work/parallel/barrier"
+FIXTURE_BARRIER_DIR="$work/parallel/barrier" \
+  "$bin" run "$parApp" --adopt --rules "$fx/rules" --speculate 3 --max-memory 64 >&2 || true
 "$bin" run "$seqApp" --adopt --rules "$fx/rules" >&2 || true
 
 ledger="$parApp/.lean-mend/ledger.jsonl"
