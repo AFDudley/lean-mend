@@ -25,7 +25,9 @@ def baseline (target : System.FilePath) : IO UInt32 := do
     | .ok o => pure o
     | .error r => throw <| IO.userError s!"{repr r}"
   let (order, st) ← buildAll target [] order
-  let cert ← certificate target toolchain id mods st
+  let cert ← match ← certificate target toolchain id mods st with
+    | .ok cert => pure cert
+    | .error x => throw <| IO.userError x.message
   let failing := st.filterMap fun (n, s) => if s == .built then none else some n
   let next := (RunState.idle target.toString).step (.baseline cert failing)
   IO.println <| Json.compress <| Json.mkObj
@@ -56,12 +58,17 @@ structure RunOpts where
   annotate : Bool := false
   follow : Bool := false
   speculate : Nat := 1
+  /-- `--max-memory <GiB>` (`docs/parallel.md` P24). -/
+  maxMemory : Option Nat := none
+  /-- `--probe-cap <MiB>`: the hard cap of each probe (`docs/parallel.md` P24). -/
+  probeCap : Option Nat := none
 
 def usage : String :=
   "usage: lean-mend baseline <target>\n" ++
   "       lean-mend run <target> --adopt [--targets <t,…>] [--prepare <cmd>]\n" ++
   "                 [--rules <dir>] [--annotate-binders]\n" ++
   "                 [--follow-definition-changes] [--speculate <n>]\n" ++
+  "                 [--max-memory <GiB>] [--probe-cap <MiB>]\n" ++
   "                 [--aliases-from <project>]…\n" ++
   "       lean-mend cards <target>\n" ++
   "       lean-mend judge <target> <card> accept|reject --by <name>"
@@ -75,6 +82,8 @@ def parseOpts : List String → Option RunOpts
   | "--annotate-binders" :: more => (parseOpts more).map fun o => { o with annotate := true }
   | "--follow-definition-changes" :: more => (parseOpts more).map fun o => { o with follow := true }
   | "--speculate" :: n :: more => n.toNat?.bind fun w => (parseOpts more).map fun o => { o with speculate := w }
+  | "--max-memory" :: n :: more => n.toNat?.bind fun g => (parseOpts more).map fun o => { o with maxMemory := some g }
+  | "--probe-cap" :: n :: more => n.toNat?.bind fun m => (parseOpts more).map fun o => { o with probeCap := some m }
   | _ => none
 
 /-- Every `*.json` file of a rules directory, in file-name order, parsed. A file
@@ -96,11 +105,23 @@ def runCmd (t : String) (rest : List String) : IO UInt32 := do
       let rules ← match o.rules with
         | some d => loadRules d
         | none => pure []
-      let s ← runAdopt t o.targets o.aliasesFrom o.prepare rules o.annotate o.follow o.speculate
-      let target ← IO.FS.realPath t
-      let ws ← ledgerWarnings (target / ".lean-mend" / "ledger.jsonl")
-      IO.println ((summary s).setObjVal! "warnings" (toJson ws)).compress
-      return match s with | .halted _ => 1 | _ => 0
+      let r ← runAdopt t o.targets o.aliasesFrom o.prepare rules o.annotate o.follow o.speculate
+        o.maxMemory o.probeCap
+      match r with
+      | .error x =>
+        -- A typed stop: a probe passed its hard cap (`docs/parallel.md`
+        -- P24), or the certificate has no row for a declaration
+        -- (`docs/verification.md` § The certificate). Exit 3.
+        IO.eprintln x.message
+        let (name, fields) := x.note
+        IO.println <| Json.compress <| Json.mkObj
+          ([("state", toJson s!"halted {name}")] ++ fields)
+        return 3
+      | .ok s =>
+        let target ← IO.FS.realPath t
+        let ws ← ledgerWarnings (target / ".lean-mend" / "ledger.jsonl")
+        IO.println ((summary s).setObjVal! "warnings" (toJson ws)).compress
+        return match s with | .halted _ => 1 | _ => 0
     | none => IO.eprintln usage; return 2
   | _ => IO.eprintln usage; return 2
 

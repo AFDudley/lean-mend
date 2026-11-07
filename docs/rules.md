@@ -56,14 +56,16 @@ for the site, and writes a replacement for that node's byte range only
 | `simpaToExact` | `simpa […] using T` becomes `exact T` | the pc-sum defeq class (§14.3), `default : UInt256` |
 | `simpaSplit` | `simpa [L] using h` (h a hypothesis name) becomes `simp [L] at h ⊢` then `exact h`; for a term `T` after `using`, `have := T`, then `simp [L] at this ⊢`, then `exact this` (a `have` is not a declaration, D10; EVMLean `StaticStorage` 211, 247, as the hand bump did). A dotted name such as `hwf.d3` is a term, not a hypothesis name: Lean refuses it after `at` ("expected single reference to variable"). `exact` accepts the two sides up to definitional equality, so a hidden difference such as two different `Decidable` instances, or a sum of literals against one literal, no longer blocks the proof | EVMLean `AccountLocality` 2558, 2657, 2716, 2831: "Type mismatch: After simplification" with identical printed types; the hand bump made the same split at all four. EquiVM `Reasoning.SolcRoutines` 1464–1509: run 5 wrote `simp only [u256_add_assoc] at hwf.d3 ⊢`, which Lean refuses; the `have` form removed the error at 38 of 38 sites |
 | `simpaUsingBang` | `simpa [L] using T` becomes `simpa [L] using! T`. From Lean v4.31.0 ([#13636](https://github.com/leanprover/lean4/pull/13636)) `simpa … using` closes at reducible transparency; `using!` ([#13833](https://github.com/leanprover/lean4/pull/13833)) closes at default transparency, as `using` did before. The v4.31.0 release notes name this migration. It keeps the simp set and simplifies both sides, unlike `simpaToExact`. Like `simpaToExact`, it depends on definitional unfolding | EquiVM `Reasoning.SolcRoutines` 1464–1509 (38 sites, rule `simpa-close-transparency`): the term has `pc + { val := 3 }` and the abbrev `Operation.PUSH3`, the goal has `pc + (UInt256.ofNat 2 + { val := 1 })` and `Operation.Push Operation.POp.PUSH3`; `using!` removed the error at 38 of 38 sites |
+| `simpaUsingBangNested` | `simpaUsingBang` on the site's `simpa` and on every `simpa … using` that holds it, in one edit over the outermost of them. While a `by` block in a `simpa` term fails, Lean does not report the outer `simpa`'s own close. After the inner repair it does, at an earlier position, so the progress check (machine.md, structural check 5) rejects the inner edit alone. A `simpa` that no `simpa` holds gives no candidate: that edit is `simpaUsingBang`'s | EquiVM `ERC6909.SetOperator` 49 (rule `simpa-using-bang-nested`): `using!` at 49 alone moved the error to the outer `simpa` at 44; `using!` at 49 and 44 removed the module's last error |
 | `keywordSwap` `from` `to` | replace the tactic keyword | `rw` → `erw` (§13.3) |
 | `deleteTactic` | remove the tactic | the no-op `dsimp only at h`; a trailing `decide +kernel` after the goal is closed |
+| `deleteShowRewrite` | remove a `rw`, `rewrite` or `erw` whose every rewrite rule is a `show` term (`rw [show a = b by t]`): a local equation that only changes the form of a term, which the simp before it already rewrites. A rule list that holds any other rule (a lemma such as `if_neg`) gives no candidate: such a rule is a step of the proof, and deleting it only moves the error | EquiVM `Examples.BlindAuction.Reveal.Common` 2814, 2822, 2854 (rule `rw-show-redundant`): the adopt commit's `@[simp] u256_toNat_lit*` lemmas let `simp [M]` rewrite `(⟨32⟩ : UInt256).toNat`, so the `rw [show …]` finds nothing; `simp only [show …]` makes no progress. At `Examples.UniswapV2Pair.UpdateSource` 828, deleting `rw [if_neg]` moved the error to the next `rfl` (9 errors → 10) |
 | `valCompare` | the class of a `Fin`-based value compared with a numeral (`missingDecidable`, Lean's message `Decidable (x = n)`): in the whole declaration, `match x with`, `x = n` and `x ≠ n` become `match x.val with`, `x.val = n` and `x.val ≠ n`, in one edit. A change that touches the statement goes through `--follow-definition-changes` (decision D12) | EVMLean `Semantics` 1040 (body) and `GasLemmas` `precompile_dispatch_match_eq_if` (statement and proof): the hand bump made the same change. Per-node `matchOnVal` changed only the `match`, so the lemma's two sides no longer matched and `split` timed out |
 | `closeBullet` `tactic` | replace the innermost bullet (`· …`) that holds the site with `· tactic`, in a proof body: a decision procedure (`omega`, `simp_all`, `decide`) closes what the bullet's proof no longer does. The least preferred repair: a rule whose operations are all `closeBullet` runs after every other rule of its entrenchment. The method is `tryAtEachStep` (Renshaw) | EVMLean `GasLemmas` 48, 50: after `matchToIf` changed `Ccallgas`, the proof's `split` split another `if`; `· omega` closes both bullets |
 | `appendTactic` `tactic` | insert `tactic` after the node, on its own line at the node's column, to close the goal the node leaves | EVMLean `Wheels.lean` 53 and 99: `simp [UInt256.size, …]` leaves `↑x < 2^256`; the hand repair was `simpa [...] using val.val.isLt`, which names a local variable; `exact Fin.isLt _` is the same step without the name |
 | `renamePrefix` `old` `new` | a namespace move with no `@[deprecated]` aliases: every identifier in the file that starts with the name `old` (whole components) gets `new`, in one edit. Any site whose message names a moved name triggers it, whatever its class. A per-site rename failed on EVMLean: renaming a lemma's statement let Lean check its proof, which still had the old names, so the error count did not fall. A declaration that the target itself declares under the moved prefix (EVMLean: `def Batteries.RBMap.partition`) is renamed too, and gets an exact alias, so `compare` finds it | Batteries v4.33.1 moved `Batteries.RBMap`, `RBSet`, `RBNode` to `RBTree.*`; `Batteries.Data.RBMap` is a `deprecated_module` with no per-name aliases |
 | `replaceInBody` `decl` `old` `new` | in declaration `decl`, replace text `old`, which must occur exactly once in its body, with `new` | the form of an agent's residue repair (§ From residue to rule) |
-| `heartbeats` `n` | put `set_option maxHeartbeats n in` before the declaration | the deep pc reaches (§14.3 limit) |
+| `heartbeats` `n` | put `set_option maxHeartbeats n in` before the declaration. The least preferred repair: a rule whose operations are all `heartbeats` runs after every other rule of its entrenchment, after the `closeBullet` rules | the deep pc reaches (§14.3 limit); EquiVM `Examples.UniswapV2Pair.PermitDecode` 97 (rule `heartbeat-raise`) |
 
 An operation that does not apply to the node (for example `simpaToExact` on a
 node that is not `simpa … using`) gives no candidate. It is not an error.
@@ -77,7 +79,9 @@ or `node` `any` with no `class` other than `unknown`. `deleteTactic` is allowed
 only in a rule whose class is `simpNoProgress` or `noGoals` (text
 `No goals to be solved`). Deleting a tactic that does nothing cannot weaken
 a proof: the kernel still checks the result, and `sorry` stays forbidden
-(structural check 2 in [machine.md](machine.md)).
+(structural check 2 in [machine.md](machine.md)). `deleteShowRewrite` is
+allowed only in a rule whose class is `tacticFailed`: a rewrite that finds
+nothing is `` Tactic `rewrite` failed ``.
 
 The `split_ifs <;> rfl` case (§13.1, two branches with different `Decidable`
 instances) has no operation. It stays residue for an agent.
@@ -130,8 +134,8 @@ shows the break and its repair.
 | `missingDecidable` | kind `lean.synthInstanceFailed._namedError` with `Decidable` in the text | `match` on `p.val`; an `if` with `decide` |
 | `typeMismatch` | text `Type mismatch`, for example between the literal forms `UInt256.ofNat N` and `{ val := N }`, or between `↑i` and `i.val` for `Fin` | literal forms: `rfl` → `by decide`, `show` with the other form, `simp only` with the constructor lemma; `Fin`: `Fin.val_cast_of_lt`, explicit `.val` |
 | `simpNoProgress` | text `` `simp` made no progress `` | `simp [Id.run]`; the named lemma that left the default set |
-| `unsolvedGoals` | kind `Tactic.unsolvedGoals` | the tactic with the lemma set from a rule; `first | … | …` chains |
-| `tacticFailed` | text `Tactic \`x\` failed` | `simpArgAddPrior` (a lemma in the simp before the failing tactic); `rw` → `erw`; `closeBullet` |
+| `unsolvedGoals` | kind `Tactic.unsolvedGoals` | the tactic with the lemma set from a rule; `first | … | …` chains; `appendTactic` `simp_all` when the goal needs a hypothesis in the goal's normal form (EquiVM run 7: a new simp lemma rewrote the goal before the hypothesis matched; an `if` whose `Decidable` instance kept a folded name) |
+| `tacticFailed` | text `Tactic \`x\` failed`; text `omega could not prove the goal` (`omega` names no kind and no tactic; EquiVM run 7 put its four sites in `unknown`) | `simpArgAddPrior` (a lemma in the simp before the failing tactic); `rw` → `erw`; `closeBullet` |
 | `noGoals` | text `No goals to be solved`: a tactic after the goal is closed | `deleteTactic` (EquiVM: a trailing `decide +kernel`) |
 | `heartbeat` | kind `runtime.maxHeartbeats` | `set_option maxHeartbeats N in`, with N from the rule |
 | `wallclock` | a timeout without `deterministic` | no candidates; see [machine.md](machine.md) |
@@ -146,8 +150,8 @@ decides first, because it does not depend on wording. Where Lean names no kind
 (`[anonymous]`), the text decides, compared without case. The first version
 compared lowercase text only and put three classes into `unknown`, because Lean
 prints `Unknown identifier`, `Type mismatch` and `` `simp` made no progress ``.
-`tests/fixtures/diagnostics/` holds the real output of v4.29.0 and v4.35.0,
-and `tests/ClassifyTest.lean` checks every class against it. `classify` does not
+`tests/fixtures/diagnostics/` holds the real output of v4.29.0 and v4.35.0
+(and of v4.33.1 for `omega`), and `tests/ClassifyTest.lean` checks every class against it. `classify` does not
 use the rule set. A class with no rules is still a class.
 
 ## Attribution by bisect

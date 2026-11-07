@@ -37,9 +37,10 @@ structure Decl where
   name : String
   module : String
   kind : DeclKind
-  /-- SHA-256 of the statement region, after the alias map. -/
+  /-- `String.hash` of the statement's token sequence, after the alias map
+  (`docs/verification.md` § The certificate). -/
   statementHash : String
-  /-- SHA-256 of the body region. -/
+  /-- `String.hash` of the body region's text, after the alias map. -/
   bodyHash : String
   axioms : List String
   deriving DecidableEq, Repr
@@ -54,6 +55,20 @@ structure Certificate where
   baseline. -/
   followed : List String := []
   deriving Repr
+
+/-- A declaration that the certificate selects but whose row the probe cannot
+give (`docs/verification.md` § The certificate). `compare` would not check a
+declaration with no row, so the run stops on it. -/
+structure DeclUnread where
+  module : String
+  decl : String
+  /-- The probe's reason, for example the byte where the declaration starts
+  and no command that parsed holds it. -/
+  reason : String
+  deriving DecidableEq, Repr
+
+def DeclUnread.message (e : DeclUnread) : String :=
+  s!"lean-mend: the certificate has no row for {e.decl} in {e.module}: {e.reason}"
 
 /-- Old name to final new name, from `@[deprecated]` under the new toolchain. -/
 structure AliasMap where
@@ -78,7 +93,8 @@ inductive ErrorClass where
   parameters appearing in the declaration header may have their binders kinds
   be overridden"). -/
   | binderOverride
-  /-- A tactic could not act on its goal ("Tactic `split` failed: …"). -/
+  /-- A tactic could not act on its goal ("Tactic `split` failed: …", "omega
+  could not prove the goal: …"). -/
   | tacticFailed
   /-- A tactic ran after its goal was closed ("No goals to be solved"). -/
   | noGoals
@@ -340,8 +356,22 @@ inductive EditOp where
   `simpa … using` at reducible transparency; `using!` closes at default
   transparency, as `simpa … using` did at v4.29. -/
   | simpaUsingBang
+  /-- `simpaUsingBang` on the site's `simpa` and on every `simpa … using`
+  that holds it, in one edit over the outermost of them. While a `by` block in
+  a `simpa` term fails, Lean does not report the outer `simpa`'s own close.
+  After the inner repair it does, at an earlier position, so the inner edit
+  alone is rejected (EquiVM `ERC6909.SetOperator` 49). -/
+  | simpaUsingBangNested
   | keywordSwap (from_ to : String)
   | deleteTactic
+  /-- Delete a `rw [show a = b by t, …]` (`rw`, `rewrite` or `erw`) whose
+  every rewrite rule is a `show` term: a local equation that only changes the
+  form of a term. The simp before it already rewrites `a`, so the rewrite finds
+  nothing (EquiVM `Examples.BlindAuction.Reveal.Common` 2814: `simp [M]` with
+  the lemmas `u256_toNat_lit*` rewrites `(⟨32⟩ : UInt256).toNat`). A rule list
+  with any other rule gives no candidate: a lemma such as `if_neg` is a step
+  of the proof, and its deletion only moves the error. -/
+  | deleteShowRewrite
   /-- In declaration `decl`, replace the text `old` with `new`. `old` must
   occur exactly once in the declaration's body. The form in which an agent or a
   person returns a residue repair (`docs/rules.md` § From residue to rule). -/

@@ -1,0 +1,14 @@
+{
+  "name": "dataflow-fast",
+  "class": "unknownIdentifier",
+  "entrenchment": "ratified",
+  "node": "any",
+  "candidates": [
+    {
+      "op": "replaceInBody",
+      "decl": "fooF",
+      "old": "exact unknownHeadF",
+      "new": "trivial"
+    }
+  ]
+}

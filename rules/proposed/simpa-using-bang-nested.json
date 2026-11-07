@@ -1,0 +1,12 @@
+{
+  "name": "simpa-using-bang-nested",
+  "class": "typeMismatch",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "EquiVM v4.29.0 -> v4.33.1, lean-mend run 7 residue, Examples.OpenZeppelinBench.ERC6909.SetOperator 49: `(by simpa [setOperatorApprovedWord, calldataWord] using hbool)` is an argument in the term of the `simpa […] using decodeCalldata_addr_bool_ok …` at 44. The term has `readBytes ({ val := 4 } + { val := 32 }).toNat 32`, the goal `readBytes 36 32`: equal at default transparency only (v4.31.0 #13636, the class of simpa-close-transparency). Run 7 tried simpaUsingBang and simpaToExact at 49: each removed the error at 49, and Lean then reported the outer simpa at 44, an earlier position, so the error count stayed 9 and the candidate was rejected. Measured on untracked copies of the real module (1 error before): `using!` at 49 alone, 1 error at 44; `exact hbool` at 49 alone, 1 error at 44; `using!` at 49 and at 44 together (this rule's one edit), 0 errors and no warning in lines 44-49.",
+    "introduced_by": { "package": "lean4", "commit": "v4.31.0 #13636 (simpa using closes at reducible transparency); #13833 adds `simpa ... using!`." }
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.33.1" },
+  "node": "simp",
+  "candidates": [ { "op": "simpaUsingBangNested" } ]
+}

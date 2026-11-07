@@ -1,0 +1,14 @@
+{
+  "name": "dataflow-dep",
+  "class": "unknownIdentifier",
+  "entrenchment": "ratified",
+  "node": "any",
+  "candidates": [
+    {
+      "op": "replaceInBody",
+      "decl": "fooD",
+      "old": "exact unknownHeadD",
+      "new": "rfl\n\n#eval barrierMark \"dep\""
+    }
+  ]
+}

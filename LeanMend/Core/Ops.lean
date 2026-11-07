@@ -39,10 +39,40 @@ def pickNode (f : TacticFamily) (nodes : List Node) : Option Node :=
     | t :: _ => f == .any || f.keywords.contains t.text
     | [] => false
 
+/-- `ts` are the tokens after the `[` of a rewrite rule list. True if the list
+closes and every rule in it starts with `show`. A `,` separates two rules only
+outside brackets, so `show f (a, b) = c` stays one rule. -/
+private def showRules (ts : List Token) : Bool :=
+  let opens := ["(", "[", "{", "⟨"]
+  let closes := [")", "]", "}", "⟩"]
+  -- (depth inside the list, next token starts a rule, every rule is `show`, closed)
+  let (_, _, allShow, closed) := ts.foldl (init := ((0 : Nat), true, true, false))
+    fun (d, first, ok, done) t =>
+      if done then (d, first, ok, done)
+      else
+        let ok := ok && (!first || t.text == "show")
+        if opens.contains t.text then (d + 1, false, ok, false)
+        else if closes.contains t.text then
+          if d == 0 then (0, false, ok, t.text == "]") else (d - 1, false, ok, false)
+        else if t.text == "," && d == 0 then (d, true, ok, false)
+        else (d, false, ok, false)
+  allShow && closed
+
 /-- Bytes of `s` before and after the byte range `[a, b)`, relative to `s`. -/
 private def splice (s : String) (a b : Nat) (ins : String) : String :=
   let bs := s.toUTF8
   String.fromUTF8! (bs.extract 0 a) ++ ins ++ String.fromUTF8! (bs.extract b bs.size)
+
+/-- The `using` token of each `simpa` in `ts`: the first `using` after it,
+with no other `simpa` or `using!` between. -/
+def simpaUsings : List Token → List Token
+  | [] => []
+  | t :: rest =>
+    let own := if t.text != "simpa" then [] else
+      match rest.find? (fun u => u.text == "using" || u.text == "using!" || u.text == "simpa") with
+      | some u => if u.text == "using" then [u] else []
+      | none => []
+    own ++ simpaUsings rest
 
 /-- The replacement text for node `n` under `op`, or `none` if `op` does not
 apply. Token ranges are absolute; `n.start` converts them to node offsets. -/
@@ -121,6 +151,13 @@ def applyOp (op : EditOp) (n : Node) : Option String :=
       | some u => some (splice n.text (rel u).1 (rel u).2 "using!")
       | none => none
     | [] => none
+  | .simpaUsingBangNested =>
+    -- every `simpa`'s `using` in the node becomes `using!`. Fewer than two is
+    -- no nesting: that edit is `simpaUsingBang`'s.
+    let us := simpaUsings n.tokens
+    if (n.tokens.head?.map (·.text)) != some "simpa" || us.length < 2 then none
+    -- from the last token to the first, so earlier offsets stay valid
+    else some (us.foldr (fun u s => splice s (rel u).1 (rel u).2 "using!") n.text)
   | .keywordSwap a b =>
     match n.tokens with
     | k :: _ => if k.text == a then some (splice n.text (rel k).1 (rel k).2 b) else none
@@ -160,6 +197,12 @@ def applyOp (op : EditOp) (n : Node) : Option String :=
             String.fromUTF8! (bs.extract (w.start - n.start) bs.size))
     | _, _ => none
   | .deleteTactic => some ""
+  | .deleteShowRewrite =>
+    match n.tokens with
+    | k :: b :: rest =>
+      if ["rw", "rewrite", "erw"].contains k.text && b.text == "[" && showRules rest then some ""
+      else none
+    | _ => none
   | .appendTactic t =>
     some (n.text ++ "\n" ++ String.ofList (List.replicate n.column ' ') ++ t)
   | .rename _ _ | .renamePrefix _ _ | .replaceInBody _ _ _ | .heartbeats _ | .valCompare
@@ -191,6 +234,15 @@ def priorSimp (nodes : List Node) (site : Nat) : Option Node := do
   let stop := prior.start + text.utf8ByteSize
   pure { kind := "priorSimp", start := prior.start, stop, text, column := q.column,
          tokens := q.tokens.filter fun t => prior.start ≤ t.start && t.stop ≤ stop }
+
+/-- The outermost `simpa` tactic among `nodes`: the earliest start, then the
+latest stop. -/
+def outermostSimpa (nodes : List Node) : Option Node :=
+  let simpas := nodes.filter fun n => !n.isSequence && (n.tokens.head?.map (·.text)) == some "simpa"
+  simpas.foldl (init := none) fun best n =>
+    match best with
+    | some b => if n.start < b.start || (n.start == b.start && n.stop > b.stop) then some n else some b
+    | none => some n
 
 /-- The variable in Lean's message `Decidable (x✝ = n)`: `x`. -/
 def decidableVar (d : Diagnostic) : Option String :=
@@ -342,6 +394,14 @@ def ruleCandidates (follow : Bool) (r : Rule) (nodes : List Node) (s : Site) : L
                tokens := addedTokens txt t, changed := spans }
       else
         pure { mk (.body d) a (a + txt.utf8ByteSize) t with changed := spans }
+    | .simpaUsingBangNested, some d, some .body => do
+      -- the site's own tactic is a `simpa`; the edit spans the outermost
+      -- `simpa` that holds it
+      let own ← pickNode r.family nodes
+      guard ((own.tokens.head?.map (·.text)) == some "simpa")
+      let n ← outermostSimpa nodes
+      let repl ← applyOp .simpaUsingBangNested n
+      pure (mk (.body d) n.start n.stop repl)
     | op, some d, some .body => do
       let n ← pickNode r.family nodes
       let repl ← applyOp op n
@@ -441,10 +501,14 @@ def proposeAll (m : AliasMap) (rules : List Rule) (nodes : List Node)
     (annotate follow : Bool) (followed : List String) (s : Site) : List Candidate :=
   -- A rule that only closes bullets replaces the author's proof: the least
   -- preferred repair, so it runs after every other rule of its entrenchment.
+  -- A rule that only raises `maxHeartbeats` hides a cost regression upstream
+  -- (`docs/rules.md` § Entrenchment and order, item 4), so it runs last.
   let closer (r : Rule) := r.ops.all fun | .closeBullet _ => true | _ => false
+  let budget (r : Rule) := r.ops.all fun | .heartbeats _ => true | _ => false
   let byE (e : Entrenchment) :=
     let rs := rules.filter (·.entrenchment == e)
-    (rs.filter (!closer ·) ++ rs.filter closer).flatMap (ruleCandidates follow · nodes s)
+    (rs.filter (fun r => !closer r && !budget r) ++ rs.filter closer ++ rs.filter budget).flatMap
+      (ruleCandidates follow · nodes s)
   let all := propose m s ++ (if annotate then typeCandidates s else []) ++
     byE .ratified ++ byE .proposed ++
     followCandidates (rules.filter (followed.contains ·.name)) nodes s

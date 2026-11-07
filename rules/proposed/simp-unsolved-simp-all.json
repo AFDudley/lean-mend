@@ -1,0 +1,11 @@
+{
+  "name": "simp-unsolved-simp-all",
+  "class": "unsolvedGoals",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "EquiVM v4.29.0 -> v4.33.1, lean-mend run 7 residue, Examples/UniswapV2Pair/SkimSafeTransferReturn.lean 58, 67, 396, 407: `simp [M, show (⟨32⟩ : UInt256).toNat = 32 from by decide, haw64]` with `haw64 : UInt256.ofNat (MachineState.M aw.toNat (⟨64⟩ : UInt256).toNat 32) = aw`. The adopt commit efbfb862 added `@[simp] u256_toNat_lit64` to Reasoning/Solc.lean (`simp?` names it), so simp rewrites the literal in the goal to `64` before `haw64` can match, and `Cₘ (UInt256.ofNat (MachineState.M aw.toNat 64 32)) - Cₘ aw = 0` stays open; `haw64` is then unused. Simp does not simplify the left side of a hypothesis that it uses as a rewrite rule. `simp_all` simplifies the hypothesis with the same lemma, then rewrites the goal with it. The run 7 candidates (Fin.lt_def, exact Fin.isLt _, omega, ← Nat.not_le, ← Nat.not_lt, Id.run, pure) failed. Measured on a copy of the real module at v4.33.1: `simp_all` after each of the 4 simps leaves the module with 0 errors, and Lean flags `haw64` unused in each simp; the cleaned edit (the simp without `haw64`, then `simp_all`) also leaves 0 errors and no warning. A named lemma cannot express the repair: the lemma to remove names one literal."
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.33.1" },
+  "node": "simp",
+  "candidates": [ { "op": "appendTactic", "tactic": "simp_all" } ]
+}

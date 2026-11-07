@@ -1,4 +1,5 @@
 import LeanMend.Core.Run
+import Std.Data.HashSet
 
 /-!
 # Module-graph order
@@ -27,5 +28,15 @@ def topoOrder (mods : List Module) : Except Refusal (List Module) :=
         .error (.observationMismatch s!"import cycle among {rest.map (·.name)}")
       else go fuel waiting (done ++ ready.map (·.name)) (ready.reverse ++ acc)
   go (mods.length + 1) mods [] []
+
+/-- Every module of `mods` that `n` imports, directly or through other
+modules of `mods`, in `mods` order. `mods` must be in `topoOrder` order: a
+module then comes after every module it imports, so one pass from the end
+visits each importer before its imports. A module's followed-rule snapshot
+is the body rules of these modules (`docs/parallel.md` P22). -/
+def importClosure (mods : List Module) (n : String) : List String :=
+  let reach := mods.foldr (init := ({n} : Std.HashSet String)) fun m acc =>
+    if acc.contains m.name then m.imports.foldl (·.insert ·) acc else acc
+  (mods.filter fun m => m.name != n && reach.contains m.name).map (·.name)
 
 end LeanMend

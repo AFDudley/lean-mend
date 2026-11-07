@@ -1,0 +1,14 @@
+name = "app"
+defaultTargets = ["Slow", "Fast", "Dep", "Clean"]
+
+[[lean_lib]]
+name = "Slow"
+
+[[lean_lib]]
+name = "Fast"
+
+[[lean_lib]]
+name = "Dep"
+
+[[lean_lib]]
+name = "Clean"

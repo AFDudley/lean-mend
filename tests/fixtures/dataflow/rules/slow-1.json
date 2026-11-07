@@ -1,0 +1,14 @@
+{
+  "name": "dataflow-slow-1",
+  "class": "unknownIdentifier",
+  "entrenchment": "ratified",
+  "node": "any",
+  "candidates": [
+    {
+      "op": "replaceInBody",
+      "decl": "fooS1",
+      "old": "exact unknownHeadS1",
+      "new": "trivial\n\n#eval barrierAwait [\"dep\"]"
+    }
+  ]
+}

@@ -20,7 +20,7 @@ All operands are typed Lean values. The shell parses them once, at the edge
 | `ModuleGraph` | modules and their imports, acyclic by construction | the probe reads the import headers |
 | `Decl` | name, kind (`theorem`, `def`, `instance`, `abbrev`, `axiom`, other), statement hash, axioms | the probe |
 | `Certificate` | toolchain, the set of built modules, a map from declaration name to `Decl` | the probe |
-| `Diagnostic` | module, position, end position, severity, text | `lean --json` |
+| `Diagnostic` | module, position, end position, severity, text | the messages of `lean --json`, from the probe's `elaborate` request (`docs/parallel.md` C5) |
 | `Site` | module, the syntax node that contains the first error position, its region (`statement` or `body`), its diagnostic | the probe and the diagnostic |
 | `ErrorClass` | a closed inductive type | computed by `classify` (pure) |
 | `Rule` | name, entrenchment, provenance, class, syntax pattern, ordered candidate templates | rule files |
@@ -45,6 +45,7 @@ stateDiagram-v2
   baselined --> built : bumped [alias map resolves] / every module blocked
   baselined --> halted : bumped [alias cycle] / aliasCycle
   built --> built : build [settled]
+  built --> built : moduleBuild [a ready blocked module builds or fails; a mended module builds]
   built --> mending : diagnosed [module in frontier]
   mending --> mending : mend [Mending.step ok]
   mending --> built : mended [Mending.next = finish]
@@ -119,6 +120,7 @@ ledger before the transition runs.
 | `baseline cert failing` | `idle` | `failing` is empty | `baselined`; else `baselineRed` (lean-mend does not mend a target that was already broken) |
 | `bumped mods aliases` | `baselined` | the alias map resolves | `built`; else `aliasCycle` |
 | `build st` | `built` | `Settled`: no closed module changed status | `built`; else `observationMismatch` |
+| `moduleBuild module s` | `built` | `module` is `blocked` and in `ready` (open, every import builds), and `s` is `built` or `failing`; or `module` is `built` and `s` is `built` | `built`, with `module` set to `s`; else `observationMismatch` |
 | `diagnosed module sites` | `built` | the module is in the frontier | `mending` |
 | `mend (rebuilt e lint sites)` | `mending` | the head site has a candidate | `e` is the module's whole error count, residue included. Accept if `e` is below unresolved plus residue, the candidate is clean, `lint` is 0, and `sites` (without residue sites) fit `e`; else reject |
 | `mend unparsable` | `mending` | the head site has a candidate | reject |
@@ -130,6 +132,13 @@ ledger before the transition runs.
 A dependency package that does not build (`dependencyRed`) and a second
 wall-clock timeout (`hostTimeout`) are refusals the shell raises before it
 makes an observation.
+
+The shell takes a certificate only when the probe gives a row for each
+declaration that the certificate selects. When the probe cannot give one, the
+shell stops the run with the typed error `DeclUnread` before the `baseline`
+or `certificate` observation. The error names the module and the
+declaration (`docs/verification.md` § The certificate). Without the row,
+`compare` would not check the declaration.
 
 The structural checks on an attempt (concept C2, structural):
 
@@ -154,7 +163,7 @@ The structural checks on an attempt (concept C2, structural):
 4. Lean reports no linter warning (message kind `linter.*`) inside the
    replaced bytes. `lint` in the observation is that count. The kind is the
    same in v4.29.0, v4.33.1 and v4.35.0, and the warnings come from the same
-   `lean --json` run that counts the errors. Only warnings inside the edit
+   elaboration that counts the errors. Only warnings inside the edit
    count: a declaration that had an error was not linted, so its older
    warnings can appear after any repair. The replaced bytes are the whole
    tactic node, so an argument that was already unused in that tactic also
@@ -229,7 +238,8 @@ because only a person can decide that the difference is acceptable.
 
 The run stops. The measure is lexicographic, over:
 
-1. the number of modules that are `failing` or `blocked`, and not `residual`;
+1. the number of modules that are `failing` or `blocked`, and not `residual`,
+   then the number of modules that are `blocked`;
 2. inside `Mending`, the number of error sites in the module that are not
    marked residue;
 3. the head site's `Site.reach`, its distance in bytes to the end of its
@@ -243,9 +253,9 @@ new unresolved count is `e` minus the residue. An exposing `accept` keeps item
 2 and reduces item 3: an edit changes no byte after itself, so the exposed
 error's distance to the declaration's end is smaller. `reject` reduces item 4.
 `Residue` removes a site, so it reduces item 2. A module leaves `Mending` built
-or residual, so item 1 falls at the next `build`. A blocked module becomes a
-frontier module only when an import starts to build, and that never adds to
-item 1.
+or residual, so item 1 falls at `mended`. A blocked module becomes failing or
+built only at a `moduleBuild`, when every module it imports builds: that
+never raises the open count, and it lowers the blocked count.
 
 The decrease is proved in `LeanMend/Spec/Termination.lean`:
 
@@ -255,6 +265,8 @@ The decrease is proved in `LeanMend/Spec/Termination.lean`:
 | `openCount_finish` | leaving `Mending` with the module `built` or `residual` lowers item 1 |
 | `openCount_settled` | a settled `build` never raises item 1 |
 | `frontier_open` | a frontier module is open, so `openCount_finish` applies to it |
+| `RunState.moduleBuilt_settled` | a `moduleBuild` keeps every closed module as it was, so it never raises item 1 |
+| `blockedCount_moduleBuilt` | a `moduleBuild` that unblocks a module lowers the blocked count |
 
 There is no retry cap and no iteration limit (concept D5).
 
