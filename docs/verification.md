@@ -325,6 +325,12 @@ Proved now (`lake build` checks them; `#print axioms` shows only `propext`,
 - **Branch soundness.** `branchSound`: every patch on the mend branch has
   its error count fall and is clean, because `Accepted` carries the evidence.
 - **Compare soundness.** `compare_nil`: no finding means `NoHarm`.
+- **Indexed compare.** `compareIx_eq`: `compareIx` over a `CompareIndex`
+  gives the same findings as `compare`, in the same order. `RunState.close`
+  runs `compareIx`. `compare` looks up each baseline declaration in the
+  lists of the after certificate and the alias map. On EquiVM run 10 (22576
+  declarations, 3382 alias pairs), one `lean-mend judge` took 38 to 44 min.
+  `compareIx` looks up each name in a hash map, and the same call takes 0.5 s.
 - **Termination.** `Mending.step_measure`, `openCount_finish`,
   `openCount_settled`, `frontier_open` (see [machine.md](machine.md)).
 

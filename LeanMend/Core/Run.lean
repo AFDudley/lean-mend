@@ -226,10 +226,11 @@ inductive RunObs where
   | certificate (after : Certificate)
   | judgment (j : Judgment)
 
-/-- `compare`, then the next state: `done`, `awaiting` or a refusal. -/
+/-- `compare`, then the next state: `done`, `awaiting` or a refusal. It runs
+`compareIx`, which `compareIx_eq` proves equal to `compare`. -/
 def RunState.close (c : Context) (after : Certificate) (residue : List String)
     (js : List Judgment) : RunState :=
-  let fs := compare c.aliases c.base after js
+  let fs := compareIx (.of c.aliases after) c.base js
   match fs.find? (·.reason.card.isNone) with
   | some f => .halted (.invariantBroken f.decl.module)
   | none => if fs.isEmpty then .done c after residue js else .awaiting c after residue js fs

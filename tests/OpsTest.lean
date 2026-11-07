@@ -282,6 +282,63 @@ def run : IO Nat := do
     let ok := (typeChanges ⟨[]⟩ base after).map (·.2) == ["changed"] && (compare ⟨[]⟩ base after []).isEmpty
     IO.println s!"{if ok then "ok  " else "FAIL"} a changed type is a warning, not a finding"
     unless ok do failed := failed + 1
+  -- `compareIx` is the `compare` that `RunState.close` runs. On a generated
+  -- certificate pair it gives the same findings, in the same order, as the
+  -- list `compare` (theorem `compareIx_eq`). The pair has renamed, removed,
+  -- added, changed and duplicate declarations, and a module that is not built.
+  do
+    let kinds : Array DeclKind := #[.theorem, .def, .instance, .abbrev, .inductive, .structure, .axiom]
+    let ids := List.range 600
+    let baseDecl (i : Nat) : Decl :=
+      { name := s!"N.d{i}", module := s!"M{i % 9}", kind := kinds.getD (i % 7) .other,
+        statementHash := s!"s{i}", bodyHash := s!"b{i}",
+        axioms := if i % 2 == 0 then ["propext"] else [] }
+    -- the case of declaration i: a fixed pseudo-random spread over 11 cases
+    let case (i : Nat) : Nat := (i * 7919) % 11
+    let afterRows (i : Nat) : List Decl :=
+      let b := baseDecl i
+      match case i with
+      | 0 => []
+      | 1 => [{ b with name := s!"N.r{i}" }]
+      | 2 => [{ b with name := s!"N.r{i}", bodyHash := "changed" }]
+      | 3 | 4 => [{ b with statementHash := "changed" }]
+      | 5 => [{ b with axioms := b.axioms ++ ["Classical.choice"] }]
+      | 6 => [{ b with bodyHash := "changed" }]
+      | 7 => [{ b with statementHash := "changed" }, b]
+      | 8 => [b, { b with statementHash := "changed" }]
+      | 9 => [{ b with name := s!"N.r{i}" }]
+      | _ => [b]
+    let pairs := ids.flatMap fun i => match case i with
+      | 1 | 2 => [(s!"N.d{i}", s!"N.r{i}")]
+      -- a duplicate key: the first pair wins
+      | 9 => [(s!"N.d{i}", s!"N.r{i}"), (s!"N.d{i}", s!"N.x{i}")]
+      | _ => []
+    let m : AliasMap := ⟨pairs⟩
+    let base : Certificate :=
+      { toolchain := ⟨"a"⟩, built := (List.range 9).map (s!"M{·}"), decls := ids.map baseDecl }
+    let added := (List.range 50).map fun k =>
+      ({ name := s!"N.new{k}", module := s!"M{k % 9}", kind := .theorem,
+         statementHash := "n", bodyHash := "", axioms := [] } : Decl)
+    let after : Certificate :=
+      { toolchain := ⟨"b"⟩, built := (List.range 8).map (s!"M{·}"),
+        decls := ids.flatMap afterRows ++ added,
+        followed := (ids.filter (case · == 4)).map (s!"N.d{·}") }
+    let judge (kind : CardKind) (i : Nat) : Judgment :=
+      { card := s!"c-{i}", kind, subject := m.rename s!"N.d{i}", answer := .accept,
+        author := "test", at_ := "" }
+    let js := (ids.filter fun i => i % 3 == 0 && case i == 5).map (judge .violation) ++
+      (ids.filter fun i => i % 2 == 0 && (case i == 2 || case i == 6)).map (judge .behavior)
+    let key (fs : List Finding) : List (Decl × Reason) := fs.map fun f => (f.decl, f.reason)
+    let runs : List (String × List Judgment) := [("no judgment", []), ("some judgments", js)]
+    for (what, js) in runs do
+      let list := compare m base after js
+      let ix := compareIx (.of m after) base js
+      let reasons := [Reason.missing, .statementChanged, .axiomsDiffer, .definitionChanged]
+      let same : Bool := decide (key ix = key list)
+      let ok := same && reasons.all (fun r => list.any fun f => decide (f.reason = r)) &&
+        list.length < base.decls.length
+      IO.println s!"{if ok then "ok  " else "FAIL"} compareIx = compare on a generated pair, {what}: {list.length} findings"
+      unless ok do failed := failed + 1
   -- The file-wide namespace move: every occurrence in one edit, and a site of
   -- class `unknown` that names a moved name triggers it.
   do
