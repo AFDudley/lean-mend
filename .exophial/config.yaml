@@ -1,4 +1,5 @@
 coordination_repo: "/home/rix/code/git_puller/repos/lean-mend"
+integration_branch: "integrated"
 poll_interval: 5
 inspect_interval: 5
 
