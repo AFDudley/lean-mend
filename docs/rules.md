@@ -56,14 +56,17 @@ for the site, and writes a replacement for that node's byte range only
 | `simpaToExact` | `simpa […] using T` becomes `exact T` | the pc-sum defeq class (§14.3), `default : UInt256` |
 | `simpaSplit` | `simpa [L] using h` (h a hypothesis name) becomes `simp [L] at h ⊢` then `exact h`; for a term `T` after `using`, `have := T`, then `simp [L] at this ⊢`, then `exact this` (a `have` is not a declaration, D10; EVMLean `StaticStorage` 211, 247, as the hand bump did). A dotted name such as `hwf.d3` is a term, not a hypothesis name: Lean refuses it after `at` ("expected single reference to variable"). `exact` accepts the two sides up to definitional equality, so a hidden difference such as two different `Decidable` instances, or a sum of literals against one literal, no longer blocks the proof | EVMLean `AccountLocality` 2558, 2657, 2716, 2831: "Type mismatch: After simplification" with identical printed types; the hand bump made the same split at all four. EquiVM `Reasoning.SolcRoutines` 1464–1509: run 5 wrote `simp only [u256_add_assoc] at hwf.d3 ⊢`, which Lean refuses; the `have` form removed the error at 38 of 38 sites |
 | `simpaUsingBang` | `simpa [L] using T` becomes `simpa [L] using! T`. From Lean v4.31.0 ([#13636](https://github.com/leanprover/lean4/pull/13636)) `simpa … using` closes at reducible transparency; `using!` ([#13833](https://github.com/leanprover/lean4/pull/13833)) closes at default transparency, as `using` did before. The v4.31.0 release notes name this migration. It keeps the simp set and simplifies both sides, unlike `simpaToExact`. Like `simpaToExact`, it depends on definitional unfolding | EquiVM `Reasoning.SolcRoutines` 1464–1509 (38 sites, rule `simpa-close-transparency`): the term has `pc + { val := 3 }` and the abbrev `Operation.PUSH3`, the goal has `pc + (UInt256.ofNat 2 + { val := 1 })` and `Operation.Push Operation.POp.PUSH3`; `using!` removed the error at 38 of 38 sites |
+| `simpaUsingBangNested` | `simpaUsingBang` on the site's `simpa` and on every `simpa … using` that holds it, in one edit over the outermost of them. While a `by` block in a `simpa` term fails, Lean does not report the outer `simpa`'s own close. After the inner repair it does, at an earlier position, so the progress check (machine.md, structural check 5) rejects the inner edit alone. A `simpa` that no `simpa` holds gives no candidate: that edit is `simpaUsingBang`'s | EquiVM `ERC6909.SetOperator` 49 (rule `simpa-using-bang-nested`): `using!` at 49 alone moved the error to the outer `simpa` at 44; `using!` at 49 and 44 removed the module's last error |
 | `keywordSwap` `from` `to` | replace the tactic keyword | `rw` → `erw` (§13.3) |
 | `deleteTactic` | remove the tactic | the no-op `dsimp only at h`; a trailing `decide +kernel` after the goal is closed |
+| `deleteShowRewrite` | remove a `rw`, `rewrite` or `erw` whose every rewrite rule is a `show` term (`rw [show a = b by t]`): a local equation that only changes the form of a term, which the simp before it already rewrites. A rule list that holds any other rule (a lemma such as `if_neg`) gives no candidate: such a rule is a step of the proof, and deleting it only moves the error | EquiVM `Examples.BlindAuction.Reveal.Common` 2814, 2822, 2854 (rule `rw-show-redundant`): the adopt commit's `@[simp] u256_toNat_lit*` lemmas let `simp [M]` rewrite `(⟨32⟩ : UInt256).toNat`, so the `rw [show …]` finds nothing; `simp only [show …]` makes no progress. At `Examples.UniswapV2Pair.UpdateSource` 828, deleting `rw [if_neg]` moved the error to the next `rfl` (9 errors → 10) |
 | `valCompare` | the class of a `Fin`-based value compared with a numeral (`missingDecidable`, Lean's message `Decidable (x = n)`): in the whole declaration, `match x with`, `x = n` and `x ≠ n` become `match x.val with`, `x.val = n` and `x.val ≠ n`, in one edit. A change that touches the statement goes through `--follow-definition-changes` (decision D12) | EVMLean `Semantics` 1040 (body) and `GasLemmas` `precompile_dispatch_match_eq_if` (statement and proof): the hand bump made the same change. Per-node `matchOnVal` changed only the `match`, so the lemma's two sides no longer matched and `split` timed out |
 | `closeBullet` `tactic` | replace the innermost bullet (`· …`) that holds the site with `· tactic`, in a proof body: a decision procedure (`omega`, `simp_all`, `decide`) closes what the bullet's proof no longer does. The least preferred repair: a rule whose operations are all `closeBullet` runs after every other rule of its entrenchment. The method is `tryAtEachStep` (Renshaw) | EVMLean `GasLemmas` 48, 50: after `matchToIf` changed `Ccallgas`, the proof's `split` split another `if`; `· omega` closes both bullets |
 | `appendTactic` `tactic` | insert `tactic` after the node, on its own line at the node's column, to close the goal the node leaves | EVMLean `Wheels.lean` 53 and 99: `simp [UInt256.size, …]` leaves `↑x < 2^256`; the hand repair was `simpa [...] using val.val.isLt`, which names a local variable; `exact Fin.isLt _` is the same step without the name |
 | `renamePrefix` `old` `new` | a namespace move with no `@[deprecated]` aliases: every identifier in the file that starts with the name `old` (whole components) gets `new`, in one edit. Any site whose message names a moved name triggers it, whatever its class. A per-site rename failed on EVMLean: renaming a lemma's statement let Lean check its proof, which still had the old names, so the error count did not fall. A declaration that the target itself declares under the moved prefix (EVMLean: `def Batteries.RBMap.partition`) is renamed too, and gets an exact alias, so `compare` finds it | Batteries v4.33.1 moved `Batteries.RBMap`, `RBSet`, `RBNode` to `RBTree.*`; `Batteries.Data.RBMap` is a `deprecated_module` with no per-name aliases |
 | `replaceInBody` `decl` `old` `new` | in declaration `decl`, replace text `old`, which must occur exactly once in its body, with `new` | the form of an agent's residue repair (§ From residue to rule) |
-| `heartbeats` `n` | put `set_option maxHeartbeats n in` before the declaration | the deep pc reaches (§14.3 limit) |
+| `heartbeats` `n` | put `set_option maxHeartbeats n in` before the declaration. The least preferred repair: a rule whose operations are all `heartbeats` runs after every other rule of its entrenchment, after the `closeBullet` rules | the deep pc reaches (§14.3 limit); EquiVM `Examples.UniswapV2Pair.PermitDecode` 97 (rule `heartbeat-raise`) |
+| `setOptionBefore` `name` `value` | put `set_option name value in` before the declaration, the same insertion point as `heartbeats`, generalized to any option (decision B1, `docs/breaking-changes.md`). `heartbeats` stays, for rules that already use it | `backward.match.sparseCases false` (rule `match-sparse-cases`, § Axiom-finding rules) |
 
 An operation that does not apply to the node (for example `simpaToExact` on a
 node that is not `simpa … using`) gives no candidate. It is not an error.
@@ -77,7 +80,9 @@ or `node` `any` with no `class` other than `unknown`. `deleteTactic` is allowed
 only in a rule whose class is `simpNoProgress` or `noGoals` (text
 `No goals to be solved`). Deleting a tactic that does nothing cannot weaken
 a proof: the kernel still checks the result, and `sorry` stays forbidden
-(structural check 2 in [machine.md](machine.md)).
+(structural check 2 in [machine.md](machine.md)). `deleteShowRewrite` is
+allowed only in a rule whose class is `tacticFailed`: a rewrite that finds
+nothing is `` Tactic `rewrite` failed ``.
 
 The `split_ifs <;> rfl` case (§13.1, two branches with different `Decidable`
 instances) has no operation. It stays residue for an agent.
@@ -130,8 +135,8 @@ shows the break and its repair.
 | `missingDecidable` | kind `lean.synthInstanceFailed._namedError` with `Decidable` in the text | `match` on `p.val`; an `if` with `decide` |
 | `typeMismatch` | text `Type mismatch`, for example between the literal forms `UInt256.ofNat N` and `{ val := N }`, or between `↑i` and `i.val` for `Fin` | literal forms: `rfl` → `by decide`, `show` with the other form, `simp only` with the constructor lemma; `Fin`: `Fin.val_cast_of_lt`, explicit `.val` |
 | `simpNoProgress` | text `` `simp` made no progress `` | `simp [Id.run]`; the named lemma that left the default set |
-| `unsolvedGoals` | kind `Tactic.unsolvedGoals` | the tactic with the lemma set from a rule; `first | … | …` chains |
-| `tacticFailed` | text `Tactic \`x\` failed` | `simpArgAddPrior` (a lemma in the simp before the failing tactic); `rw` → `erw`; `closeBullet` |
+| `unsolvedGoals` | kind `Tactic.unsolvedGoals` | the tactic with the lemma set from a rule; `first | … | …` chains; `appendTactic` `simp_all` when the goal needs a hypothesis in the goal's normal form (EquiVM run 7: a new simp lemma rewrote the goal before the hypothesis matched; an `if` whose `Decidable` instance kept a folded name) |
+| `tacticFailed` | text `Tactic \`x\` failed`; text `omega could not prove the goal` (`omega` names no kind and no tactic; EquiVM run 7 put its four sites in `unknown`) | `simpArgAddPrior` (a lemma in the simp before the failing tactic); `rw` → `erw`; `closeBullet` |
 | `noGoals` | text `No goals to be solved`: a tactic after the goal is closed | `deleteTactic` (EquiVM: a trailing `decide +kernel`) |
 | `heartbeat` | kind `runtime.maxHeartbeats` | `set_option maxHeartbeats N in`, with N from the rule |
 | `wallclock` | a timeout without `deterministic` | no candidates; see [machine.md](machine.md) |
@@ -146,9 +151,116 @@ decides first, because it does not depend on wording. Where Lean names no kind
 (`[anonymous]`), the text decides, compared without case. The first version
 compared lowercase text only and put three classes into `unknown`, because Lean
 prints `Unknown identifier`, `Type mismatch` and `` `simp` made no progress ``.
-`tests/fixtures/diagnostics/` holds the real output of v4.29.0 and v4.35.0,
-and `tests/ClassifyTest.lean` checks every class against it. `classify` does not
+`tests/fixtures/diagnostics/` holds the real output of v4.29.0 and v4.35.0
+(and of v4.33.1 for `omega`), and `tests/ClassifyTest.lean` checks every class against it. `classify` does not
 use the rule set. A class with no rules is still a class.
+
+## Axiom-finding rules
+
+A rule can answer an axiom finding, not only a build error. The trigger
+(`docs/machine.md` § Level 3) proposes a rule's candidates for a
+`FindingSite` the same way `propose`/`ruleCandidates` does for a
+diagnostic's site: match the rule's `class`, then its `node` against the
+syntax `causeTactic` finds.
+
+Two new `ErrorClass` constructors hold an axiom finding's class:
+`axiomsAdded` and `axiomsRemoved`, one per `Change`
+(`docs/verification.md` § The cause). A rule with this class names the
+finding's site, not a diagnostic; `classify` stays a function of
+`Diagnostic` only, and a new pure function, `classifyCause : AxiomCause →
+ErrorClass`, answers these two classes from the cause's `Change` field.
+
+`class` alone does not separate a `@[congr]` cause from a generated-matcher
+cause (decision D13, `docs/decisions.md`). A rule for
+`axiomsAdded`/`axiomsRemoved` carries one more field, `causeTag`:
+
+| `causeTag` | Matches when the cause constant… | How it is computed |
+|---|---|---|
+| `congrLemma` | carries Lean's `@[congr]` attribute | the probe's `explain` reports it (new field `congr : Bool`, § Probe extensions below) |
+| `matcher` | is a generated matcher (its last name component starts with `match_`) and its `uses` holds `Nat.hasNotBit` | `Const.name` and `Const.uses`, already in the evidence (`docs/verification.md` § The data at each toolchain) |
+| `any` | matches every cause | — |
+
+### Probe extensions
+
+Two commands change, both inside `lean --json`'s own version boundary
+(decision D3): no new call crosses it.
+
+1. `explain` (`probe/Probe.lean` `cmdExplain`) adds one field per constant,
+   `congr : Bool`: whether the declaration carries Lean's congruence-lemma
+   attribute (the same registry `simp`'s congruence step reads). `Const`
+   (`LeanMend/Core/Cause.lean`) gains the field; `pickCause`'s result already
+   names the cause constant, so `causeTag`'s `congrLemma` case reads it from
+   there.
+2. A new command, `causeTactic <file> <declStart> <constant>`
+   (`docs/machine.md` § The tactic inside the site), elaborates the
+   declaration at `declStart` and returns the first tactic, in source order,
+   whose elaborated term uses `constant`. It reuses `cmdProofs`'s info-tree
+   walk (`ofTacticInfo`, `ContextInfo.runMetaM`) with `Expr.getUsedConstants`
+   in place of `Meta.isProof`.
+
+### Two proposed rules
+
+Both are general, from EquiVM run 10 (`.scratch/axiom-fix/edits.md`), not
+EquiVM-specific: the cause pattern, not the declaration name, selects them.
+
+```json
+{
+  "name": "simp-congr-classical",
+  "class": "axiomsAdded",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "EquiVM run 10 (2026-11-07), G1, 38 cards. Mathlib's List.find?_congr (@[congr], proved with grind) adds Classical.choice when a simp rewrites under a List.find? binder."
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.33.1" },
+  "node": "simp",
+  "causeTag": "congrLemma",
+  "candidates": [ { "op": "keywordSwap", "from": "simp", "to": "dsimp" } ]
+}
+```
+
+```json
+{
+  "name": "match-sparse-cases",
+  "class": "axiomsAdded",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "EquiVM run 10 (2026-11-07), G3, 1 card. Lean v4.33 compiles a match whose last arm is `| _ => []` to a sparse casesOn, whose catch-all arm carries a Nat.hasNotBit hypothesis; v4.29.0 did not."
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.35.0" },
+  "node": "any",
+  "causeTag": "matcher",
+  "candidates": [ { "op": "setOptionBefore", "name": "backward.match.sparseCases", "value": "false" } ]
+}
+```
+
+`simp-congr-classical` uses an existing op, `keywordSwap`; its site is a
+`theorem`, so no Behavior card follows a `dsimp` repair (`docs/machine.md` §
+A def, instance or abbrev site does not apply: `kind.computes = false` for a
+theorem). `match-sparse-cases` uses `setOptionBefore` (decision B1,
+`docs/breaking-changes.md`), the same `EditTarget.beforeDecl` `heartbeats`
+already uses.
+
+`beforeDecl`'s insertion point is the declaration's own command start
+(`locate`, `LeanMend/Shell/Target.lean`). A declaration inside a `mutual`
+block starts after the `mutual` keyword, not before it (`probe/Probe.lean`
+`regionsArray` reports each member's own range). `backward.match.sparseCases`
+governs the matcher Lean generates once for the whole mutual group, compiled
+when the elaborator first reaches the `mutual` keyword, not when it reaches
+one member inside it (`.scratch/axiom-fix/edits.md` § Edit E3 placed its
+`set_option … in` before `mutual`, not before the one declaration, for this
+reason). `beforeDecl`'s insertion point needs the `mutual` keyword's own
+start, when the named declaration is inside one, not the declaration's own
+start: `DeclRegion` gains an optional field, `mutualStart : Option Nat`, the
+start of the smallest enclosing `mutual` (`none` outside one), and `locate`
+reports it in place of `declStart` when it is `some` (decision D17). This is
+a prerequisite for `match-sparse-cases` on any target that proves a `mutual`
+recursion, and it generalizes: `heartbeats`/`setOptionBefore` on a
+mutual-nested declaration today puts the option at the wrong place, for the
+same reason.
+
+The G2 shape (`.scratch/axiom-fix/edits.md` § Edit E2) gets no rule: the loop
+bound a `for` loop needs comes from the `while` loop's own body, which no
+general pattern can read. It stays residue, for an agent.
 
 ## Attribution by bisect
 

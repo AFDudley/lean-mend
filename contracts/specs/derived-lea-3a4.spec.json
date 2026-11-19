@@ -1,0 +1,202 @@
+{
+  "id": "derived-lea-3a4",
+  "original_statement": "What must hold? State the invariant or expectation this concerns. Level 1 holds one Mending state for each module of the current frontier. frontier_pairwise_indep, openCount_finishAll and Fleet.step_wf hold, and openCount_settled still holds. Decisions P9 and P13 and the S3a acceptance check of docs/parallel.md hold.\nWhat holds now? Describe the current, observed state. LeanMend/Core/Run.lean holds one Mending state at a time. After EVMLean run 18 mended GasLemmas, the modules NoOutOfFuel, StaticStorage, OpcodeLemmas and ReturnDataBound were frontier modules together, and the run mended them one after another.\nHow do you see it? Describe exactly how to observe this for yourself \u2014 the steps to reproduce, or how you would demo it. Run lake test: tests/OpsTest.lean shows two Mending states that receive observations in either order and reach the same final state, as docs/parallel.md S3a states. Run lake env lean tests/NoSorry.lean. Run scripts/gate.sh: failed is 0 in its JSON.\nWhat constraints apply? State them in plain prose. Spec and Core import no Shell module (scripts/gate.sh checks it). Termination stays a theorem in LeanMend/Spec/Termination.lean, with no retry cap and no timeout as a control. Decision D10 holds: lean-mend adds no declaration to a target. lean-mend depends on Lean core only, not on Mathlib. Every committed text is in ASD-STE100 Simplified Technical English. Run export PATH=\"$HOME/.elan/bin:$PATH\" before a lean or lake command. Scratch files go in the gitignored .scratch/ directory, not /tmp. The worker task timeout is 3600 seconds. Do not run lean-mend on EVMLean: one EVMLean run takes about 2 hours, and the operator runs it after the merge.\nWhere does this apply? (e.g. gateway route, mobile screen, CLI verb) LeanMend/Core/Run.lean, LeanMend/Spec/Termination.lean, tests/OpsTest.lean",
+  "restatement": "The Core of lean-mend must hold a fleet: one Mending state for each module of the current frontier, in place of one Mending state at a time in LeanMend/Core/Run.lean. After a wave, the frontier modules (for example NoOutOfFuel, StaticStorage, OpcodeLemmas and ReturnDataBound) each have their own Mending state. The theorems frontier_pairwise_indep, openCount_finishAll and Fleet.step_wf must hold, and openCount_settled must still hold. Decisions P9 and P13 and the S3a acceptance check of docs/parallel.md must hold: two Mending states that receive observations in either order reach the same final state. Constraints: Spec and Core import no Shell module, termination stays a theorem in LeanMend/Spec/Termination.lean with no retry cap and no timeout, lean-mend does not depend on Mathlib, and lean-mend adds no declaration to a target (D10).",
+  "restatement_clauses": [
+    {
+      "id": "c1",
+      "text": "LeanMend/Core/Run.lean holds one Mending state for each module of the current frontier, as a Fleet, in place of one Mending state at a time."
+    },
+    {
+      "id": "c2",
+      "text": "The theorems frontier_pairwise_indep, openCount_finishAll, Fleet.step_wf and openCount_settled are all stated in the Lean sources."
+    },
+    {
+      "id": "c3",
+      "text": "Run lake test: tests/OpsTest.lean shows two Mending states that receive observations in either order and reach the same final state (S3a of docs/parallel.md). Run lake env lean tests/NoSorry.lean: it succeeds."
+    },
+    {
+      "id": "c4",
+      "text": "Run scripts/gate.sh: failed is 0 in its JSON. This covers decisions P9, P13 and D10 and the rule that Spec and Core import no Shell module."
+    },
+    {
+      "id": "c5",
+      "text": "Spec and Core import no Shell module."
+    },
+    {
+      "id": "c6",
+      "text": "Termination stays a theorem in LeanMend/Spec/Termination.lean, with no retry cap and no timeout as a control."
+    },
+    {
+      "id": "c7",
+      "text": "lean-mend depends on Lean core only, not on Mathlib."
+    }
+  ],
+  "goal": "LeanMend/Core/Run.lean holds a fleet of Mending states, one for each frontier module, and the stated theorems, tests and gate pass.",
+  "acceptance_criteria": [
+    "The run file in the Core names a Fleet of Mending states.",
+    "All four named theorems appear in the Lean sources of the Core and the Spec.",
+    "The test suite and the no-sorry check both succeed, so two Mending states reach the same final state in either order.",
+    "The gate script reports zero failed checks.",
+    "The Core run file and the Termination file import no Shell module.",
+    "The Termination file has no retry cap and no timeout.",
+    "No touched file imports Mathlib."
+  ],
+  "request_clauses": [
+    {
+      "id": "c1",
+      "text": "The run file in the Core names a Fleet of Mending states."
+    },
+    {
+      "id": "c2",
+      "text": "All four named theorems appear in the Lean sources of the Core and the Spec."
+    },
+    {
+      "id": "c3",
+      "text": "The test suite and the no-sorry check both succeed, so two Mending states reach the same final state in either order."
+    },
+    {
+      "id": "c4",
+      "text": "The gate script reports zero failed checks."
+    },
+    {
+      "id": "c5",
+      "text": "The Core run file and the Termination file import no Shell module."
+    },
+    {
+      "id": "c6",
+      "text": "The Termination file has no retry cap and no timeout."
+    },
+    {
+      "id": "c7",
+      "text": "No touched file imports Mathlib."
+    }
+  ],
+  "acceptance_tests": [
+    {
+      "type": "grep",
+      "description": "The run file in the Core names a Fleet of Mending states.",
+      "proves": "The Core holds a fleet of Mending states, not a single one.",
+      "restatement_clause_id": "c1",
+      "pattern": "Fleet",
+      "files": [
+        "LeanMend/Core/Run.lean"
+      ],
+      "clause_id": "c1"
+    },
+    {
+      "type": "grep",
+      "description": "All four named theorems appear in the Lean sources of the Core and the Spec.",
+      "proves": "The four named theorems exist.",
+      "restatement_clause_id": "c2",
+      "pattern": "frontier_pairwise_indep",
+      "additional_patterns": [
+        "openCount_finishAll",
+        "step_wf",
+        "openCount_settled"
+      ],
+      "files": [
+        "LeanMend/Core/Run.lean",
+        "LeanMend/Spec/Termination.lean"
+      ],
+      "count": {
+        "unit": "patterns",
+        "op": "eq",
+        "value": 4
+      },
+      "clause_id": "c2"
+    },
+    {
+      "type": "behavior",
+      "description": "The test suite and the no-sorry check both succeed, so two Mending states reach the same final state in either order.",
+      "proves": "The order test of S3a and the no-sorry check pass.",
+      "restatement_clause_id": "c3",
+      "when": {
+        "interpreter": "",
+        "script": "scripts/check_ops.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "stdout_json",
+          "field": "lake_test_exit",
+          "op": "eq",
+          "value": 0
+        },
+        {
+          "observe": "stdout_json",
+          "field": "nosorry_exit",
+          "op": "eq",
+          "value": 0
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 3600,
+      "clause_id": "c3"
+    },
+    {
+      "type": "behavior",
+      "description": "The gate script reports zero failed checks.",
+      "proves": "The gate passes, including the import and declaration rules.",
+      "restatement_clause_id": "c4",
+      "when": {
+        "interpreter": "",
+        "script": "scripts/gate.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "stdout_json",
+          "field": "failed",
+          "op": "eq",
+          "value": 0
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 3600,
+      "clause_id": "c4"
+    },
+    {
+      "type": "grep_absent",
+      "description": "The Core run file and the Termination file import no Shell module.",
+      "proves": "Spec and Core stay free of Shell imports.",
+      "restatement_clause_id": "c5",
+      "pattern": "import\\s+LeanMend\\.Shell",
+      "files": [
+        "LeanMend/Core/Run.lean",
+        "LeanMend/Spec/Termination.lean"
+      ],
+      "clause_id": "c5"
+    },
+    {
+      "type": "grep_absent",
+      "description": "The Termination file has no retry cap and no timeout.",
+      "proves": "Termination does not rely on a retry cap or a timeout.",
+      "restatement_clause_id": "c6",
+      "pattern": "(?i)max_?retries|retry_?cap|timeout",
+      "files": [
+        "LeanMend/Spec/Termination.lean"
+      ],
+      "clause_id": "c6"
+    },
+    {
+      "type": "grep_absent",
+      "description": "No touched file imports Mathlib.",
+      "proves": "lean-mend uses Lean core only.",
+      "restatement_clause_id": "c7",
+      "pattern": "import\\s+Mathlib",
+      "files": [
+        "LeanMend/Core/Run.lean",
+        "LeanMend/Spec/Termination.lean",
+        "tests/OpsTest.lean"
+      ],
+      "clause_id": "c7"
+    }
+  ],
+  "declared_new_entrypoints": [
+    "scripts/check_ops.sh",
+    "scripts/gate.sh"
+  ]
+}

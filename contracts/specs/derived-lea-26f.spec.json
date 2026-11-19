@@ -1,0 +1,255 @@
+{
+  "id": "derived-lea-26f",
+  "original_statement": "What must hold? State the invariant or expectation this concerns. The shell attempts the next N candidates of the head site at the same time, each in its own worktree. The Core accepts the first passing candidate in rule order. Decisions P14 to P16 and the S4 acceptance check of docs/parallel.md hold.\nWhat holds now? Describe the current, observed state. LeanMend/Shell/Driver.lean attempts the candidates of a site one at a time. In EVMLean run 18, ReturnDataBound site 2354 had five candidates that each took one rebuild before the site became residue.\nHow do you see it? Describe exactly how to observe this for yourself \u2014 the steps to reproduce, or how you would demo it. Run scripts/gate.sh. Run the fixture tests/fixtures/speculate through tests/speculate.sh, as docs/parallel.md S4 states: the branch commits the third candidate in rule order, the same candidate as a sequential run.\nWhat constraints apply? State them in plain prose. Spec and Core import no Shell module (scripts/gate.sh checks it). Termination stays a theorem in LeanMend/Spec/Termination.lean, with no retry cap and no timeout as a control. Decision D10 holds: lean-mend adds no declaration to a target. lean-mend depends on Lean core only, not on Mathlib. Every committed text is in ASD-STE100 Simplified Technical English. Run export PATH=\"$HOME/.elan/bin:$PATH\" before a lean or lake command. Scratch files go in the gitignored .scratch/ directory, not /tmp.\nWhere does this apply? (e.g. gateway route, mobile screen, CLI verb) LeanMend/Core/Mend.lean, LeanMend/Shell/Driver.lean, LeanMend/Shell/Target.lean",
+  "restatement": "lean-mend must try several candidates of the head site at the same time, each in its own worktree. The Core must pick the winner by rule order and never by finish time. The shell must throw away every result after the accepted candidate and leave no extra worktree. The fixture tests/fixtures/speculate, run through tests/speculate.sh, must commit the third candidate in rule order, the same candidate as a sequential run. scripts/gate.sh must pass and show zero failed steps, including the check that Spec and Core import no Shell module. lean-mend must depend on Lean core only, not on Mathlib. The theorem file LeanMend/Spec/Termination.lean must stay.",
+  "restatement_clauses": [
+    {
+      "id": "c1",
+      "text": "The shell attempts the next N candidates of the head site at the same time, each in its own worktree (P14)."
+    },
+    {
+      "id": "c2",
+      "text": "The Core accepts the first candidate that passes in rule order, not the first worktree that finishes (P15)."
+    },
+    {
+      "id": "c3",
+      "text": "The shell discards every speculative result after the accepted candidate in rule order (P16)."
+    },
+    {
+      "id": "c4",
+      "text": "Running the fixture tests/fixtures/speculate through tests/speculate.sh commits the third candidate in rule order, the same candidate as a sequential run (S4)."
+    },
+    {
+      "id": "c5",
+      "text": "scripts/gate.sh passes, which checks that Spec and Core import no Shell module."
+    },
+    {
+      "id": "c6",
+      "text": "lean-mend depends on Lean core only, not on Mathlib, and LeanMend/Spec/Termination.lean still exists."
+    }
+  ],
+  "goal": "Make lean-mend try several head candidates of one site at the same time, and still commit the first passing candidate in rule order.",
+  "acceptance_criteria": [
+    "Running the speculation fixture shows that more than one candidate ran at the same time, each in a different worktree.",
+    "The fixture makes a later candidate finish before an earlier one. The run still accepts the third candidate in rule order.",
+    "After the run, no result from a candidate after the accepted one remains, and no extra worktree remains.",
+    "The speculation fixture run commits the third candidate in rule order. A sequential run commits the same candidate.",
+    "The full project gate prints a result with at least one passed step and zero failed steps, including the check that Spec and Core import no Shell module.",
+    "None of the three changed source files mentions Mathlib.",
+    "The termination theorem file is still in the project."
+  ],
+  "request_clauses": [
+    {
+      "id": "c1",
+      "text": "Running the speculation fixture shows that more than one candidate ran at the same time, each in a different worktree."
+    },
+    {
+      "id": "c2",
+      "text": "The fixture makes a later candidate finish before an earlier one. The run still accepts the third candidate in rule order."
+    },
+    {
+      "id": "c3",
+      "text": "After the run, no result from a candidate after the accepted one remains, and no extra worktree remains."
+    },
+    {
+      "id": "c4",
+      "text": "The speculation fixture run commits the third candidate in rule order. A sequential run commits the same candidate."
+    },
+    {
+      "id": "c5",
+      "text": "The full project gate prints a result with at least one passed step and zero failed steps, including the check that Spec and Core import no Shell module."
+    },
+    {
+      "id": "c6",
+      "text": "None of the three changed source files mentions Mathlib."
+    },
+    {
+      "id": "c7",
+      "text": "The termination theorem file is still in the project."
+    }
+  ],
+  "acceptance_tests": [
+    {
+      "type": "behavior",
+      "description": "Running the speculation fixture shows that more than one candidate ran at the same time, each in a different worktree.",
+      "proves": "The tool really tries candidates in parallel and does not do them one by one.",
+      "restatement_clause_id": "c1",
+      "when": {
+        "interpreter": "",
+        "script": "tests/speculate.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "exit_code",
+          "field": "",
+          "op": "eq",
+          "value": 0
+        },
+        {
+          "observe": "stdout_json",
+          "field": "max_concurrent_candidates",
+          "op": "ge",
+          "value": 2
+        },
+        {
+          "observe": "stdout_json",
+          "field": "distinct_worktrees",
+          "op": "ge",
+          "value": 2
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 1800,
+      "clause_id": "c1"
+    },
+    {
+      "type": "behavior",
+      "description": "The fixture makes a later candidate finish before an earlier one. The run still accepts the third candidate in rule order.",
+      "proves": "The winner is picked by rule order and not by which worktree finishes first.",
+      "restatement_clause_id": "c2",
+      "when": {
+        "interpreter": "",
+        "script": "tests/speculate.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "stdout_json",
+          "field": "finish_order_inverted",
+          "op": "eq",
+          "value": true
+        },
+        {
+          "observe": "stdout_json",
+          "field": "accepted_index",
+          "op": "eq",
+          "value": 3
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 1800,
+      "clause_id": "c2"
+    },
+    {
+      "type": "behavior",
+      "description": "After the run, no result from a candidate after the accepted one remains, and no extra worktree remains.",
+      "proves": "The tool discards all results after the accepted candidate and cleans up its worktrees.",
+      "restatement_clause_id": "c3",
+      "when": {
+        "interpreter": "",
+        "script": "tests/speculate.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "stdout_json",
+          "field": "leftover_results",
+          "op": "eq",
+          "value": 0
+        },
+        {
+          "observe": "stdout_json",
+          "field": "leftover_worktrees",
+          "op": "eq",
+          "value": 0
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 1800,
+      "clause_id": "c3"
+    },
+    {
+      "type": "behavior",
+      "description": "The speculation fixture run commits the third candidate in rule order. A sequential run commits the same candidate.",
+      "proves": "Parallel and sequential runs give the same committed result.",
+      "restatement_clause_id": "c4",
+      "when": {
+        "interpreter": "",
+        "script": "tests/speculate.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "stdout_json",
+          "field": "committed_index",
+          "op": "eq",
+          "value": 3
+        },
+        {
+          "observe": "stdout_json",
+          "field": "sequential_committed_index",
+          "op": "eq",
+          "value": 3
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 1800,
+      "clause_id": "c4"
+    },
+    {
+      "type": "behavior",
+      "description": "The full project gate prints a result with at least one passed step and zero failed steps, including the check that Spec and Core import no Shell module.",
+      "proves": "The whole project gate is green and the import rule still holds after the change.",
+      "restatement_clause_id": "c5",
+      "when": {
+        "interpreter": "",
+        "script": "scripts/gate.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "exit_code",
+          "field": "",
+          "op": "eq",
+          "value": 0
+        },
+        {
+          "observe": "stdout_json",
+          "field": "failed",
+          "op": "eq",
+          "value": 0
+        },
+        {
+          "observe": "stdout_json",
+          "field": "passed",
+          "op": "ge",
+          "value": 1
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 3600,
+      "clause_id": "c5"
+    },
+    {
+      "type": "grep_absent",
+      "description": "None of the three changed source files mentions Mathlib.",
+      "proves": "lean-mend still depends on Lean core only.",
+      "restatement_clause_id": "c6",
+      "pattern": "Mathlib",
+      "files": [
+        "LeanMend/Core/Mend.lean",
+        "LeanMend/Shell/Driver.lean",
+        "LeanMend/Shell/Target.lean"
+      ],
+      "clause_id": "c6"
+    },
+    {
+      "type": "file_exists",
+      "description": "The termination theorem file is still in the project.",
+      "proves": "Termination stays a theorem in the Spec.",
+      "restatement_clause_id": "c6",
+      "path": "LeanMend/Spec/Termination.lean",
+      "clause_id": "c7"
+    }
+  ],
+  "declared_new_entrypoints": [
+    "scripts/gate.sh",
+    "tests/speculate.sh"
+  ]
+}

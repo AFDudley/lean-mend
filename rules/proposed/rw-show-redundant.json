@@ -1,0 +1,11 @@
+{
+  "name": "rw-show-redundant",
+  "class": "tacticFailed",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "EquiVM run 7 residue, Examples/BlindAuction/Reveal/Common.lean 2814, 2822 and 2854: `simp [M]`, then `rw [show (⟨32⟩ : UInt256).toNat = 32 by native_decide]` (2822: `⟨64⟩`, 64), then `rw [haw32]`, fails with `Did not find an occurrence of the pattern { val := 32 }.toNat`. The adopt commit efbfb862 added `@[simp] u256_toNat_lit{0,1,4,32,64,128,160}` to Reasoning/Solc.lean, so `simp [M]` already rewrites the literal, and the target holds `MachineState.M aw.toNat 32 32`. The rule list holds only the `show` term, so rule rw-not-found-simp-only gives `simp only [show …]`, which makes no progress: run 7 rebuilt it with the error count unchanged (ledger: 6 → 6 at 2814, 5 → 5 at 2854). Measured on a copy of the target file at 432020a3: deleting the three `rw [show …]` lines takes the module from 3 errors to 0, with the same 7 warnings, none in the edits. The operation deletes a `rw` only if every rule in its list is a `show` term; at Examples/UniswapV2Pair/UpdateSource 828 (`rw [if_neg]`) it gives no candidate, because there the deletion only moves the error to the `rfl` after it (measured: 9 errors → 10)."
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.33.1" },
+  "node": "rw",
+  "candidates": [ { "op": "deleteShowRewrite" } ]
+}

@@ -1,0 +1,209 @@
+{
+  "id": "derived-lea-9c8",
+  "original_statement": "What must hold? State the invariant or expectation this concerns. Mending.batch selects the head candidate of each eligible, distinct theorem or lemma declaration: the earliest open site of the declaration, in a body region, with no D12 combined candidate. Mending.batch_distinct and Mending.batch_bodyOnly hold, and no LeanMend constant depends on sorryAx. The Core has no stepBatch. Decisions P1, P2, P6 and P7 and the S2a acceptance check of docs/parallel.md hold.\nWhat holds now? Describe the current, observed state. integrated has no Mending.batch. The branch worker/lea-fc0 (commit 6f9984c) has Mending.batch with batch_distinct and batch_bodyOnly proved. It also has Mending.stepBatch and Mending.stepBatch_measure, whose proof is sorry.\nHow do you see it? Describe exactly how to observe this for yourself \u2014 the steps to reproduce, or how you would demo it. Run lake test: tests/OpsTest.lean shows Mending.batch on a module state with three failing theorem bodies, one failing def body, a second open site in one of the theorems, and one D12 combined candidate. The batch holds the earliest site of each theorem that has no D12 candidate, and it holds no def site. Run scripts/gate.sh: stdout is one JSON object, and failed is 0.\nWhat constraints apply? State them in plain prose. Spec and Core import no Shell module (scripts/gate.sh checks it). Termination stays a theorem in LeanMend/Spec/Termination.lean, with no retry cap and no timeout as a control. Decision D10 holds: lean-mend adds no declaration to a target. lean-mend depends on Lean core only, not on Mathlib. Every committed text is in ASD-STE100 Simplified Technical English. Run export PATH=\"$HOME/.elan/bin:$PATH\" before a lean or lake command. Scratch files go in the gitignored .scratch/ directory, not /tmp. The worker task timeout is 3600 seconds. Do not run lean-mend on EVMLean: one EVMLean run takes about 3 hours, and the operator runs it after the merge.\nWhere does this apply? (e.g. gateway route, mobile screen, CLI verb) LeanMend/Core/Mend.lean, tests/OpsTest.lean",
+  "restatement": "Slice S2a of docs/parallel.md adds the prefetch selection to the Core, and nothing more. LeanMend/Core/Mend.lean gets a pure function Mending.batch. For a module state, it selects the head candidate of each eligible, distinct theorem or lemma declaration. The head candidate is the earliest open site of that declaration, in a body region, when the declaration has no D12 combined candidate. This implements decisions P1 (at most one candidate per theorem or lemma body), P2 (only theorem or lemma body regions), P6 (only the earliest site of a declaration with more than one open error) and P7 (no D12 combined candidate). Two theorems, Mending.batch_distinct and Mending.batch_bodyOnly, prove the selection properties, and no LeanMend constant depends on sorryAx. The slice takes the selection and its two proofs from worker/lea-fc0 (commit 6f9984c), but it does not take Mending.stepBatch or its false, sorry-proved stepBatch_measure. tests/OpsTest.lean shows Mending.batch on a module state with three failing theorem bodies, one failing def body, a second open site in one of the theorems, and one D12 combined candidate. The batch holds the earliest site of each theorem that has no D12 candidate, and it holds no def site. The full commit gate scripts/gate.sh passes. Spec and Core import no Shell module, and the Core does not use Mathlib.",
+  "restatement_clauses": [
+    {
+      "id": "C1",
+      "text": "tests/OpsTest.lean shows Mending.batch on a module state with three failing theorem bodies, one failing def body, a second open site in one of the theorems, and one D12 combined candidate; the batch holds the earliest site of each theorem that has no D12 candidate, and it holds no def site; lake test passes."
+    },
+    {
+      "id": "C2",
+      "text": "Mending.batch_distinct and Mending.batch_bodyOnly exist as theorems in LeanMend/Core/Mend.lean."
+    },
+    {
+      "id": "C3",
+      "text": "No LeanMend constant depends on sorryAx."
+    },
+    {
+      "id": "C4",
+      "text": "The Core has no stepBatch (no Mending.stepBatch and no stepBatch_measure)."
+    },
+    {
+      "id": "C5",
+      "text": "Run scripts/gate.sh: stdout is one JSON object, and failed is 0."
+    },
+    {
+      "id": "C6",
+      "text": "Spec and Core import no Shell module, and lean-mend depends on Lean core only, not on Mathlib."
+    }
+  ],
+  "goal": "The Core has a proved, sorry-free Mending.batch that selects one head candidate for each eligible theorem or lemma body, per P1, P2, P6 and P7, with no stepBatch.",
+  "acceptance_criteria": [
+    "The repository test suite runs the batch selection example and passes, as reported by the commit gate's 'lake test' step.",
+    "The operations test file names Mending.batch, so the test suite exercises the selection.",
+    "The Core mending file states both theorems, batch_distinct and batch_bodyOnly.",
+    "The commit gate's check that no LeanMend constant depends on sorryAx passes.",
+    "No Core file mentions stepBatch.",
+    "The full commit gate prints one JSON result with zero failed steps.",
+    "The Core mending file imports no Shell module and no Mathlib module."
+  ],
+  "request_clauses": [
+    {
+      "id": "c1",
+      "text": "The repository test suite runs the batch selection example and passes, as reported by the commit gate's 'lake test' step."
+    },
+    {
+      "id": "c2",
+      "text": "The operations test file names Mending.batch, so the test suite exercises the selection."
+    },
+    {
+      "id": "c3",
+      "text": "The Core mending file states both theorems, batch_distinct and batch_bodyOnly."
+    },
+    {
+      "id": "c4",
+      "text": "The commit gate's check that no LeanMend constant depends on sorryAx passes."
+    },
+    {
+      "id": "c5",
+      "text": "No Core file mentions stepBatch."
+    },
+    {
+      "id": "c6",
+      "text": "The full commit gate prints one JSON result with zero failed steps."
+    },
+    {
+      "id": "c7",
+      "text": "The Core mending file imports no Shell module and no Mathlib module."
+    }
+  ],
+  "acceptance_tests": [
+    {
+      "description": "The repository test suite runs the batch selection example and passes, as reported by the commit gate's 'lake test' step.",
+      "proves": "The selection example in tests/OpsTest.lean (three theorem bodies, one def body, a second site, one D12 candidate) gives the expected batch.",
+      "restatement_clause_id": "C1",
+      "type": "behavior",
+      "when": {
+        "interpreter": "",
+        "script": "scripts/gate.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "stdout_json",
+          "field": "steps.lake test.ok",
+          "op": "eq",
+          "value": true
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 3600,
+      "clause_id": "c1"
+    },
+    {
+      "description": "The operations test file names Mending.batch, so the test suite exercises the selection.",
+      "proves": "The passing lake test covers Mending.batch, not only older operations.",
+      "restatement_clause_id": "C1",
+      "type": "grep",
+      "pattern": "Mending\\.batch\\b",
+      "files": [
+        "tests/OpsTest.lean"
+      ],
+      "clause_id": "c2"
+    },
+    {
+      "description": "The Core mending file states both theorems, batch_distinct and batch_bodyOnly.",
+      "proves": "The two selection properties exist as theorems in the Core.",
+      "restatement_clause_id": "C2",
+      "type": "grep",
+      "pattern": "theorem\\s+(Mending\\.)?batch_distinct\\b",
+      "additional_patterns": [
+        "theorem\\s+(Mending\\.)?batch_bodyOnly\\b"
+      ],
+      "files": [
+        "LeanMend/Core/Mend.lean"
+      ],
+      "count": {
+        "unit": "patterns",
+        "op": "eq",
+        "value": 2
+      },
+      "clause_id": "c3"
+    },
+    {
+      "description": "The commit gate's check that no LeanMend constant depends on sorryAx passes.",
+      "proves": "Every LeanMend proof, including batch_distinct and batch_bodyOnly, is complete with no sorry.",
+      "restatement_clause_id": "C3",
+      "type": "behavior",
+      "when": {
+        "interpreter": "",
+        "script": "scripts/gate.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "stdout_json",
+          "field": "steps.no LeanMend constant depends on sorryAx (docs/verification.md).ok",
+          "op": "eq",
+          "value": true
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 3600,
+      "clause_id": "c4"
+    },
+    {
+      "description": "No Core file mentions stepBatch.",
+      "proves": "The slice did not bring Mending.stepBatch or stepBatch_measure into the Core.",
+      "restatement_clause_id": "C4",
+      "type": "grep_absent",
+      "pattern": "stepBatch",
+      "files": [
+        "LeanMend/Core/Classify.lean",
+        "LeanMend/Core/Compare.lean",
+        "LeanMend/Core/Graph.lean",
+        "LeanMend/Core/Mend.lean",
+        "LeanMend/Core/Ops.lean",
+        "LeanMend/Core/Propose.lean",
+        "LeanMend/Core/Run.lean"
+      ],
+      "clause_id": "c5"
+    },
+    {
+      "description": "The full commit gate prints one JSON result with zero failed steps.",
+      "proves": "Every gate step passes with the new selection in place.",
+      "restatement_clause_id": "C5",
+      "type": "behavior",
+      "when": {
+        "interpreter": "",
+        "script": "scripts/gate.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "exit_code",
+          "field": "exit_code",
+          "op": "eq",
+          "value": 0
+        },
+        {
+          "observe": "stdout_json",
+          "field": "failed",
+          "op": "eq",
+          "value": 0
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 3600,
+      "clause_id": "c6"
+    },
+    {
+      "description": "The Core mending file imports no Shell module and no Mathlib module.",
+      "proves": "The new selection keeps the Core free of the Shell and of Mathlib.",
+      "restatement_clause_id": "C6",
+      "type": "grep_absent",
+      "pattern": "^import\\s+(LeanMend\\.Shell|Mathlib)",
+      "files": [
+        "LeanMend/Core/Mend.lean"
+      ],
+      "clause_id": "c7"
+    }
+  ],
+  "declared_new_entrypoints": [
+    "scripts/gate.sh"
+  ]
+}

@@ -19,7 +19,7 @@ echo "leanprover/lean4:v4.33.1" > "$work/lean-toolchain"
 out=$("$bin" baseline "$work")
 check "intact target is baselined" '.state == "baselined"' "$out"
 check "graph order" '.order == ["Fx.Basic", "Fx.Uses", "Fx"]' "$out"
-check "certificate rows: 10 declarations and 3 types, no generated ones" '(.decls | length) == 13 and ([.decls[].name] | index("Fx.instReprPt") == null) and ([.decls[].name] | (index("Fx.Pt") != null) and (index("Fx.Color") != null) and (index("Fx.HasZero") != null))' "$out"
+check "certificate rows: 16 declarations (an axiom among them) and 3 types, no generated ones" '(.decls | length) == 19 and ([.decls[].name] | index("Fx.instReprPt") == null) and ([.decls[].name] | (index("Fx.Pt") != null) and (index("Fx.Color") != null) and (index("Fx.HasZero") != null) and (index("Fx.zero_eq_zero") != null) and (index("Fx.half") != null) and (index("Fx.succLe") != null) and (index("Fx.two") != null))' "$out"
 check "axioms in the certificate" \
   '.decls[] | select(.name == "Fx.em_use") | .axioms | index("Classical.choice") != null' "$out"
 

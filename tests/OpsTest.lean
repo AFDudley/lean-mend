@@ -55,11 +55,24 @@ def cases : List (String × EditOp × String × Option String) :=
     ("simpa without using: no using! candidate", .simpaUsingBang, "simpa [x]", none),
     ("simpa already with using!: no candidate", .simpaUsingBang, "simpa [x] using! h", none),
     ("not simpa: no using! candidate", .simpaUsingBang, "simp [x] at h", none),
+    ("nested simpa: each simpa's using to using!", .simpaUsingBangNested,
+      "simpa [a] using f (by simpa [b] using h)", some "simpa [a] using! f (by simpa [b] using! h)"),
+    ("one simpa: no nested candidate", .simpaUsingBangNested, "simpa [a] using h", none),
+    ("inner simpa already with using!: no nested candidate", .simpaUsingBangNested,
+      "simpa [a] using f (by simpa [b] using! h)", none),
     ("simpa with nothing after using: no candidate", .simpaSplit, "simpa [x] using", none),
     ("not simpa: no candidate", .simpaToExact, "simp [x]", none),
     ("rw to erw", .keywordSwap "rw" "erw", "rw [h] at g", some "erw [h] at g"),
     ("keyword mismatch: no candidate", .keywordSwap "rw" "erw", "simp [h]", none),
     ("delete", .deleteTactic, "decide +kernel", some ""),
+    ("a rw of one show term is deleted", .deleteShowRewrite,
+      "rw [show (⟨32⟩ : W).toNat = 32 by native_decide]", some ""),
+    ("a rw of two show terms, at a hypothesis, is deleted", .deleteShowRewrite,
+      "rw [show a = b by rfl, show f [c, d] = e from h] at g", some ""),
+    ("a rw with a lemma after the show: no candidate", .deleteShowRewrite,
+      "rw [show a = b by rfl, h]", none),
+    ("a rw of a lemma: no candidate", .deleteShowRewrite, "rw [if_neg]", none),
+    ("rwa also closes the goal: no candidate", .deleteShowRewrite, "rwa [show a = b by rfl]", none),
     ("match on a literal to if", .matchToIf, "match val with | ⟨0⟩ => f val | _ => g val",
       some "if val = ⟨0⟩ then f val\n    else g val"),
     ("a pattern that binds: no candidate", .matchToIf, "match o with | some x => x | _ => 0", none),
@@ -68,7 +81,9 @@ def cases : List (String × EditOp × String × Option String) :=
     ("match on numerals to .val", .matchOnVal, "match p with | 1 => a | 2 => b | _ => c",
       some "match p.val with | 1 => a | 2 => b | _ => c"),
     ("a non-numeral pattern: no candidate", .matchOnVal, "match p with | ⟨1⟩ => a | _ => c", none),
-    ("append at the node's column", .appendTactic "omega", "simp [a]", some "simp [a]\n    omega") ]
+    ("append at the node's column", .appendTactic "omega", "simp [a]", some "simp [a]\n    omega"),
+    ("setOptionBefore gives no tactic-node candidate: beforeDecl, not a node edit",
+      .setOptionBefore "backward.match.sparseCases" "false", "simp [a]", none) ]
 
 def prefixCases : List (String × Option String) :=
   [ ("Batteries.RBMap", some "RBTree.RBMap"),
@@ -103,6 +118,14 @@ def openSite : Site :=
 
 def ruleJson (cls op : String) : String :=
   s!"\{\"name\": \"r\", \"class\": \"{cls}\", \"entrenchment\": \"ratified\", \"node\": \"any\", \"candidates\": [\{\"op\": \"{op}\"}]}"
+
+/-- A rule JSON for `cls`, with `causeTag` when `tag` is `some`, and one
+`simpaToExact` candidate. Used to test the axiom-finding vacuity check
+(`docs/rules.md` § Axiom-finding rules): a rule whose class is
+`axiomsAdded`/`axiomsRemoved` with no `causeTag` is vacuous. -/
+def ruleJsonAxiom (cls : String) (tag : Option String) : String :=
+  let tagField := tag.map (fun t => s!"\"causeTag\": \"{t}\", ") |>.getD ""
+  s!"\{\"name\": \"r\", \"class\": \"{cls}\", \"entrenchment\": \"ratified\", {tagField}\"node\": \"any\", \"candidates\": [\{\"op\": \"simpaToExact\"}]}"
 
 /-- S3a (docs/parallel.md § Level 2: parallel frontier modules): one open
 site, named `m`, with no candidate — enough to drive a `Mending` straight
@@ -158,17 +181,52 @@ def run : IO Nat := do
   -- thing"), and that error replaced the request's error.
   do
     let child ← IO.Process.spawn
-      { cmd := "sh", args := #["-c", "read l; exit 3"],
-        stdin := .piped, stdout := .piped, stderr := .inherit }
-    let s : LeanMend.Shell.ProbeSession := { child, exited := ← IO.mkRef none }
+      { cmd := "sh", args := #["-c", "read l; echo gone >&2; exit 3"],
+        stdin := .piped, stdout := .piped, stderr := .piped }
+    let s ← LeanMend.Shell.ProbeSession.ofChild child LeanMend.probeCap fun _ => pure ()
     let got ← try
         try
-          discard <| LeanMend.Shell.probeServeRequest s "F.lean" [0]
+          discard <| LeanMend.Shell.probeServeRequest s "F.lean" (Lean.Json.mkObj [("op", Lean.toJson "syntax")])
           pure "a reply"
         finally LeanMend.Shell.probeServeStop s
       catch e => pure (toString e)
-    let ok := got == "probe serve: process exited 3 with no reply for F.lean (its stderr is above)"
+    let ok := got == "probe serve: process exited 3 with no reply for F.lean; its stderr:\ngone\n"
     IO.println s!"{if ok then "ok  " else "FAIL"} probeServeStop after a probe that exited keeps the request's error: {got}"
+    unless ok do failed := failed + 1
+  -- docs/parallel.md P24: a probe that Lean stopped at its `lean -M` cap
+  -- (the text of v4.29.0, v4.33.1 and v4.35.0, measured on kelce on
+  -- 2026-11-06) sets `overCap`, so the driver stops the run with the typed
+  -- `CapExceeded`.
+  do
+    let child ← IO.Process.spawn
+      { cmd := "sh", args := #["-c", "read l; echo \"excessive memory consumption detected at 'interpreter' (potential solution: increase memory consumption threshold)\" >&2; exit 1"],
+        stdin := .piped, stdout := .piped, stderr := .piped }
+    let s ← LeanMend.Shell.ProbeSession.ofChild child LeanMend.probeCap fun _ => pure ()
+    try
+      try discard <| LeanMend.Shell.probeServeRequest s "F.lean" (Lean.Json.mkObj [("op", Lean.toJson "syntax")])
+      finally LeanMend.Shell.probeServeStop s
+    catch _ => pure ()
+    let ok ← s.overCap.get
+    IO.println s!"{if ok then "ok  " else "FAIL"} a probe that Lean stopped at its cap sets overCap"
+    unless ok do failed := failed + 1
+  -- docs/parallel.md P24: a probe can write the cap text and then not exit
+  -- (tests/cap-stop.sh). Its session ends its process group at the text and
+  -- runs onCap, so the request reads end of file at once, not after the
+  -- 600 s wait.
+  do
+    let child ← IO.Process.spawn
+      { cmd := "sh", args := #["-c", "read l; echo \"excessive memory consumption detected at 'interpreter' (potential solution: increase memory consumption threshold)\" >&2; sleep 600"],
+        stdin := .piped, stdout := .piped, stderr := .piped, setsid := true }
+    let onCap ← IO.mkRef false
+    let s ← LeanMend.Shell.ProbeSession.ofChild child LeanMend.probeCap fun _ => onCap.set true
+    let start ← IO.monoMsNow
+    try
+      try discard <| LeanMend.Shell.probeServeRequest s "F.lean" (Lean.Json.mkObj [("op", Lean.toJson "syntax")])
+      finally LeanMend.Shell.probeServeStop s
+    catch _ => pure ()
+    let secs := ((← IO.monoMsNow) - start) / 1000
+    let ok := (← s.overCap.get) && (← onCap.get) && secs < 60
+    IO.println s!"{if ok then "ok  " else "FAIL"} a probe that writes the cap text and then waits ends at the text and runs onCap ({secs} s)"
     unless ok do failed := failed + 1
   -- Decision D10: a candidate that adds a declaration is not clean.
   for (what, repl, want) in
@@ -234,6 +292,63 @@ def run : IO Nat := do
     let ok := (typeChanges ⟨[]⟩ base after).map (·.2) == ["changed"] && (compare ⟨[]⟩ base after []).isEmpty
     IO.println s!"{if ok then "ok  " else "FAIL"} a changed type is a warning, not a finding"
     unless ok do failed := failed + 1
+  -- `compareIx` is the `compare` that `RunState.close` runs. On a generated
+  -- certificate pair it gives the same findings, in the same order, as the
+  -- list `compare` (theorem `compareIx_eq`). The pair has renamed, removed,
+  -- added, changed and duplicate declarations, and a module that is not built.
+  do
+    let kinds : Array DeclKind := #[.theorem, .def, .instance, .abbrev, .inductive, .structure, .axiom]
+    let ids := List.range 600
+    let baseDecl (i : Nat) : Decl :=
+      { name := s!"N.d{i}", module := s!"M{i % 9}", kind := kinds.getD (i % 7) .other,
+        statementHash := s!"s{i}", bodyHash := s!"b{i}",
+        axioms := if i % 2 == 0 then ["propext"] else [] }
+    -- the case of declaration i: a fixed pseudo-random spread over 11 cases
+    let case (i : Nat) : Nat := (i * 7919) % 11
+    let afterRows (i : Nat) : List Decl :=
+      let b := baseDecl i
+      match case i with
+      | 0 => []
+      | 1 => [{ b with name := s!"N.r{i}" }]
+      | 2 => [{ b with name := s!"N.r{i}", bodyHash := "changed" }]
+      | 3 | 4 => [{ b with statementHash := "changed" }]
+      | 5 => [{ b with axioms := b.axioms ++ ["Classical.choice"] }]
+      | 6 => [{ b with bodyHash := "changed" }]
+      | 7 => [{ b with statementHash := "changed" }, b]
+      | 8 => [b, { b with statementHash := "changed" }]
+      | 9 => [{ b with name := s!"N.r{i}" }]
+      | _ => [b]
+    let pairs := ids.flatMap fun i => match case i with
+      | 1 | 2 => [(s!"N.d{i}", s!"N.r{i}")]
+      -- a duplicate key: the first pair wins
+      | 9 => [(s!"N.d{i}", s!"N.r{i}"), (s!"N.d{i}", s!"N.x{i}")]
+      | _ => []
+    let m : AliasMap := ⟨pairs⟩
+    let base : Certificate :=
+      { toolchain := ⟨"a"⟩, built := (List.range 9).map (s!"M{·}"), decls := ids.map baseDecl }
+    let added := (List.range 50).map fun k =>
+      ({ name := s!"N.new{k}", module := s!"M{k % 9}", kind := .theorem,
+         statementHash := "n", bodyHash := "", axioms := [] } : Decl)
+    let after : Certificate :=
+      { toolchain := ⟨"b"⟩, built := (List.range 8).map (s!"M{·}"),
+        decls := ids.flatMap afterRows ++ added,
+        followed := (ids.filter (case · == 4)).map (s!"N.d{·}") }
+    let judge (kind : CardKind) (i : Nat) : Judgment :=
+      { card := s!"c-{i}", kind, subject := m.rename s!"N.d{i}", answer := .accept,
+        author := "test", at_ := "" }
+    let js := (ids.filter fun i => i % 3 == 0 && case i == 5).map (judge .violation) ++
+      (ids.filter fun i => i % 2 == 0 && (case i == 2 || case i == 6)).map (judge .behavior)
+    let key (fs : List Finding) : List (Decl × Reason) := fs.map fun f => (f.decl, f.reason)
+    let runs : List (String × List Judgment) := [("no judgment", []), ("some judgments", js)]
+    for (what, js) in runs do
+      let list := compare m base after js
+      let ix := compareIx (.of m after) base js
+      let reasons := [Reason.missing, .statementChanged, .axiomsDiffer, .definitionChanged]
+      let same : Bool := decide (key ix = key list)
+      let ok := same && reasons.all (fun r => list.any fun f => decide (f.reason = r)) &&
+        list.length < base.decls.length
+      IO.println s!"{if ok then "ok  " else "FAIL"} compareIx = compare on a generated pair, {what}: {list.length} findings"
+      unless ok do failed := failed + 1
   -- The file-wide namespace move: every occurrence in one edit, and a site of
   -- class `unknown` that names a moved name triggers it.
   do
@@ -419,6 +534,27 @@ def run : IO Nat := do
     let ok2 := order == ["", "· omega", "· simp_all"]
     IO.println s!"{if ok2 then "ok  " else "FAIL"} a closer rule runs last: {repr order}"
     unless ok2 do failed := failed + 1
+    -- a rule that only raises maxHeartbeats runs after the closer rule
+    let hb : Rule := { name := "a-budget", cls := .tacticFailed, entrenchment := .proposed,
+                       family := .any, ops := [.heartbeats 400000] }
+    let order3 := (proposeAll ⟨[]⟩ [hb, r, other] nodes false false [] site).map (·.replacement)
+    let ok3 := order3 == ["", "· omega", "· simp_all", "set_option maxHeartbeats 400000 in\n"]
+    IO.println s!"{if ok3 then "ok  " else "FAIL"} a heartbeats rule runs after every other rule: {repr order3}"
+    unless ok3 do failed := failed + 1
+    -- setOptionBefore: the same declStart insertion point as heartbeats, a
+    -- rule of its own gives one candidate, and a rule that only sets an
+    -- option runs after every other rule of its entrenchment too
+    -- (docs/breaking-changes.md B1, docs/rules.md § Entrenchment and order).
+    let sob : Rule := { name := "a-sob", cls := .tacticFailed, entrenchment := .proposed,
+                        family := .any, ops := [.setOptionBefore "backward.match.sparseCases" "false"] }
+    let gotSob := (ruleCandidates false sob nodes site).map fun c => (c.start, c.stop, c.replacement)
+    let okSob := gotSob == [(1000, 1000, "set_option backward.match.sparseCases false in\n")]
+    IO.println s!"{if okSob then "ok  " else "FAIL"} setOptionBefore, one candidate at declStart: {repr gotSob}"
+    unless okSob do failed := failed + 1
+    let order4 := (proposeAll ⟨[]⟩ [sob, r, other] nodes false false [] site).map (·.replacement)
+    let ok4 := order4 == ["", "· omega", "· simp_all", "set_option backward.match.sparseCases false in\n"]
+    IO.println s!"{if ok4 then "ok  " else "FAIL"} a setOptionBefore rule runs after every other rule: {repr order4}"
+    unless ok4 do failed := failed + 1
   -- simpArgAddPrior: the simp before the site's own tactic, in the indented
   -- sequence that holds the site (EquiVM TransientPackedStorage 59: `simp
   -- only […, Option.bind]`, then `congr 2`, then `apply u256_inj` fails).
@@ -452,14 +588,72 @@ def run : IO Nat := do
       let ok := got == want
       IO.println s!"{if ok then "ok  " else "FAIL"} simpArgAddPrior, {what}: {repr got}"
       unless ok do failed := failed + 1
+  -- simpaUsingBangNested: the site is the inner `simpa`; the edit spans the
+  -- outer `simpa` that holds it (EquiVM ERC6909.SetOperator 44-49).
+  do
+    let outerText := "simpa [a] using f (by simpa [b] using h)"
+    let outer := node outerText
+    let a := 100 + ((outerText.splitOn "simpa [b]").head!).utf8ByteSize
+    let inner : Node := { kind := "Lean.Parser.Tactic.simpa", start := a, stop := outer.stop,
+                          text := "simpa [b] using h)", column := 4,
+                          tokens := outer.tokens.filter (·.start ≥ a) }
+    let siteAt (s : Nat) : Site :=
+      { diagnostic := { module := "M", line := 1, column := 0, endLine := 1, endColumn := 1,
+                        severity := .error, kind := "[anonymous]",
+                        text := "Type mismatch: After simplification, term\n  h\n has type" },
+        decl := some "D.f", region := some .body, declStart := some 0, start := s, stop := s + 5 }
+    let r : Rule := { name := "nested", cls := .typeMismatch, entrenchment := .proposed, family := .simp,
+                      ops := [.simpaUsingBangNested] }
+    for (what, nodes, site, want) in
+        [("both usings of the outermost simpa become using!", [inner, outer], siteAt a,
+          [(100, outer.stop, "simpa [a] using! f (by simpa [b] using! h)")]),
+         ("a simpa that no simpa holds: no candidate", [node "simpa [a] using h"], siteAt 100, [])] do
+      let got := (ruleCandidates false r nodes site).map fun c => (c.start, c.stop, c.replacement)
+      let ok := got == want
+      IO.println s!"{if ok then "ok  " else "FAIL"} simpaUsingBangNested, {what}: {repr got}"
+      unless ok do failed := failed + 1
   for (what, cls, op, accept) in
       [("deleteTactic for noGoals is loaded", "noGoals", "deleteTactic", true),
        ("deleteTactic for typeMismatch is refused", "typeMismatch", "deleteTactic", false),
+       ("deleteShowRewrite for tacticFailed is loaded", "tacticFailed", "deleteShowRewrite", true),
+       ("deleteShowRewrite for noGoals is refused", "noGoals", "deleteShowRewrite", false),
        ("node any on class unknown is refused", "unknown", "simpaToExact", false)] do
     let r := Lean.Json.parse (ruleJson cls op) >>= Parse.rule
     let ok := r.toBool == accept
     IO.println s!"{if ok then "ok  " else "FAIL"} {what}"
     unless ok do failed := failed + 1
+  -- Decision D13: an axiomsAdded/axiomsRemoved rule carries causeTag, or the
+  -- loader refuses it as vacuous (`docs/rules.md` § Axiom-finding rules).
+  for (what, cls, tag, accept) in
+      [("axiomsAdded with causeTag congrLemma is loaded", "axiomsAdded", some "congrLemma", true),
+       ("axiomsRemoved with causeTag matcher is loaded", "axiomsRemoved", some "matcher", true),
+       ("axiomsAdded with no causeTag is refused as vacuous", "axiomsAdded", none, false),
+       ("axiomsRemoved with no causeTag is refused as vacuous", "axiomsRemoved", none, false)] do
+    let r := Lean.Json.parse (ruleJsonAxiom cls tag) >>= Parse.rule
+    let ok := r.toBool == accept
+    IO.println s!"{if ok then "ok  " else "FAIL"} {what}"
+    unless ok do failed := failed + 1
+  -- The two proposed axiom-finding rules (`docs/rules.md` § Two proposed
+  -- rules) load, with the causeTag the file names; `simp-congr-classical`
+  -- uses the existing `keywordSwap` op, `match-sparse-cases` the new
+  -- `setOptionBefore` op.
+  for (name, wantTag) in
+      [("simp-congr-classical", CauseTag.congrLemma), ("match-sparse-cases", .matcher)] do
+    let txt ← IO.FS.readFile s!"rules/proposed/{name}.json"
+    let got := Lean.Json.parse txt >>= Parse.rule
+    let ok := got.toOption.map (·.causeTag) == some (some wantTag)
+    IO.println s!"{if ok then "ok  " else "FAIL"} rules/proposed/{name}.json loads with causeTag {repr wantTag}: {repr (got.toOption.map (·.causeTag))}"
+    unless ok do failed := failed + 1
+  -- Every rule file in rules/proposed/ still loads (no regression from the
+  -- causeTag field or the setOptionBefore op).
+  do
+    let dir : System.FilePath := "rules/proposed"
+    let files := ((← dir.readDir).map (·.path)).filter (·.extension == some "json")
+    for f in files do
+      let txt ← IO.FS.readFile f
+      let ok := (Lean.Json.parse txt >>= Parse.rule).toBool
+      IO.println s!"{if ok then "ok  " else "FAIL"} {f} loads"
+      unless ok do failed := failed + 1
   -- S3a (docs/parallel.md § Level 2: parallel frontier modules): a fleet of
   -- two Mending states, one per module, reaches the same final state
   -- whichever order their observations arrive in. `Fleet.step` replaces a
@@ -482,6 +676,83 @@ def run : IO Nat := do
     IO.println s!"{if ok then "ok  " else "FAIL"} S3a: a fleet of two Mending states reaches \
       the same final state in either order"
     unless ok do failed := failed + 1
+  -- docs/parallel.md P8, P21, P22: the dataflow schedule on a chain A ← B ← C
+  -- with an unrelated D. A builds, so B is ready to build; C waits for B.
+  -- A `moduleBuild` unblocks only a ready blocked module, to built or
+  -- failing, and a module the run mended must build.
+  do
+    let mods : List Module :=
+      [⟨"A", []⟩, ⟨"D", []⟩, ⟨"B", ["A", "Init"]⟩, ⟨"C", ["B"]⟩]
+    let ctx : Context :=
+      { target := "t", base := { toolchain := ⟨"a"⟩, built := [], decls := [] }, mods,
+        aliases := ⟨[]⟩ }
+    let st : Statuses := fun n =>
+      if n == "B" || n == "C" then .blocked else if n == "D" then .failing else .built
+    let statusOf (s : RunState) (n : String) : Option ModStatus :=
+      match s with | .built _ st' => some (st' n) | _ => none
+    let isHalted (s : RunState) : Bool := match s with | .halted _ => true | _ => false
+    let base : RunState := .built ctx st
+    for (what, ok) in
+        [("ready names the open modules whose imports build, in module order",
+          ready mods st == ["D", "B"]),
+         ("a ready blocked module takes its build result",
+          statusOf (base.step (.moduleBuild "B" .failing)) "B" == some .failing),
+         ("a blocked module whose import does not build cannot take a result",
+          isHalted (base.step (.moduleBuild "C" .built))),
+         ("a build that reports a ready module blocked again halts",
+          isHalted (base.step (.moduleBuild "B" .blocked))),
+         ("a built module must build",
+          statusOf (base.step (.moduleBuild "A" .built)) "A" == some .built &&
+          isHalted (base.step (.moduleBuild "A" .failing))),
+         ("a failing module takes no module build",
+          isHalted (base.step (.moduleBuild "D" .built))),
+         ("C becomes ready once B builds",
+          ready mods (fun n => if n == "C" then .blocked else if n == "D" then .failing else .built)
+            == ["D", "C"]),
+         ("importClosure names every module C imports, directly or not, in module order",
+          importClosure mods "C" == ["A", "B"] && importClosure mods "D" == [])] do
+      IO.println s!"{if ok then "ok  " else "FAIL"} dataflow: {what}"
+      unless ok do failed := failed + 1
+  -- docs/parallel.md P24: the memory limit of a run. Sizes in KiB:
+  -- 10 GiB = 10485760, 15 GiB = 15728640, 16 GiB = 16777216, 21 GiB = 22020096.
+  do
+    let g (n : Nat) : KiB := KiB.ofGiB n
+    let est := workEstimate
+    let limit := g 21
+    let young : Load := { driver := ⟨100000⟩, tree := ⟨1500000⟩, probes := [some ⟨1300000⟩] }
+    let two : Load := { driver := ⟨100000⟩, tree := ⟨3000000⟩, probes := [some ⟨1300000⟩, none] }
+    let grown : Load := { driver := ⟨100000⟩, tree := ⟨13000000⟩, probes := [some (g 12)] }
+    let build (n : Nat) : Load := { driver := ⟨100000⟩, tree := ⟨2000000⟩, probes := [], others := n }
+    for (what, ok) in
+        [("one live probe and one new: charged 100000 + 2 * 10485760, measured 1500000 + 9185760 + 10485760",
+          young.charged est == ⟨21071520⟩ && young.measured est == ⟨21171520⟩ && admits limit est young),
+         ("a third probe does not fit 21 GiB: charged 100000 + 3 * 10485760",
+          two.charged est == ⟨31557280⟩ && !admits limit est two),
+         ("a probe that grew past its charge stops the next admission by the measured check",
+          grown.charged est == ⟨21071520⟩ && grown.measured est == ⟨23485760⟩ && !admits limit est grown),
+         ("a running build is charged: one fits beside a new probe, two do not",
+          admits limit est (build 1) && !admits limit est (build 2)),
+         ("when nothing runs, one item starts even past the limit",
+          admits limit est { driver := g 30, tree := g 30, probes := [] }),
+         ("the hard cap is the charge times 3/2: 15 GiB, lean -M 15360",
+          probeCap == ⟨15728640⟩ && probeCap.toMiB == 15360),
+         ("the default limit is MemAvailable minus 16 GiB: 34480068 - 16777216",
+          (MemoryLimit.available ⟨34480068⟩).limit == ⟨17702852⟩),
+         ("a MemAvailable below the reserve gives the limit 0",
+          (MemoryLimit.available ⟨1000⟩).limit == ⟨0⟩),
+         ("a round with no extra probe runs every candidate on its module's probe",
+          roundPlacement 3 0 == [.own, .own, .own]),
+         ("a round uses at most width - 1 extra probes",
+          roundPlacement 3 5 == [.own, .nested, .nested]),
+         ("a round with one extra probe runs the third candidate on its module's probe",
+          roundPlacement 3 1 == [.own, .nested, .own]),
+         ("processTree: a process, its child and its grandchild, not a sibling",
+          processTree [(10, 1), (11, 10), (12, 11), (13, 1), (14, 99)] 10 == [10, 11, 12]),
+         ("certificateJobs: 2 at 21 GiB, 1 at 1 GiB, 4 at 64 GiB",
+          certificateJobs (g 21) est == 2 && certificateJobs (g 1) est == 1 &&
+          certificateJobs (g 64) est == 4)] do
+      IO.println s!"{if ok then "ok  " else "FAIL"} memory limit: {what}"
+      unless ok do failed := failed + 1
   return failed
 
 end OpsTest

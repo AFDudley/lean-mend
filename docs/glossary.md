@@ -69,8 +69,8 @@ rule runs first.
 ## Proof of no harm
 
 **certificate** (n) — A record of a target at one toolchain: the modules that
-build, and for each declaration its kind, its statement text, its statement
-hash and its axioms.
+build, and for each declaration its kind, the hash of its statement's token
+sequence, the hash of its body text and its axioms.
 
 **baseline certificate** (n) — The certificate at the old toolchain, taken
 before lean-mend edits anything.

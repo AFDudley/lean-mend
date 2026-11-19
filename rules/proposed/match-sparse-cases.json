@@ -1,0 +1,12 @@
+{
+  "name": "match-sparse-cases",
+  "class": "axiomsAdded",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "EquiVM run 10 (2026-11-07), G3, 1 card. Lean v4.33 compiles a match whose last arm is `| _ => []` to a sparse casesOn, whose catch-all arm carries a Nat.hasNotBit hypothesis; v4.29.0 did not. Direct measurement (2026-11-07): Stele.Interp.allocationSizes (Stele/Interp.lean:251, inside the mutual block at lines 248-289, the G3 site) has axioms [] at v4.29.0 and [propext] at v4.33.1; its generated matcher aux allocationSizes.match_1 shows the same [] to [propext] change, traced to Lean/Meta/Match/Match.lean's hasInaccessiblePattern (backward.match.sparseCases) and the else_eq proof in Lean/Meta/Match/Constructions/SparseCasesOn.lean."
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.35.0" },
+  "node": "any",
+  "causeTag": "matcher",
+  "candidates": [ { "op": "setOptionBefore", "name": "backward.match.sparseCases", "value": "false" } ]
+}

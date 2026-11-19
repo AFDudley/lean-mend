@@ -1,0 +1,71 @@
+status: completed
+pebble_id: lea-ba1
+summary: >
+  The S1a work already in the base tree (commit 84a5b23) had already given
+  LeanMend/Core/Mend.lean the full S1b acceptance logic: Mending.accept
+  compares the sorted post-rebuild head's (declIndex, reach) against the old
+  head's, accepting any number of later errors as long as the position moves
+  strictly later (X3) and rejecting one that does not (X4).
+  LeanMend/Spec/Termination.lean already had the five-tuple MeasureLt over
+  Prod.Lex and the Mending.step_measure theorem proving every successful step
+  lowers it (X5, X8). What S1b's acceptance check still needed was the
+  fixtures and the runner that exercise this against the real engine, not
+  only the unit tests already in tests/OpsTest.lean. I added
+  tests/fixtures/expose-two (a one-declaration module whose one rule,
+  applied by lean-mend --adopt --rules, replaces the head error with text
+  that exposes two new, later errors at a smaller byte reach than the old
+  head) and tests/fixtures/expose-back (the same shape, but the replacement
+  leaves its new errors at a larger byte reach, earlier in the declaration,
+  than the old head). Both fixture bodies and their rule's replacement text
+  were derived empirically: I ran plain `lean --json` on each tactic shape
+  first to confirm Lean's real cascading and error-recovery behavior (an
+  unknown identifier in term position auto-recovers and lets elaboration
+  continue; one in a tactic's configuration, such as rw's argument list,
+  aborts the rest of the tactic sequence), then computed the exact byte
+  reach of each site with the probe's own formula before writing the
+  fixture, and confirmed both outcomes against the real lean-mend binary in
+  .scratch/ before committing the final fixture content. tests/expose.sh
+  runs lean-mend --adopt --rules on a fixture and reports {"verdict":
+  "accepted"} when a commit lands on the mend branch, or {"verdict":
+  "rejected"} otherwise; scripts/gate.sh runs it on both fixtures as the
+  step "exposure of later errors". No change was needed in
+  LeanMend/Core/Mend.lean, LeanMend/Spec/Types.lean,
+  LeanMend/Spec/Termination.lean, LeanMend/Spec/Invariant.lean, or
+  LeanMend/Shell/Driver.lean. Verified with `lake build` (clean), `lake test`
+  (0 failed), `lake env lean tests/NoSorry.lean` (0 constants depend on
+  sorryAx), the grep checks for step_measure/Prod.Lex/the Shell and Mathlib
+  import boundaries/no retry-or-timeout control in Termination.lean, and the
+  full scripts/gate.sh (13/13 steps ok, 0 failed, including the new step
+  against the real fixtures) run at the commit this handoff names.
+cost: ~145k tokens
+commits:
+  - "e1772d24101750347b111a4456b6d54750865a26"
+verify_transcript:
+  hooks:
+    - name: lake build
+      outcome: passed
+      duration_s: 15
+    - name: lake test
+      outcome: passed
+      duration_s: 25
+    - name: lake env lean tests/NoSorry.lean
+      outcome: passed
+      duration_s: 6
+    - name: tests/expose.sh tests/fixtures/expose-two
+      outcome: passed
+      duration_s: 8
+    - name: tests/expose.sh tests/fixtures/expose-back
+      outcome: passed
+      duration_s: 8
+    - name: scripts/gate.sh
+      outcome: passed
+      duration_s: 319
+    - name: pre-commit (all hooks on changed files)
+      outcome: passed
+      duration_s: 20
+e2e_gate:
+  spec: tests/expose.sh
+  command: scripts/gate.sh
+  result: passed
+  ran_at_sha: "e1772d24101750347b111a4456b6d54750865a26"
+  mocks_in_path: false

@@ -1,0 +1,222 @@
+{
+  "id": "derived-lea-830",
+  "original_statement": "What must hold? State the invariant or expectation this concerns. lean-mend has a rule for v4.35.0 #14937. At an unsolvedGoals site on rwa [rules] at h, it turns the tactic into rw [rules] at h followed by assumption. Decision B7 of docs/breaking-changes.md holds.\nWhat holds now? Describe the current, observed state. v4.35.0 #14937 makes rwa [rules] at h close the main goal with h only, not with any matching assumption. rules/proposed has no rule whose applies range reaches v4.35.0.\nHow do you see it? Describe exactly how to observe this for yourself \u2014 the steps to reproduce, or how you would demo it. A fixture under tests/ pinned to leanprover/lean4:v4.35.0, where rwa [r] at h leaves the goal open and another hypothesis closes it, shows the rule accepted, through a runner that sources tests/lib/report.sh. Run scripts/gate.sh: stdout is one JSON object; the key 'steps.rwa at h on v4.35.ok' is true, and failed is 0.\nWhat constraints apply? State them in plain prose. Spec and Core import no Shell module (scripts/gate.sh checks it). Termination stays a theorem in LeanMend/Spec/Termination.lean, with no retry cap and no timeout as a control. Decision D10 holds: lean-mend adds no declaration to a target. lean-mend depends on Lean core only, not on Mathlib. Every committed text is in ASD-STE100 Simplified Technical English. Run export PATH=\"$HOME/.elan/bin:$PATH\" before a lean or lake command. Scratch files go in the gitignored .scratch/ directory, not /tmp. The worker task timeout is 3600 seconds. Do not run lean-mend on EVMLean: one EVMLean run takes about 2 hours, and the operator runs it after the merge.\nWhere does this apply? (e.g. gateway route, mobile screen, CLI verb) rules/proposed/, docs/rules.md, tests/",
+  "restatement": "lean-mend must gain a proposed rule for Lean v4.35.0 change #14937. From v4.35.0, `rwa [rules] at h` closes the main goal with `h` only. It no longer closes the goal with any matching assumption. At an unsolvedGoals site on `rwa [rules] at h`, the rule rewrites the tactic into `rw [rules] at h` followed by `assumption`. This implements Decision B7 of docs/breaking-changes.md. Today no rule in rules/proposed has an applies range that reaches v4.35.0. The rule is documented in docs/rules.md. A fixture under tests/ is pinned to leanprover/lean4:v4.35.0. In the fixture, `rwa [r] at h` leaves the goal open and another hypothesis closes it. A runner that sources tests/lib/report.sh shows the rule accepted. Running scripts/gate.sh prints one JSON object. In it, the key 'steps.rwa at h on v4.35.ok' is true and failed is 0. The gate also keeps Spec and Core free of Shell imports. Termination stays a theorem in LeanMend/Spec/Termination.lean.",
+  "restatement_clauses": [
+    {
+      "id": "c1",
+      "text": "A rule exists in rules/proposed whose applies range reaches v4.35.0 and which names v4.35.0 #14937 and the `rwa` tactic."
+    },
+    {
+      "id": "c2",
+      "text": "At an unsolvedGoals site on `rwa [rules] at h`, the rule turns the tactic into `rw [rules] at h` followed by `assumption`."
+    },
+    {
+      "id": "c3",
+      "text": "A fixture under tests/ is pinned to leanprover/lean4:v4.35.0, where `rwa [r] at h` leaves the goal open and another hypothesis closes it, and it runs through a runner that sources tests/lib/report.sh."
+    },
+    {
+      "id": "c4",
+      "text": "Running scripts/gate.sh prints one JSON object in which the key 'steps.rwa at h on v4.35.ok' is true and failed is 0."
+    },
+    {
+      "id": "c5",
+      "text": "docs/rules.md documents the v4.35.0 #14937 rule."
+    },
+    {
+      "id": "c6",
+      "text": "Termination stays a theorem in LeanMend/Spec/Termination.lean, and Spec and Core import no Shell module (scripts/gate.sh checks the imports)."
+    }
+  ],
+  "goal": "A proposed lean-mend rule that fixes `rwa [rules] at h` for Lean v4.35.0 #14937, with documentation and a passing fixture in the gate.",
+  "acceptance_criteria": [
+    "At least one rule file in the proposed rules folder mentions the v4.35.0 change number 14937.",
+    "At least one proposed rule file names the rwa tactic and the rw-then-assumption rewrite.",
+    "A test fixture is pinned to Lean toolchain v4.35.0.",
+    "At least one test runner script loads the shared report helper.",
+    "Running the gate prints a report where the step 'rwa at h on v4.35' passed.",
+    "Running the gate prints a report with zero failed checks.",
+    "The rules document describes the v4.35.0 change number 14937.",
+    "The termination file still states a theorem."
+  ],
+  "request_clauses": [
+    {
+      "id": "c1",
+      "text": "At least one rule file in the proposed rules folder mentions the v4.35.0 change number 14937."
+    },
+    {
+      "id": "c2",
+      "text": "At least one proposed rule file names the rwa tactic and the rw-then-assumption rewrite."
+    },
+    {
+      "id": "c3",
+      "text": "A test fixture is pinned to Lean toolchain v4.35.0."
+    },
+    {
+      "id": "c4",
+      "text": "At least one test runner script loads the shared report helper."
+    },
+    {
+      "id": "c5",
+      "text": "Running the gate prints a report where the step 'rwa at h on v4.35' passed."
+    },
+    {
+      "id": "c6",
+      "text": "Running the gate prints a report with zero failed checks."
+    },
+    {
+      "id": "c7",
+      "text": "The rules document describes the v4.35.0 change number 14937."
+    },
+    {
+      "id": "c8",
+      "text": "The termination file still states a theorem."
+    }
+  ],
+  "acceptance_tests": [
+    {
+      "type": "grep",
+      "description": "At least one rule file in the proposed rules folder mentions the v4.35.0 change number 14937.",
+      "proves": "A proposed rule for v4.35.0 #14937 exists.",
+      "restatement_clause_id": "c1",
+      "pattern": "14937",
+      "files": [
+        "rules/proposed/*"
+      ],
+      "count": {
+        "unit": "files",
+        "op": "ge",
+        "value": 1
+      },
+      "clause_id": "c1"
+    },
+    {
+      "type": "grep",
+      "description": "At least one proposed rule file names the rwa tactic and the rw-then-assumption rewrite.",
+      "proves": "The rule rewrites rwa into rw followed by assumption.",
+      "restatement_clause_id": "c2",
+      "pattern": "rwa",
+      "files": [
+        "rules/proposed/*"
+      ],
+      "additional_patterns": [
+        "assumption"
+      ],
+      "count": {
+        "unit": "patterns",
+        "op": "eq",
+        "value": 2
+      },
+      "clause_id": "c2"
+    },
+    {
+      "type": "grep",
+      "description": "A test fixture is pinned to Lean toolchain v4.35.0.",
+      "proves": "A fixture pinned to leanprover/lean4:v4.35.0 exists under tests/.",
+      "restatement_clause_id": "c3",
+      "pattern": "leanprover/lean4:v4\\.35\\.0",
+      "files": [
+        "tests/**/lean-toolchain"
+      ],
+      "count": {
+        "unit": "files",
+        "op": "ge",
+        "value": 1
+      },
+      "clause_id": "c3"
+    },
+    {
+      "type": "grep",
+      "description": "At least one test runner script loads the shared report helper.",
+      "proves": "A runner sourcing tests/lib/report.sh exists.",
+      "restatement_clause_id": "c3",
+      "pattern": "source .*lib/report\\.sh|\\. .*lib/report\\.sh",
+      "files": [
+        "tests/*.sh",
+        "tests/**/*.sh"
+      ],
+      "count": {
+        "unit": "files",
+        "op": "ge",
+        "value": 1
+      },
+      "clause_id": "c4"
+    },
+    {
+      "type": "behavior",
+      "description": "Running the gate prints a report where the step 'rwa at h on v4.35' passed.",
+      "proves": "The fixture shows the rule accepted on v4.35.0.",
+      "restatement_clause_id": "c4",
+      "when": {
+        "interpreter": "",
+        "script": "scripts/gate.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "stdout_json",
+          "field": "steps.rwa at h on v4.35.ok",
+          "op": "eq",
+          "value": true
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 3600,
+      "clause_id": "c5"
+    },
+    {
+      "type": "behavior",
+      "description": "Running the gate prints a report with zero failed checks.",
+      "proves": "The whole gate is green, including the Spec and Core import check.",
+      "restatement_clause_id": "c4",
+      "when": {
+        "interpreter": "",
+        "script": "scripts/gate.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "stdout_json",
+          "field": "failed",
+          "op": "eq",
+          "value": 0
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 3600,
+      "clause_id": "c6"
+    },
+    {
+      "type": "grep",
+      "description": "The rules document describes the v4.35.0 change number 14937.",
+      "proves": "The rule is documented in docs/rules.md.",
+      "restatement_clause_id": "c5",
+      "pattern": "14937",
+      "files": [
+        "docs/rules.md"
+      ],
+      "clause_id": "c7"
+    },
+    {
+      "type": "grep",
+      "description": "The termination file still states a theorem.",
+      "proves": "Termination remains a theorem in LeanMend/Spec/Termination.lean.",
+      "restatement_clause_id": "c6",
+      "pattern": "^\\s*theorem ",
+      "files": [
+        "LeanMend/Spec/Termination.lean"
+      ],
+      "count": {
+        "unit": "lines",
+        "op": "ge",
+        "value": 1
+      },
+      "clause_id": "c8"
+    }
+  ],
+  "declared_new_entrypoints": [
+    "scripts/gate.sh"
+  ]
+}

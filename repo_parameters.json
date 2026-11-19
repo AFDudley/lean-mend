@@ -1,0 +1,43 @@
+{
+  "git_remote": "AFDudley.github.com",
+  "subtrees": [],
+  "pebble_tracker_prefixes": {
+    "root": "lea-"
+  },
+  "commit_trailer_categories": ["hygiene", "refactor", "docs", "infrastructure", "pebble-filing"],
+  "environment_command": ["lake", "build"],
+  "oracle_toolchain": [
+    {
+      "name": "lake",
+      "check": "lake --version",
+      "version_cmd": "lake --version",
+      "purpose": "Builds lean-mend and runs its tests; the elan proxy selects the toolchain in lean-toolchain.",
+      "install": "Install elan (https://github.com/leanprover/elan); elan installs the pinned toolchain on first use.",
+      "required": true,
+      "group": "core"
+    },
+    {
+      "name": "lean",
+      "check": "lean --version",
+      "version_cmd": "lean --version",
+      "purpose": "Runs the probe and compiles fixtures.",
+      "install": "Install elan (https://github.com/leanprover/elan).",
+      "required": true,
+      "group": "core"
+    },
+    {
+      "name": "elan",
+      "check": "elan --version",
+      "version_cmd": "elan --version",
+      "purpose": "Resolves the toolchain each fixture pins.",
+      "install": "https://github.com/leanprover/elan",
+      "required": true,
+      "group": "core"
+    }
+  ],
+  "oracle_data_dirs": [".elan"],
+  "gate_commands": {
+    "root": "lake build"
+  },
+  "deploy_surfaces": {}
+}

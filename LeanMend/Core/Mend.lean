@@ -1,11 +1,15 @@
+import LeanMend.Core.Cause
 import LeanMend.Spec.Types
 
 /-!
-# Level 2: inside `Mending`
+# Level 2 and Level 3: inside `Mending` and `FindingMending`
 
-One frontier module, its open sites and the candidates of the head site. See
-`docs/machine.md` § Level 2. Every function here is pure. The shell makes the
-observation, records it in the ledger, and then calls `Mending.step`.
+One frontier module, its open sites and the candidates of the head site
+(`Mending`, `docs/machine.md` § Level 2); one repair-frontier module, its
+open finding-sites and their candidates (`FindingMending`, § Level 3,
+`FindingMending`). Every function here is pure. The shell makes the
+observation, records it in the ledger, and then calls `Mending.step` or
+`FindingMending.step`.
 -/
 
 namespace LeanMend
@@ -427,5 +431,197 @@ def Mending.measure (m : Mending) : Nat × Nat × Nat × Nat × Nat :=
   | o :: _ =>
     (m.decls - 1 - o.site.declIndex, o.site.reach, m.sites.length, o.candidates.length,
      (o.candidates.head?.map (·.replacement.length)).getD 0)
+
+/-! ## Level 3: inside `FindingMending` -/
+
+/-- An open finding-site and the candidates still to try, in rule order. The
+state holds what is left, not what was tried (concept B6), the same shape
+`Open` gives a diagnostic's site (`docs/machine.md` § `FindingMending`). -/
+structure OpenFindingSite where
+  group : FindingSiteGroup
+  candidates : List Candidate
+  deriving Repr
+
+/-- An accepted repair at one finding site (`docs/machine.md` § Acceptance):
+it carries the evidence that the three acceptance conditions held, the same
+way `Accepted` carries a diagnostic repair's evidence. -/
+structure FindingAccepted where
+  candidate : Candidate
+  site : SiteKey
+  /-- Condition 1: every finding this site closes now has its baseline axiom
+  set, in the site's module and in every rebuilt importer. -/
+  baselineRestored : Bool
+  /-- Condition 2: no declaration of the site's module, and no rebuilt
+  importer, has a new finding of any kind. -/
+  noNewFinding : Bool
+  /-- Condition 3: the site's module, and every rebuilt importer, still
+  build with no new error. -/
+  stillBuilds : Bool
+  conditionsHeld : baselineRestored = true ∧ noNewFinding = true ∧ stillBuilds = true
+  /-- The findings the repair closes: the accepted site's whole group
+  (`docs/machine.md` § Acceptance condition 1 closes every one of them). -/
+  closed : List (String × String × List String)
+  closedNonempty : closed ≠ []
+  deriving Repr
+
+/-- The state of one repair-frontier module (`docs/machine.md` § Level 3,
+`FindingMending`): a module that owns the site of at least one open
+finding. Sibling of `Mending`. -/
+structure FindingMending where
+  module : String
+  sites : List OpenFindingSite
+  /-- Site declarations whose candidates ran out in an earlier repair round
+  (`docs/machine.md` § Termination, Level 3): once a site is exhausted it is
+  never diagnosed again. -/
+  exhausted : List String
+  accepted : List FindingAccepted
+  /-- Every open site closes at least one finding: `groupFindingSites` never
+  builds an empty group. -/
+  nonempty : ∀ o ∈ sites, o.group.members ≠ []
+  deriving Repr
+
+/-- What the shell must do next. -/
+inductive FindingAction where
+  /-- Apply this candidate in an attempt worktree and rebuild the site's
+  module (`docs/machine.md` § Acceptance). -/
+  | attempt (g : FindingSiteGroup) (c : Candidate)
+  /-- The head site has no candidate left. -/
+  | giveUp (g : FindingSiteGroup)
+  /-- No open site is left. -/
+  | finish
+
+def FindingMending.next (m : FindingMending) : FindingAction :=
+  match m.sites with
+  | [] => .finish
+  | o :: _ =>
+    match o.candidates with
+    | [] => .giveUp o.group
+    | c :: _ => .attempt o.group c
+
+/-- What the shell saw, attempting the head site's head candidate. -/
+inductive FindingObs where
+  /-- Acceptance conditions 1 to 3 all held (`docs/machine.md` §
+  Acceptance): the shell's own rebuild, walk and `compare`, each reduced to
+  its verdict. -/
+  | accepted (baselineRestored noNewFinding stillBuilds : Bool)
+  /-- One of the three conditions failed. -/
+  | rejected
+  /-- The head site had no candidate left. -/
+  | gaveUp
+
+/-- Changing a site's candidates keeps every site's group the same, so a
+nonempty-group fact on the old list transfers to the new one. -/
+theorem OpenFindingSite.nonempty_setCandidates {o : OpenFindingSite} {rest : List OpenFindingSite}
+    (cs : List Candidate) (h : ∀ x ∈ o :: rest, x.group.members ≠ []) :
+    ∀ x ∈ { o with candidates := cs } :: rest, x.group.members ≠ [] := by
+  intro x hx
+  rcases List.mem_cons.mp hx with hx | hx
+  · subst hx; exact h o (List.mem_cons_self ..)
+  · exact h x (List.mem_cons_of_mem _ hx)
+
+/-- Reject the head candidate of the head site: drop it, in place. Takes the
+split of `m.sites` explicitly, as `Mending.reject` does. -/
+def FindingMending.reject (m : FindingMending) {o₀ : OpenFindingSite} {rest : List OpenFindingSite}
+    (hs : m.sites = o₀ :: rest) : FindingMending :=
+  { m with
+    sites := { o₀ with candidates := o₀.candidates.drop 1 } :: rest
+    nonempty := OpenFindingSite.nonempty_setCandidates _ (hs ▸ m.nonempty) }
+
+/-- Give up on the head site: it leaves `sites` and its declaration joins
+`exhausted` (`docs/machine.md` § Termination, Level 3). -/
+def FindingMending.giveUp (m : FindingMending) {o₀ : OpenFindingSite} {rest : List OpenFindingSite}
+    (hs : m.sites = o₀ :: rest) : FindingMending :=
+  { m with
+    sites := rest
+    exhausted := o₀.group.key.site.1 :: m.exhausted
+    nonempty := fun x hx => m.nonempty x (hs ▸ List.mem_cons_of_mem _ hx) }
+
+/-- Accept an attempt: close every finding the head site's group holds, and
+commit the patch. Takes the split of `m.sites` explicitly and the three
+acceptance conditions as a conjunction, carried on the `FindingAccepted`
+record (`docs/machine.md` § Acceptance). -/
+def FindingMending.accept (m : FindingMending) {o₀ : OpenFindingSite} {rest : List OpenFindingSite}
+    (hs : m.sites = o₀ :: rest) (c : Candidate)
+    (baselineRestored noNewFinding stillBuilds : Bool)
+    (hAccept : baselineRestored = true ∧ noNewFinding = true ∧ stillBuilds = true) :
+    FindingMending :=
+  { m with
+    sites := rest
+    accepted :=
+      { candidate := c, site := o₀.group.key, baselineRestored, noNewFinding, stillBuilds,
+        conditionsHeld := hAccept, closed := o₀.group.members,
+        closedNonempty := m.nonempty o₀ (hs ▸ List.mem_cons_self ..) } :: m.accepted
+    nonempty := fun x hx => m.nonempty x (hs ▸ List.mem_cons_of_mem _ hx) }
+
+/-- The transition function (`docs/machine.md` § Level 3, § Acceptance).
+
+* `attempt` then `accepted`: accept only when all three acceptance
+  conditions held; otherwise the observation does not fit (the shell must
+  report `rejected` instead).
+* `attempt` then `rejected`: drop the head candidate.
+* `giveUp` then `gaveUp`: the head site leaves `sites` for `exhausted`.
+
+Any other pair is an observation that does not fit the state. -/
+def FindingMending.step (m : FindingMending) (o : FindingObs) : Except Refusal FindingMending :=
+  match hs : m.sites, o with
+  | o₀ :: _rest, .gaveUp =>
+    if o₀.candidates.isEmpty then .ok (m.giveUp hs)
+    else .error (.observationMismatch "gaveUp with candidates left")
+  | o₀ :: _rest, .rejected =>
+    if o₀.candidates.isEmpty then .error (.observationMismatch "no candidate was attempted")
+    else .ok (m.reject hs)
+  | o₀ :: _rest, .accepted baselineRestored noNewFinding stillBuilds =>
+    match o₀.candidates with
+    | [] => .error (.observationMismatch "no candidate was attempted")
+    | c :: _ =>
+      if h : baselineRestored = true ∧ noNewFinding = true ∧ stillBuilds = true then
+        .ok (m.accept hs c baselineRestored noNewFinding stillBuilds h)
+      else .error (.observationMismatch "an acceptance condition failed")
+  | [], _ => .error (.observationMismatch "no open site")
+
+/-- `FindingMending.step` never changes which module it repairs: `giveUp`,
+`reject` and `accept` all keep the original `module` field. `Fleet3`
+(`docs/machine.md` § Level 3) relies on this to route an observation to one
+member and still know the result carries the same module name, the same way
+`Fleet` relies on `Mending.step_module`. -/
+theorem FindingMending.step_module (m m' : FindingMending) (o : FindingObs)
+    (h : m.step o = .ok m') : m'.module = m.module := by
+  unfold FindingMending.step at h
+  split at h
+  · rename_i o₀ rest hs
+    split at h
+    · cases h; rfl
+    · cases h
+  · rename_i o₀ rest hs
+    split at h
+    · cases h
+    · cases h; rfl
+  · rename_i o₀ rest baselineRestored noNewFinding stillBuilds hs
+    split at h
+    · cases h
+    · rename_i c cs _hc
+      split at h
+      · cases h; rfl
+      · cases h
+  · cases h
+
+/-- The Level 3 measure's first item (`docs/machine.md` § Termination):
+the open findings at a site still in `sites`. `accept` and `giveUp` both
+remove the head site from `sites`, so both lower this item by the site's own
+finding count; `reject` leaves `sites` the same length, so it does not
+change. -/
+def FindingMending.openFindingCount (m : FindingMending) : Nat :=
+  (m.sites.map (·.group.members.length)).sum
+
+/-- The Level 3 measure's second item: the candidates left, summed over
+every open site. -/
+def FindingMending.candidatesLeft (m : FindingMending) : Nat :=
+  (m.sites.map (·.candidates.length)).sum
+
+/-- The termination measure inside `FindingMending`
+(`docs/machine.md` § Termination, Level 3): `(openFindingCount,
+candidatesLeft)`, lexicographic. -/
+def FindingMending.measure (m : FindingMending) : Nat × Nat :=
+  (m.openFindingCount, m.candidatesLeft)
 
 end LeanMend

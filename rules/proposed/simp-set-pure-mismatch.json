@@ -1,0 +1,12 @@
+{
+  "name": "simp-set-pure-mismatch",
+  "class": "typeMismatch",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "EquiVM v4.29.0 -> v4.33.1, lean-mend run 7 residue, Examples.UniswapV2Pair.UpdateSource 131, 139, 147, 684, 692, 700, 708: after `simp only [..., bind]` the goal keeps `match pure (Value.int maxUint112), fun rhsValue => ...`, because Lean v4.33.1 simp no longer reduces `pure` of a user monad (`Stele.EvalResult`, `pure := .ok`). `simpa [uniswapUint256Value, evalBinaryOp?] using hbound` then fails with `Type mismatch: After simplification`. Run 7 tried simpArgAdd `Ethereum.UInt256_ofNat_0`, `Ethereum.State.subtractGas`, `Fin.lt_def`, simpaToExact, simpaUsingBang and simpaSplit at each site: the module kept 13 errors each time. Measured on untracked copies of the real module: `pure` added to the simpa at 131 alone gave 9 -> 8 errors, with no warning at 131; `pure` added to all 7 simpas gave 9 -> 2 errors (the 2 left are the `rw` sites 828 and 866, another class), with no warning at any of the 7 lines. Same cause as simp-set-pure-unsolved and simp-set-pure-prior, here with the class typeMismatch.",
+    "introduced_by": { "package": "lean4", "commit": "between v4.29.0 and v4.33.1, not bisected" }
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.33.1" },
+  "node": "simp",
+  "candidates": [ { "op": "simpArgAdd", "lemma": "pure" } ]
+}

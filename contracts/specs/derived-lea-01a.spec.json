@@ -1,0 +1,185 @@
+{
+  "id": "derived-lea-01a",
+  "original_statement": "What must hold? State the invariant or expectation this concerns. lean-mend has the operation simpaToSimpExact. It turns simpa [L] using T into simp [L] followed by exact T, and it keeps the only modifier and the lemma list. A rule offers it for the typeMismatch class at a simpa node. Decision B4 of docs/breaking-changes.md holds.\nWhat holds now? Describe the current, observed state. EVMLean run 21 left ReturnDataBound 2354 and 2397 as residue. The hand bump bcca6b1 changed simpa only [L] using g.val.isLt to simp only [L] followed by exact g.val.isLt at both sites. simpaToExact drops the lemma list, and simpaSplit produces have := T, then simp [L] at this, then exact this.\nHow do you see it? Describe exactly how to observe this for yourself \u2014 the steps to reproduce, or how you would demo it. Run lake test: tests/OpsTest.lean shows simpaToSimpExact on simpa only [a, b] using h.isLt, with the only modifier and the list kept. A fixture under tests/ with the ReturnDataBound shape shows the rule accepted, through a runner that sources tests/lib/report.sh. Run scripts/gate.sh: stdout is one JSON object; the key 'steps.simpa to simp then exact.ok' is true, and failed is 0.\nWhat constraints apply? State them in plain prose. Spec and Core import no Shell module (scripts/gate.sh checks it). Termination stays a theorem in LeanMend/Spec/Termination.lean, with no retry cap and no timeout as a control. Decision D10 holds: lean-mend adds no declaration to a target. lean-mend depends on Lean core only, not on Mathlib. Every committed text is in ASD-STE100 Simplified Technical English. Run export PATH=\"$HOME/.elan/bin:$PATH\" before a lean or lake command. Scratch files go in the gitignored .scratch/ directory, not /tmp. The worker task timeout is 3600 seconds. Do not run lean-mend on EVMLean: one EVMLean run takes about 2 hours, and the operator runs it after the merge.\nWhere does this apply? (e.g. gateway route, mobile screen, CLI verb) LeanMend/Spec/Types.lean, LeanMend/Core/Ops.lean, LeanMend/Shell/Parse.lean, rules/proposed/, docs/rules.md, tests/",
+  "restatement": "lean-mend must have one rewrite operation, simpaToSimpExact. It turns `simpa [L] using T` into `simp [L]` followed by `exact T`. It keeps the `only` modifier and the lemma list. A rule offers this operation for the typeMismatch class at a simpa node. This replaces the lossy results of simpaToExact (drops the lemma list) and simpaSplit (produces `have := T`, `simp [L] at this`, `exact this`). The EVMLean ReturnDataBound residue at lines 2354 and 2397 is the target shape: `simpa only [L] using g.val.isLt` must become `simp only [L]` then `exact g.val.isLt`. The work must stay inside the existing design: Spec and Core import no Shell module, termination stays a theorem, lean-mend adds no declaration to a target, and lean-mend needs Lean core only.",
+  "restatement_clauses": [
+    {
+      "id": "c1",
+      "text": "The operation simpaToSimpExact exists in LeanMend/Spec/Types.lean, LeanMend/Core/Ops.lean and LeanMend/Shell/Parse.lean."
+    },
+    {
+      "id": "c2",
+      "text": "simpaToSimpExact turns `simpa [L] using T` into `simp [L]` followed by `exact T`, and keeps the `only` modifier and the lemma list. tests/OpsTest.lean shows it on `simpa only [a, b] using h.isLt`, with the only modifier and the list kept. `lake test` passes."
+    },
+    {
+      "id": "c3",
+      "text": "A rule in rules/proposed/ offers simpaToSimpExact for the typeMismatch class at a simpa node, and docs/rules.md documents it."
+    },
+    {
+      "id": "c4",
+      "text": "A fixture under tests/ with the ReturnDataBound shape shows the rule accepted, through a runner that sources tests/lib/report.sh."
+    },
+    {
+      "id": "c5",
+      "text": "Run scripts/gate.sh: stdout is one JSON object, the key 'steps.simpa to simp then exact.ok' is true, and failed is 0."
+    },
+    {
+      "id": "c6",
+      "text": "Spec and Core import no Shell module, and lean-mend depends on Lean core only, not on Mathlib."
+    }
+  ],
+  "goal": "Add the simpaToSimpExact operation and the rule that offers it, with tests and docs, so the ReturnDataBound shape is rewritten the way decision B4 says.",
+  "acceptance_criteria": [
+    "The three source files named in the request each mention the new operation by name.",
+    "The operation test file contains the example `simpa only [a, b] using h.isLt` and names simpaToSimpExact.",
+    "The rules documentation describes simpaToSimpExact and the typeMismatch class.",
+    "A test runner file under tests/ sources tests/lib/report.sh and refers to the ReturnDataBound shape.",
+    "Running the gate prints one JSON report. The step 'simpa to simp then exact' is marked ok and zero steps failed.",
+    "The Spec and Core files contain no import of a Shell module and no import of Mathlib."
+  ],
+  "request_clauses": [
+    {
+      "id": "c1",
+      "text": "The three source files named in the request each mention the new operation by name."
+    },
+    {
+      "id": "c2",
+      "text": "The operation test file contains the example `simpa only [a, b] using h.isLt` and names simpaToSimpExact."
+    },
+    {
+      "id": "c3",
+      "text": "The rules documentation describes simpaToSimpExact and the typeMismatch class."
+    },
+    {
+      "id": "c4",
+      "text": "A test runner file under tests/ sources tests/lib/report.sh and refers to the ReturnDataBound shape."
+    },
+    {
+      "id": "c5",
+      "text": "Running the gate prints one JSON report. The step 'simpa to simp then exact' is marked ok and zero steps failed."
+    },
+    {
+      "id": "c6",
+      "text": "The Spec and Core files contain no import of a Shell module and no import of Mathlib."
+    }
+  ],
+  "acceptance_tests": [
+    {
+      "type": "grep",
+      "description": "The three source files named in the request each mention the new operation by name.",
+      "proves": "The operation exists in the type definitions, the core operations and the parser.",
+      "restatement_clause_id": "c1",
+      "pattern": "simpaToSimpExact",
+      "files": [
+        "LeanMend/Spec/Types.lean",
+        "LeanMend/Core/Ops.lean",
+        "LeanMend/Shell/Parse.lean"
+      ],
+      "count": {
+        "unit": "files_without_match",
+        "op": "eq",
+        "value": 0
+      },
+      "clause_id": "c1"
+    },
+    {
+      "type": "grep",
+      "description": "The operation test file contains the example `simpa only [a, b] using h.isLt` and names simpaToSimpExact.",
+      "proves": "The unit test shows the rewrite on the stated input with the only modifier and list kept.",
+      "restatement_clause_id": "c2",
+      "pattern": "simpa only \\[a, b\\] using h\\.isLt",
+      "additional_patterns": [
+        "simpaToSimpExact"
+      ],
+      "files": [
+        "tests/OpsTest.lean"
+      ],
+      "clause_id": "c2"
+    },
+    {
+      "type": "grep",
+      "description": "The rules documentation describes simpaToSimpExact and the typeMismatch class.",
+      "proves": "The rule that offers the operation for typeMismatch at a simpa node is documented.",
+      "restatement_clause_id": "c3",
+      "pattern": "simpaToSimpExact",
+      "additional_patterns": [
+        "typeMismatch"
+      ],
+      "files": [
+        "docs/rules.md"
+      ],
+      "count": {
+        "unit": "patterns",
+        "op": "eq",
+        "value": 2
+      },
+      "clause_id": "c3"
+    },
+    {
+      "type": "grep",
+      "description": "A test runner file under tests/ sources tests/lib/report.sh and refers to the ReturnDataBound shape.",
+      "proves": "A fixture runner for the ReturnDataBound shape exists and uses the shared report library.",
+      "restatement_clause_id": "c4",
+      "pattern": "lib/report\\.sh",
+      "additional_patterns": [
+        "ReturnDataBound"
+      ],
+      "files": [
+        "tests/run_rules.sh"
+      ],
+      "count": {
+        "unit": "patterns",
+        "op": "eq",
+        "value": 2
+      },
+      "clause_id": "c4"
+    },
+    {
+      "type": "behavior",
+      "description": "Running the gate prints one JSON report. The step 'simpa to simp then exact' is marked ok and zero steps failed.",
+      "proves": "The whole build, tests and the new rewrite step pass end to end through the real gate.",
+      "restatement_clause_id": "c5",
+      "when": {
+        "interpreter": "",
+        "script": "scripts/gate.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "stdout_json",
+          "field": "steps.simpa to simp then exact.ok",
+          "op": "eq",
+          "value": true
+        },
+        {
+          "observe": "stdout_json",
+          "field": "failed",
+          "op": "eq",
+          "value": 0
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 3600,
+      "clause_id": "c5"
+    },
+    {
+      "type": "grep_absent",
+      "description": "The Spec and Core files contain no import of a Shell module and no import of Mathlib.",
+      "proves": "The layering rule holds and lean-mend stays dependent on Lean core only.",
+      "restatement_clause_id": "c6",
+      "pattern": "import LeanMend\\.Shell",
+      "additional_patterns": [
+        "import Mathlib"
+      ],
+      "files": [
+        "LeanMend/Spec/Types.lean",
+        "LeanMend/Core/Ops.lean"
+      ],
+      "clause_id": "c6"
+    }
+  ],
+  "declared_new_entrypoints": [
+    "scripts/gate.sh"
+  ]
+}

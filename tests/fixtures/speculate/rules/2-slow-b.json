@@ -8,7 +8,7 @@
       "op": "replaceInBody",
       "decl": "foo",
       "old": "exact unknownHead",
-      "new": "exact unknownHead\n  have _slowB : slowCount 75000 = 75000 := by decide"
+      "new": "exact unknownHead\n\n-- slow candidate 2\n#eval barrierAwaitStopped \"fast-fix\""
     }
   ]
 }

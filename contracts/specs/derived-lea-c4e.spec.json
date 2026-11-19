@@ -1,0 +1,251 @@
+{
+  "id": "derived-lea-c4e",
+  "original_statement": "What must hold? State the invariant or expectation this concerns. A rule's class field accepts one error class or a list of them, and the rule applies to a site of any listed class. The rule match-literal lists missingDecidable and typeMismatch. Decisions B5 and B6 of docs/breaking-changes.md hold.\nWhat holds now? Describe the current, observed state. LeanMend/Spec/Types.lean Rule has cls : ErrorClass, one class. EVMLean run 21 left ReturnDataBound 3287 as residue with class typeMismatch; the hand bump changed match pc with to match pc.val with there, the edit of match-literal, whose class is missingDecidable.\nHow do you see it? Describe exactly how to observe this for yourself \u2014 the steps to reproduce, or how you would demo it. Run lake test: tests/OpsTest.lean shows one rule with two classes proposing candidates at a site of each class, and a rule file with a single class string still loading. A fixture under tests/ with a numeric match that fails as a type mismatch shows match-literal accepted, through a runner that sources tests/lib/report.sh. Run scripts/gate.sh: stdout is one JSON object; the key 'steps.one rule for several error classes.ok' is true, and failed is 0.\nWhat constraints apply? State them in plain prose. Spec and Core import no Shell module (scripts/gate.sh checks it). Termination stays a theorem in LeanMend/Spec/Termination.lean, with no retry cap and no timeout as a control. Decision D10 holds: lean-mend adds no declaration to a target. lean-mend depends on Lean core only, not on Mathlib. Every committed text is in ASD-STE100 Simplified Technical English. Run export PATH=\"$HOME/.elan/bin:$PATH\" before a lean or lake command. Scratch files go in the gitignored .scratch/ directory, not /tmp. The worker task timeout is 3600 seconds. Do not run lean-mend on EVMLean: one EVMLean run takes about 2 hours, and the operator runs it after the merge.\nWhere does this apply? (e.g. gateway route, mobile screen, CLI verb) LeanMend/Spec/Types.lean, LeanMend/Core/Ops.lean, LeanMend/Shell/Parse.lean, rules/proposed/match-literal.json, docs/rules.md, tests/",
+  "restatement": "A lean-mend rule can name one error class or a list of error classes in its class field. A rule with a list applies at a site of any listed class, so one rule answers one root cause under every class Lean reports it as. The rule match-literal lists missingDecidable and typeMismatch, so it now proposes its edit for the typeMismatch residue that EVMLean run 21 left behind. A rule file with a single class string still loads. The change must keep the existing limits: Spec and Core import no Shell module, termination stays a theorem with no retry cap or timeout, lean-mend adds no declaration to a target, and lean-mend does not depend on Mathlib. The check scripts/gate.sh must report the step for several error classes as ok with no failed step.",
+  "restatement_clauses": [
+    {
+      "id": "c1",
+      "text": "A rule whose class field lists two classes proposes candidates at a site of each of the two classes (tests/OpsTest.lean, run by lake test)."
+    },
+    {
+      "id": "c2",
+      "text": "A rule file with a single class string still loads."
+    },
+    {
+      "id": "c3",
+      "text": "The rule match-literal in rules/proposed/match-literal.json lists the classes missingDecidable and typeMismatch."
+    },
+    {
+      "id": "c4",
+      "text": "A fixture under tests/ with a numeric match that fails as a type mismatch shows match-literal accepted, through a runner that sources tests/lib/report.sh."
+    },
+    {
+      "id": "c5",
+      "text": "scripts/gate.sh prints one JSON object on stdout, the key 'steps.one rule for several error classes.ok' is true, and failed is 0."
+    },
+    {
+      "id": "c6",
+      "text": "Spec and Core import no Shell module."
+    },
+    {
+      "id": "c7",
+      "text": "Termination stays a theorem in LeanMend/Spec/Termination.lean, with no retry cap and no timeout as a control."
+    },
+    {
+      "id": "c8",
+      "text": "lean-mend depends on Lean core only, not on Mathlib."
+    }
+  ],
+  "goal": "A rule can list several error classes and match-literal lists missingDecidable and typeMismatch.",
+  "acceptance_criteria": [
+    "A rule with two listed classes offers candidate edits at a site of each class.",
+    "A rule file that gives one class as a plain string still loads and works.",
+    "The match-literal rule file names both missingDecidable and typeMismatch.",
+    "A numeric match that fails as a type mismatch is accepted by match-literal in the test fixture.",
+    "The gate script prints one JSON report in which the several-classes step passed and no step failed.",
+    "No spec or core file imports a Shell module.",
+    "The termination file has no retry cap or timeout setting.",
+    "No changed source file imports Mathlib."
+  ],
+  "request_clauses": [
+    {
+      "id": "c1",
+      "text": "A rule with two listed classes offers candidate edits at a site of each class."
+    },
+    {
+      "id": "c2",
+      "text": "A rule file that gives one class as a plain string still loads and works."
+    },
+    {
+      "id": "c3",
+      "text": "The match-literal rule file names both missingDecidable and typeMismatch."
+    },
+    {
+      "id": "c4",
+      "text": "A numeric match that fails as a type mismatch is accepted by match-literal in the test fixture."
+    },
+    {
+      "id": "c5",
+      "text": "The gate script prints one JSON report in which the several-classes step passed and no step failed."
+    },
+    {
+      "id": "c6",
+      "text": "No spec or core file imports a Shell module."
+    },
+    {
+      "id": "c7",
+      "text": "The termination file has no retry cap or timeout setting."
+    },
+    {
+      "id": "c8",
+      "text": "No changed source file imports Mathlib."
+    }
+  ],
+  "acceptance_tests": [
+    {
+      "type": "behavior",
+      "description": "A rule with two listed classes offers candidate edits at a site of each class.",
+      "proves": "One rule with a list of classes applies at a site of every listed class.",
+      "restatement_clause_id": "c1",
+      "when": {
+        "interpreter": "",
+        "script": "tests/multi_class_rule.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "exit_code",
+          "field": "exit_code",
+          "op": "eq",
+          "value": 0
+        },
+        {
+          "observe": "stdout_json",
+          "field": "two_class_candidates_at_each_site",
+          "op": "eq",
+          "value": true
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 1800,
+      "clause_id": "c1"
+    },
+    {
+      "type": "behavior",
+      "description": "A rule file that gives one class as a plain string still loads and works.",
+      "proves": "The old single-class rule format is still accepted.",
+      "restatement_clause_id": "c2",
+      "when": {
+        "interpreter": "",
+        "script": "tests/multi_class_rule.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "stdout_json",
+          "field": "single_class_string_loads",
+          "op": "eq",
+          "value": true
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 1800,
+      "clause_id": "c2"
+    },
+    {
+      "type": "grep",
+      "description": "The match-literal rule file names both missingDecidable and typeMismatch.",
+      "proves": "match-literal lists both error classes.",
+      "restatement_clause_id": "c3",
+      "pattern": "missingDecidable",
+      "additional_patterns": [
+        "typeMismatch"
+      ],
+      "files": [
+        "rules/proposed/match-literal.json"
+      ],
+      "count": {
+        "unit": "patterns",
+        "op": "eq",
+        "value": 2
+      },
+      "clause_id": "c3"
+    },
+    {
+      "type": "behavior",
+      "description": "A numeric match that fails as a type mismatch is accepted by match-literal in the test fixture.",
+      "proves": "match-literal now handles the typeMismatch case that was left over in EVMLean run 21.",
+      "restatement_clause_id": "c4",
+      "when": {
+        "interpreter": "",
+        "script": "tests/multi_class_rule.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "stdout_json",
+          "field": "match_literal_accepted_on_type_mismatch",
+          "op": "eq",
+          "value": true
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 1800,
+      "clause_id": "c4"
+    },
+    {
+      "type": "behavior",
+      "description": "The gate script prints one JSON report in which the several-classes step passed and no step failed.",
+      "proves": "The whole gate is green and includes the new several-classes step.",
+      "restatement_clause_id": "c5",
+      "when": {
+        "interpreter": "",
+        "script": "scripts/gate.sh",
+        "args": [],
+        "stdin": ""
+      },
+      "then": [
+        {
+          "observe": "stdout_json",
+          "field": "steps.one rule for several error classes.ok",
+          "op": "eq",
+          "value": true
+        },
+        {
+          "observe": "stdout_json",
+          "field": "failed",
+          "op": "eq",
+          "value": 0
+        }
+      ],
+      "max_runs": 1,
+      "timeout_seconds": 3000,
+      "clause_id": "c5"
+    },
+    {
+      "type": "grep_absent",
+      "description": "No spec or core file imports a Shell module.",
+      "proves": "The layering rule between Spec, Core and Shell still holds.",
+      "restatement_clause_id": "c6",
+      "pattern": "import\\s+LeanMend\\.Shell",
+      "files": [
+        "LeanMend/Spec/Types.lean",
+        "LeanMend/Spec/Termination.lean",
+        "LeanMend/Core/Ops.lean"
+      ],
+      "clause_id": "c6"
+    },
+    {
+      "type": "grep_absent",
+      "description": "The termination file has no retry cap or timeout setting.",
+      "proves": "Termination is not controlled by a retry cap or a timeout.",
+      "restatement_clause_id": "c7",
+      "pattern": "(?i)maxRetries|max_retries|retryCap|timeout",
+      "files": [
+        "LeanMend/Spec/Termination.lean",
+        "LeanMend/Core/Ops.lean"
+      ],
+      "clause_id": "c7"
+    },
+    {
+      "type": "grep_absent",
+      "description": "No changed source file imports Mathlib.",
+      "proves": "lean-mend depends on Lean core only.",
+      "restatement_clause_id": "c8",
+      "pattern": "import\\s+Mathlib",
+      "files": [
+        "LeanMend/Spec/Types.lean",
+        "LeanMend/Core/Ops.lean",
+        "LeanMend/Shell/Parse.lean"
+      ],
+      "clause_id": "c8"
+    }
+  ],
+  "declared_new_entrypoints": [
+    "scripts/gate.sh",
+    "tests/multi_class_rule.sh"
+  ]
+}
