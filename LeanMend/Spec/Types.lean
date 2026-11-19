@@ -37,9 +37,10 @@ structure Decl where
   name : String
   module : String
   kind : DeclKind
-  /-- SHA-256 of the statement region, after the alias map. -/
+  /-- `String.hash` of the statement's token sequence, after the alias map
+  (`docs/verification.md` § The certificate). -/
   statementHash : String
-  /-- SHA-256 of the body region. -/
+  /-- `String.hash` of the body region's text, after the alias map. -/
   bodyHash : String
   axioms : List String
   deriving DecidableEq, Repr
@@ -54,6 +55,20 @@ structure Certificate where
   baseline. -/
   followed : List String := []
   deriving Repr
+
+/-- A declaration that the certificate selects but whose row the probe cannot
+give (`docs/verification.md` § The certificate). `compare` would not check a
+declaration with no row, so the run stops on it. -/
+structure DeclUnread where
+  module : String
+  decl : String
+  /-- The probe's reason, for example the byte where the declaration starts
+  and no command that parsed holds it. -/
+  reason : String
+  deriving DecidableEq, Repr
+
+def DeclUnread.message (e : DeclUnread) : String :=
+  s!"lean-mend: the certificate has no row for {e.decl} in {e.module}: {e.reason}"
 
 /-- Old name to final new name, from `@[deprecated]` under the new toolchain. -/
 structure AliasMap where
@@ -78,12 +93,20 @@ inductive ErrorClass where
   parameters appearing in the declaration header may have their binders kinds
   be overridden"). -/
   | binderOverride
-  /-- A tactic could not act on its goal ("Tactic `split` failed: …"). -/
+  /-- A tactic could not act on its goal ("Tactic `split` failed: …", "omega
+  could not prove the goal: …"). -/
   | tacticFailed
   /-- A tactic ran after its goal was closed ("No goals to be solved"). -/
   | noGoals
   | heartbeat
   | wallclock
+  /-- A declaration picked up an axiom at the new toolchain that it did not
+  have at the old one (`docs/verification.md` § The cause, `Change.added`).
+  Not from `classify`: `classifyCause` answers it from an `AxiomCause`
+  (decision D13, `docs/rules.md` § Axiom-finding rules). -/
+  | axiomsAdded
+  /-- The old-toolchain counterpart of `axiomsAdded` (`Change.removed`). -/
+  | axiomsRemoved
   | unknown
   deriving DecidableEq, Repr
 
@@ -171,7 +194,8 @@ structure Candidate where
   start : Nat
   stop : Nat
   replacement : String
-  /-- The atoms and identifiers of the parsed replacement, from the probe. -/
+  /-- The identifier runs that the edit adds: in the replacement and not in the
+  bytes `[start, stop)` it replaces, counted with multiplicity (`addedTokens`). -/
   tokens : List String
   /-- The byte spans the edit changed, in the new text, when the edit touches
   only parts of `[start, stop)` (a file-wide rename). Empty means the whole
@@ -320,15 +344,41 @@ inductive EditOp where
   place. -/
   | renamePrefix (old new : String)
   | simpArgAdd (lemma : String)
+  /-- `simpArgAdd lemma` on the simp-family tactic that comes last before the
+  site's own tactic, in the indented tactic sequence that holds the site. The
+  site's tactic fails because that simp left a term which it no longer
+  reduces (EquiVM `TransientPackedStorage` 59: `simp only [bind,
+  Option.bind]` leaves `match pure x, f with …`, so a later `apply` fails). -/
+  | simpArgAddPrior (lemma : String)
   | simpaToExact
-  /-- `simpa [L] using h` (h a hypothesis name) becomes `simp [L] at h ⊢` then
-  `exact h`; `simpa [L] using T` (T a term) becomes `have := T`, then
+  /-- `simpa [L] using h` (h a hypothesis name, which is atomic) becomes
+  `simp [L] at h ⊢` then `exact h`; `simpa [L] using T` (T a term, a dotted
+  name such as `hwf.d3` included) becomes `have := T`, then
   `simp [L] at this ⊢`, then `exact this`. `exact` accepts the two sides up to definitional equality, so a
   hidden difference that `simpa` rejects, such as two different `Decidable`
-  instances in an `if`, no longer blocks the proof. -/
+  instances in an `if` or a sum of literals against one literal, no longer
+  blocks the proof. -/
   | simpaSplit
+  /-- `simpa [L] using T` becomes `simpa [L] using! T`. Lean v4.33 closes
+  `simpa … using` at reducible transparency; `using!` closes at default
+  transparency, as `simpa … using` did at v4.29. -/
+  | simpaUsingBang
+  /-- `simpaUsingBang` on the site's `simpa` and on every `simpa … using`
+  that holds it, in one edit over the outermost of them. While a `by` block in
+  a `simpa` term fails, Lean does not report the outer `simpa`'s own close.
+  After the inner repair it does, at an earlier position, so the inner edit
+  alone is rejected (EquiVM `ERC6909.SetOperator` 49). -/
+  | simpaUsingBangNested
   | keywordSwap (from_ to : String)
   | deleteTactic
+  /-- Delete a `rw [show a = b by t, …]` (`rw`, `rewrite` or `erw`) whose
+  every rewrite rule is a `show` term: a local equation that only changes the
+  form of a term. The simp before it already rewrites `a`, so the rewrite finds
+  nothing (EquiVM `Examples.BlindAuction.Reveal.Common` 2814: `simp [M]` with
+  the lemmas `u256_toNat_lit*` rewrites `(⟨32⟩ : UInt256).toNat`). A rule list
+  with any other rule gives no candidate: a lemma such as `if_neg` is a step
+  of the proof, and its deletion only moves the error. -/
+  | deleteShowRewrite
   /-- In declaration `decl`, replace the text `old` with `new`. `old` must
   occur exactly once in the declaration's body. The form in which an agent or a
   person returns a residue repair (`docs/rules.md` § From residue to rule). -/
@@ -352,6 +402,23 @@ inductive EditOp where
   close a goal that the node leaves open. -/
   | appendTactic (tactic : String)
   | heartbeats (n : Nat)
+  /-- Insert `set_option {name} {value} in` before the declaration: the same
+  insertion point as `heartbeats`, generalized to any option
+  (`docs/breaking-changes.md` B1). `heartbeats` stays, for the rule files
+  that already use it; a new rule should use `setOptionBefore` instead. -/
+  | setOptionBefore (name value : String)
+  deriving DecidableEq, Repr
+
+/-- What an axiom-finding rule's `causeTag` matches, against the cause
+constant's own shape (`docs/rules.md` § Axiom-finding rules). -/
+inductive CauseTag where
+  /-- The cause constant carries Lean's `@[congr]` attribute. -/
+  | congrLemma
+  /-- The cause constant is a generated matcher whose uses hold
+  `Nat.hasNotBit`. -/
+  | matcher
+  /-- Matches every cause. -/
+  | any
   deriving DecidableEq, Repr
 
 /-- A ratified or proposed rule, parsed from `rules/*.json`. -/
@@ -360,6 +427,10 @@ structure Rule where
   cls : ErrorClass
   entrenchment : Entrenchment
   family : TacticFamily
+  /-- Narrows a rule whose `cls` is `axiomsAdded` or `axiomsRemoved`: the
+  loader refuses such a rule with no `causeTag` as vacuous (`docs/rules.md`
+  § Axiom-finding rules). `none` for every other class. -/
+  causeTag : Option CauseTag := none
   ops : List EditOp
   deriving Repr
 

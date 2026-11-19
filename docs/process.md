@@ -27,36 +27,62 @@ the lean-mend source.
 | 8. Properties | Plausible properties on `Core`; the theorems in `Spec` | `lake build` with no `sorry`; `lake test` runs the properties |
 | Next chart | level 2: sites and candidates inside `Mending`, with its gluing invariant | the strata again, inside `Mending` |
 
+## Laws
+
+[laws.md](laws.md) is the one registry of lean-mend's laws, the invariants it
+must never violate. This follows exophial (`exophial/docs/merge_plan.md` §
+Stage MLAW, and its registry `src/exophial/core/contract.py`).
+
+**A law change has four parts, in one change:** the law's statement in
+laws.md, its gate, a fixture that is red before the fix, and the code fix that
+makes the gate green. A law has no counted exception.
+
+**A defect that a law covers is a datapoint, not its own work item.** Record
+it in the law's table in laws.md, with its date and state. The work item is to
+move the law up one rung, so that the class of defect cannot occur again. A
+defect that no law covers gets its own work item. If the defect shows a new
+class, add the law first.
+
+**A work item is small.** One law rung, or one function with its test. Its
+acceptance is a named runner or test that goes green in the gate container.
+An acceptance check on EquiVM data runs on the host, after the merge.
+
 ## Order of work
 
-Done: step 1; step 2; step 3 (`lean-mend run --adopt` mends
-`tests/fixtures/rename` with a derived alias rule, `tests/rename.sh`).
+Done:
 
-1. Strata 0 to 2 for level 1. These documents are the start of stratum 0.
-2. The probe, compiled and run under v4.29.0, v4.33.1 and v4.35.0. Without the
-   probe there is no certificate and no site.
-3. Strata 3 to 6 for level 1, with one fixture: an `unknownIdentifier` break
-   that the alias map repairs.
+1. Strata 0 to 2 for level 1.
+2. The probe, under v4.29.0, v4.33.1 and v4.35.0.
+3. Strata 3 to 6 for level 1 (`tests/rename.sh`).
 4. Level 2, with the fixtures for each class in [rules.md](rules.md).
-5. The EquiVM acceptance test.
-6. Residue packets and the fixed runner for proposed rules.
-7. Attribution by bisect.
-8. The scheduled workflow.
+5. The EquiVM acceptance test (runs 1 to 10).
+6. Residue packets and the runner for proposed rules.
+7. Level 3, the axiom repair ([machine.md](machine.md) § Level 3).
+8. Static-diff slices 1 to 3 and 5 ([static-diff.md](static-diff.md)).
+
+Open:
+
+9. The open datapoints of [laws.md](laws.md), one law rung at a time.
+10. Static-diff slices 4, 6 and 7.
+11. Attribution by bisect.
+12. The scheduled workflow.
 
 ## Repository gates
 
-`scripts/gate.sh` is the commit gate. `.exophial/config.yaml` names it as
-`gate.command`, and exophial runs it in the branch worktree before each
-merge. It runs, in order:
+`scripts/gate.sh` is the commit gate. It runs, in order:
 
 1. the boundary check: no `Spec` or `Core` module imports a `Shell` module;
 2. `lake build`;
 3. `tests/NoSorry.lean`: no `LeanMend` constant depends on `sorryAx`;
-4. `lake test`: the tour;
+4. `lake test`: the tour and the unit tests;
 5. `tests/probe-matrix.sh`: the probe under every supported toolchain;
-6. `tests/baseline.sh`, `tests/rename.sh`, `tests/simpset.sh`,
-   `tests/binder.sh`, `tests/follow.sh`, `tests/move.sh`: lean-mend runs on
-   real fixtures.
+6. every runner under `tests/` that runs lean-mend on a real fixture. The
+   script lists them; each step names its runner.
+
+In evm-proof-toolchain, `scripts/lean-mend-gate.sh` runs this gate as a step
+of the monorepo gate. It stores the verdict under a key that covers every file
+of `lean-mend/` and the installed toolchains (law LM3), so a commit that does
+not change `lean-mend/` reads the stored verdict.
 
 The gate stops at the first failed step and exits 1. Each step's output goes
 to stderr. stdout carries one JSON object and nothing else: one key
@@ -75,6 +101,9 @@ The keys are flat on purpose: exophial reads a whole `stdout_json` field path
 as a top-level key first, so a spec can address one step or check by name,
 and a name that holds a dot (`Dep.new`, `v4.33.1`) still resolves. A nested
 object would split such a name at its dots.
+A runner that measures a number records it with `measure NAME N`, as the key
+`"measures.<NAME>": N`. A measure is not a check, and it does not change
+`passed` or `failed`.
 A runner builds what it runs. A runner that runs lean-mend sources
 `tests/lib/lean-mend.sh`, which builds the binary and sets `$bin`. exophial
 runs each check script alone in its gate container, so a runner cannot

@@ -135,6 +135,115 @@ compiles, and it must change the same way to stay about the same thing.
 EVMLean `Theory/AccountLocality.lean` 2359, 2379, 2393: the hand bump made the
 same change.
 
+## D13. Axiom findings extend `ErrorClass`, with one more rule field
+
+**Decision.** `ErrorClass` gains `axiomsAdded` and `axiomsRemoved`
+(`docs/verification.md` § The cause, `Change`). A rule for either class
+gains `causeTag`, matched against the cause constant's shape
+(`docs/rules.md` § Axiom-finding rules).
+
+**Reasons.**
+- One rule file format, one loader, one vacuity check (concept C9), for
+  every rule, diagnostic-triggered or finding-triggered (concept B9).
+- `classify` stays total over `Diagnostic` (concept B4); a separate pure
+  function, `classifyCause`, is total over `AxiomCause`. Neither function
+  grows a case the other must also handle.
+
+**Rejected.** A parallel `FindingClass`/`FindingRule` type. It would need
+its own loader, its own vacuity check, and its own ordering rules
+(`docs/rules.md` § Entrenchment and order) — three duplicated mechanisms for
+one new trigger.
+
+## D14. The site of an axiom finding is the nearest owned constant, not the finding's own declaration
+
+**Decision.** Walking the cause's `path` from the axiom toward the
+declaration, the site is the first **owned** constant, after a generated
+auxiliary gives its place to the declaration that owns it: the same rule
+`pickCause` already applies to the cause (`docs/machine.md` § The site of
+an axiom finding).
+
+**Reasons.**
+- EquiVM run 10's 38 G1 cards share one site this way,
+  `Reasoning.Theory.selectorDispatchMsg_eq_dispatchList`, matching the one
+  edit the hand repair made (`.scratch/axiom-fix/edits.md` § Edit E1). The
+  finding's own declaration, taken literally, would give 32 different sites
+  for the same cause, 31 of them in modules that do not define the lemma
+  that needs the edit.
+- One repair then closes every finding whose path reaches that site, so the
+  Level 3 measure (`docs/machine.md` § Termination, Level 3) falls once per
+  repair, not once per card.
+- EquiVM run 10's single G3 card needs the owner rule
+  (`.scratch/axiom-fix/edits.md` § Edit E3). Lean compiles
+  `allocationSizes`'s own `match` into a generated matcher,
+  `allocationSizes.match_1`, the cause. The path to it runs through a
+  well-founded-recursion helper, `allocationSizes._f`, also generated.
+  Neither has a source declaration of its own to edit. The owner rule gives
+  both their place to `allocationSizes`, the declaration Edit E3 changed.
+  Without it, the site would be `allocationSizes._f`, which no rule can
+  repair.
+
+## D15. Level 3's acceptance check rebuilds the site's module only; importers are rebuilt only when the edit can change computation
+
+**Decision.** An attempt's acceptance check (`docs/machine.md` § Acceptance)
+rebuilds the site's module. For a proof-only edit, the importers' axiom sets
+come from a walk over the current build's constant graph, with the site
+module's new axiom sets substituted. Importers are rebuilt only when the edit
+can change what a declaration computes, and then only the importers that use
+a changed declaration.
+
+**Reasons.**
+- A proof-only edit keeps the declaration's statement, and every importer uses
+  the declaration only through its statement (proof irrelevance). So no
+  importer's term changes and no importer can get a new build error; a rebuild
+  of the importers measures nothing that the walk does not.
+- The walk reads each importer's own edges from the current build, so an axiom
+  that an importer picks up by its own tactics still shows.
+- Cost: a rebuild of every importer runs once per candidate, not once per
+  finding. For EquiVM's G1 group that is 84 importers and about 16 minutes
+  serial for each candidate; the walk costs one module's elaboration.
+- Measured: `.scratch/axiom-fix/edits.md` § Edit E1 gave the baseline axiom
+  set for all 31 cross-module cards by the walk, and the control walk without
+  the substitution reproduced `Classical.choice` for all 31.
+
+**Rejected.** A rebuild of every importer for every candidate. An earlier draft
+of this decision chose it, on two claims: that only a rebuild shows a new
+build error in an importer, and that the walk misses an axiom an importer picks
+up by itself. Neither holds for a proof-only edit, by the reasons above.
+
+## D16. A theorem's repaired proof needs no card; a computing declaration's proof-only repair auto-accepts one
+
+**Decision.** A repair inside a `theorem`'s body needs no Behavior card
+(`kind.computes = false` already excuses it, `docs/machine.md` § The
+invariant). A repair inside a `def`, `instance` or `abbrev` whose changed
+bytes lie wholly inside a proof sub-term of the body auto-accepts a Behavior
+card, evidenced by the same proof-only test a person's card already uses
+(`docs/verification.md` § The body change); a repair that touches the data
+component still needs a person's card.
+
+**Reasons.**
+- Proof irrelevance: two proofs of the same proposition compute the same
+  thing. The test is already machine-decidable (it is how EquiVM's own c-1
+  and c-2 Behavior cards were judged, `docs/verification.md` § The empty
+  Trace of run 10), so running it again for every repair is not a new kind
+  of trust, only an automated instance of a check a person already does by
+  eye.
+
+## D17. `beforeDecl` needs the enclosing `mutual`'s start, not the declaration's own
+
+**Decision.** `DeclRegion` gains `mutualStart : Option Nat`: the byte offset
+of the smallest enclosing `mutual`, when the named declaration is a member
+of one. `locate` reports it in place of `declStart` when it is `some`.
+
+**Reasons.**
+- `set_option … in` before one member of a `mutual` block scopes the option
+  to that member's own elaboration; the matcher Lean compiles for the whole
+  mutual group reads the option active when the elaborator reaches the
+  `mutual` keyword, before any member (`.scratch/axiom-fix/edits.md` § Edit
+  E3). `match-sparse-cases` (`docs/rules.md`) needs the fix to repair a
+  mutual-nested matcher; `heartbeats`/`setOptionBefore` (decision B1,
+  `docs/breaking-changes.md`) needs it for the same reason on any
+  mutual-nested declaration, not only for an axiom finding.
+
 # Open questions
 
 **Q1. Which statement identity across toolchains?** The source statement hash

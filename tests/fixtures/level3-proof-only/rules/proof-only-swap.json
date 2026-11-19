@@ -1,0 +1,12 @@
+{
+  "name": "proof-only-swap",
+  "class": "axiomsAdded",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "fixture tests/fixtures/level3-proof-only: Dep.lem's proof goes classical at dep v2; Dep.lemC keeps the v1 constructive proof under a new name."
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.35.0" },
+  "node": "any",
+  "causeTag": "any",
+  "candidates": [ { "op": "replaceInBody", "decl": "App.t", "old": "Dep.lem", "new": "Dep.lemC" } ]
+}

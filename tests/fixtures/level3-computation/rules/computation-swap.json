@@ -1,0 +1,12 @@
+{
+  "name": "computation-swap",
+  "class": "axiomsAdded",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "fixture tests/fixtures/level3-computation: Dep.pick routes through Classical.propDecidable at dep v2; Dep.pickC keeps the v1 computable value under a new name."
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.35.0" },
+  "node": "any",
+  "causeTag": "any",
+  "candidates": [ { "op": "replaceInBody", "decl": "App.g", "old": "Dep.pick", "new": "Dep.pickC" } ]
+}

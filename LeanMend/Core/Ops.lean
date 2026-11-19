@@ -8,7 +8,8 @@ first, from the probe's `node`), and the site, to candidates. See
 `docs/rules.md` § Edit operations. An operation that does not apply to the node
 gives no candidate.
 
-Every candidate except `rename` and `heartbeats` edits one tactic node inside a
+Every candidate except `rename`, `heartbeats` and `setOptionBefore` edits one
+tactic node inside a
 body region. A site in a statement region gets no candidate from an operation:
 `EditTarget` has no constructor for a statement (decision D5).
 -/
@@ -39,10 +40,40 @@ def pickNode (f : TacticFamily) (nodes : List Node) : Option Node :=
     | t :: _ => f == .any || f.keywords.contains t.text
     | [] => false
 
+/-- `ts` are the tokens after the `[` of a rewrite rule list. True if the list
+closes and every rule in it starts with `show`. A `,` separates two rules only
+outside brackets, so `show f (a, b) = c` stays one rule. -/
+private def showRules (ts : List Token) : Bool :=
+  let opens := ["(", "[", "{", "⟨"]
+  let closes := [")", "]", "}", "⟩"]
+  -- (depth inside the list, next token starts a rule, every rule is `show`, closed)
+  let (_, _, allShow, closed) := ts.foldl (init := ((0 : Nat), true, true, false))
+    fun (d, first, ok, done) t =>
+      if done then (d, first, ok, done)
+      else
+        let ok := ok && (!first || t.text == "show")
+        if opens.contains t.text then (d + 1, false, ok, false)
+        else if closes.contains t.text then
+          if d == 0 then (0, false, ok, t.text == "]") else (d - 1, false, ok, false)
+        else if t.text == "," && d == 0 then (d, true, ok, false)
+        else (d, false, ok, false)
+  allShow && closed
+
 /-- Bytes of `s` before and after the byte range `[a, b)`, relative to `s`. -/
 private def splice (s : String) (a b : Nat) (ins : String) : String :=
   let bs := s.toUTF8
   String.fromUTF8! (bs.extract 0 a) ++ ins ++ String.fromUTF8! (bs.extract b bs.size)
+
+/-- The `using` token of each `simpa` in `ts`: the first `using` after it,
+with no other `simpa` or `using!` between. -/
+def simpaUsings : List Token → List Token
+  | [] => []
+  | t :: rest =>
+    let own := if t.text != "simpa" then [] else
+      match rest.find? (fun u => u.text == "using" || u.text == "using!" || u.text == "simpa") with
+      | some u => if u.text == "using" then [u] else []
+      | none => []
+    own ++ simpaUsings rest
 
 /-- The replacement text for node `n` under `op`, or `none` if `op` does not
 apply. Token ranges are absolute; `n.start` converts them to node offsets. -/
@@ -94,18 +125,40 @@ def applyOp (op : EditOp) (n : Node) : Option String :=
       | u :: rest@(_ :: _) =>
         let before := String.fromUTF8! (n.text.toUTF8.extract (k.stop - n.start) (u.start - n.start))
         let simpPart := s!"simp{before.trimAsciiEnd.toString}"
+        let term := String.fromUTF8! (n.text.toUTF8.extract (u.stop - n.start) n.text.utf8ByteSize)
+        -- a term: name it first. A `have` inside a proof is not a
+        -- declaration (decision D10).
+        let named := s!"have := {term.trimAscii.toString}\n{pad}{simpPart} at this ⊢\n{pad}exact this"
         match rest with
         | [h] =>
+          if !(h.text.all identChar) then none
+          -- A dotted name (`hwf.d3`, a field of a hypothesis) is a term, not
+          -- a hypothesis: Lean refuses it after `at` ("expected single
+          -- reference to variable"). EquiVM `Reasoning.SolcRoutines` 1464.
+          else if h.text.contains '.' then some named
           -- a hypothesis name: simplify it in place
-          if !(h.text.all identChar) then none else
-          some s!"{simpPart} at {h.text} ⊢\n{pad}exact {h.text}"
-        | _ =>
-          -- a term: name it first. A `have` inside a proof is not a
-          -- declaration (decision D10).
-          let term := String.fromUTF8! (n.text.toUTF8.extract (u.stop - n.start) n.text.utf8ByteSize)
-          some s!"have := {term.trimAscii.toString}\n{pad}{simpPart} at this ⊢\n{pad}exact this"
+          else some s!"{simpPart} at {h.text} ⊢\n{pad}exact {h.text}"
+        | _ => some named
       | _ => none
     | [] => none
+  | .simpaUsingBang =>
+    -- `using` becomes `using!`: the close at default transparency (Lean
+    -- v4.33 `simpa using!`). `simpa … using! T` has the token `using!`, so
+    -- it gives no candidate.
+    match n.tokens with
+    | k :: _ =>
+      if k.text != "simpa" then none else
+      match n.tokens.find? (·.text == "using") with
+      | some u => some (splice n.text (rel u).1 (rel u).2 "using!")
+      | none => none
+    | [] => none
+  | .simpaUsingBangNested =>
+    -- every `simpa`'s `using` in the node becomes `using!`. Fewer than two is
+    -- no nesting: that edit is `simpaUsingBang`'s.
+    let us := simpaUsings n.tokens
+    if (n.tokens.head?.map (·.text)) != some "simpa" || us.length < 2 then none
+    -- from the last token to the first, so earlier offsets stay valid
+    else some (us.foldr (fun u s => splice s (rel u).1 (rel u).2 "using!") n.text)
   | .keywordSwap a b =>
     match n.tokens with
     | k :: _ => if k.text == a then some (splice n.text (rel k).1 (rel k).2 b) else none
@@ -145,10 +198,52 @@ def applyOp (op : EditOp) (n : Node) : Option String :=
             String.fromUTF8! (bs.extract (w.start - n.start) bs.size))
     | _, _ => none
   | .deleteTactic => some ""
+  | .deleteShowRewrite =>
+    match n.tokens with
+    | k :: b :: rest =>
+      if ["rw", "rewrite", "erw"].contains k.text && b.text == "[" && showRules rest then some ""
+      else none
+    | _ => none
   | .appendTactic t =>
     some (n.text ++ "\n" ++ String.ofList (List.replicate n.column ' ') ++ t)
-  | .rename _ _ | .renamePrefix _ _ | .replaceInBody _ _ _ | .heartbeats _ | .valCompare
-  | .closeBullet _ => none
+  | .rename _ _ | .renamePrefix _ _ | .replaceInBody _ _ _ | .heartbeats _ | .setOptionBefore _ _
+  | .valCompare | .closeBullet _ | .simpArgAddPrior _ => none
+
+/-- The simp-family tactic that comes last before the site's own tactic, in
+the innermost indented tactic sequence that holds byte `site`, as a node of
+its own. A tactic of that sequence starts a line at the sequence's column; the
+site's own tactic is the last one that starts at or before `site`. The node
+ends where the next tactic starts, without the trailing white space. `none`
+if no simp-family tactic comes before the site's tactic in that sequence. -/
+def priorSimp (nodes : List Node) (site : Nat) : Option Node := do
+  let q ← nodes.find? (·.kind.endsWith "tacticSeq1Indented")
+  let bs := q.text.toUTF8
+  let between (a b : Nat) := String.fromUTF8! (bs.extract (a - q.start) (b - q.start))
+  -- only `q.column` spaces precede the token on its line
+  let heads := q.tokens.filter fun t =>
+    t.start == q.start ||
+      match (between q.start t.start).splitOn "\n" with
+      | _ :: rest@(_ :: _) =>
+        let l := rest.getLast!
+        l.length == q.column && l.all (· == ' ')
+      | _ => false
+  let own ← (heads.filter (·.start ≤ site)).getLast?
+  let prior ← (heads.filter (·.start < own.start)).reverse.find?
+    (TacticFamily.simp.keywords.contains ·.text)
+  let next ← heads.find? (·.start > prior.start)
+  let text := (between prior.start next.start).trimAsciiEnd.toString
+  let stop := prior.start + text.utf8ByteSize
+  pure { kind := "priorSimp", start := prior.start, stop, text, column := q.column,
+         tokens := q.tokens.filter fun t => prior.start ≤ t.start && t.stop ≤ stop }
+
+/-- The outermost `simpa` tactic among `nodes`: the earliest start, then the
+latest stop. -/
+def outermostSimpa (nodes : List Node) : Option Node :=
+  let simpas := nodes.filter fun n => !n.isSequence && (n.tokens.head?.map (·.text)) == some "simpa"
+  simpas.foldl (init := none) fun best n =>
+    match best with
+    | some b => if n.start < b.start || (n.start == b.start && n.stop > b.stop) then some n else some b
+    | none => some n
 
 /-- The variable in Lean's message `Decidable (x✝ = n)`: `x`. -/
 def decidableVar (d : Diagnostic) : Option String :=
@@ -239,12 +334,17 @@ def ruleCandidates (follow : Bool) (r : Rule) (nodes : List Node) (s : Site) : L
     | _ => false
   if classify s.diagnostic != r.cls && !moves then [] else
   r.ops.filterMap fun op =>
+    -- The clean check reads what the edit adds (`docs/machine.md`, structural
+    -- check 2): a node that already holds `native_decide` keeps it.
     let mk (target : EditTarget) (a b : Nat) (repl : String) : Candidate :=
       { rule := s!"{r.name}: {repr op}", entrenchment := r.entrenchment, target,
-        start := a, stop := b, replacement := repl, tokens := replacementTokens repl }
+        start := a, stop := b, replacement := repl,
+        tokens := addedTokens (String.fromUTF8! (s.file.toUTF8.extract a b)) repl }
     match op, s.decl, s.region with
     | .heartbeats n, some d, _ =>
       s.declStart.map fun p => mk (.beforeDecl d) p p s!"set_option maxHeartbeats {n} in\n"
+    | .setOptionBefore name value, some d, _ =>
+      s.declStart.map fun p => mk (.beforeDecl d) p p s!"set_option {name} {value} in\n"
     | .rename a b, _, _ =>
       if identOf s.diagnostic == some a then some (mk (.aliasRename a b) s.start s.stop b) else none
     | .replaceInBody d old new, some sd, _ => do
@@ -262,8 +362,7 @@ def ruleCandidates (follow : Bool) (r : Rule) (nodes : List Node) (s : Site) : L
       -- check the rest of it, which still has the old names.
       match renameAll a b s.file with
       | some (t, spans) =>
-        some { mk (.aliasRename a b) 0 s.file.utf8ByteSize t with
-               tokens := addedTokens s.file t, changed := spans }
+        some { mk (.aliasRename a b) 0 s.file.utf8ByteSize t with changed := spans }
       | none =>
         -- `open X (n …)`: Lean reports `X.n` at the token `n`; the namespace
         -- token `X` is the one that moves.
@@ -277,6 +376,12 @@ def ruleCandidates (follow : Bool) (r : Rule) (nodes : List Node) (s : Site) : L
       -- the innermost bullet that holds the site
       let n ← nodes.find? (·.kind == "Lean.cdot")
       pure (mk (.body d) n.start n.stop s!"· {t}")
+    | .simpArgAddPrior l, some d, some .body => do
+      -- the site's own tactic is of the rule's family; the edit is the simp before it
+      let _ ← pickNode r.family nodes
+      let n ← priorSimp nodes s.start
+      let repl ← applyOp (.simpArgAdd l) n
+      pure (mk (.body d) n.start n.stop repl)
     | .valCompare, some d, _ => do
       let (a, txt, t, spans) ← valCompareEdit s
       -- The pattern also occurs in `d`'s statement (X7): under
@@ -291,8 +396,15 @@ def ruleCandidates (follow : Bool) (r : Rule) (nodes : List Node) (s : Site) : L
                start := a, stop := a + txt.utf8ByteSize, replacement := t,
                tokens := addedTokens txt t, changed := spans }
       else
-        pure { mk (.body d) a (a + txt.utf8ByteSize) t with
-               tokens := addedTokens txt t, changed := spans }
+        pure { mk (.body d) a (a + txt.utf8ByteSize) t with changed := spans }
+    | .simpaUsingBangNested, some d, some .body => do
+      -- the site's own tactic is a `simpa`; the edit spans the outermost
+      -- `simpa` that holds it
+      let own ← pickNode r.family nodes
+      guard ((own.tokens.head?.map (·.text)) == some "simpa")
+      let n ← outermostSimpa nodes
+      let repl ← applyOp .simpaUsingBangNested n
+      pure (mk (.body d) n.start n.stop repl)
     | op, some d, some .body => do
       let n ← pickNode r.family nodes
       let repl ← applyOp op n
@@ -392,10 +504,16 @@ def proposeAll (m : AliasMap) (rules : List Rule) (nodes : List Node)
     (annotate follow : Bool) (followed : List String) (s : Site) : List Candidate :=
   -- A rule that only closes bullets replaces the author's proof: the least
   -- preferred repair, so it runs after every other rule of its entrenchment.
+  -- A rule that only raises `maxHeartbeats`, or only sets another option
+  -- before the declaration, hides a change upstream instead of adapting the
+  -- source (`docs/rules.md` § Entrenchment and order, item 4), so it runs
+  -- last.
   let closer (r : Rule) := r.ops.all fun | .closeBullet _ => true | _ => false
+  let budget (r : Rule) := r.ops.all fun | .heartbeats _ | .setOptionBefore _ _ => true | _ => false
   let byE (e : Entrenchment) :=
     let rs := rules.filter (·.entrenchment == e)
-    (rs.filter (!closer ·) ++ rs.filter closer).flatMap (ruleCandidates follow · nodes s)
+    (rs.filter (fun r => !closer r && !budget r) ++ rs.filter closer ++ rs.filter budget).flatMap
+      (ruleCandidates follow · nodes s)
   let all := propose m s ++ (if annotate then typeCandidates s else []) ++
     byE .ratified ++ byE .proposed ++
     followCandidates (rules.filter (followed.contains ·.name)) nodes s

@@ -16,6 +16,7 @@ Read the documents in this order:
 | [rules.md](rules.md) | The repair rule language, where rules come from, and how a proposed rule becomes a ratified rule. |
 | [breaking-changes.md](breaking-changes.md) | The breaking changes of Lean 4.30–4.35 with a downstream symptom, each mapped to a lean-mend rule or operation, and learnings from hopscotch and AXLE. |
 | [verification.md](verification.md) | How lean-mend proves it did no harm to a target, and how lean-mend itself is verified. |
+| [static-diff.md](static-diff.md) | Design, not built: predict a bump's axiom and behavior findings, and their causes, from the two toolchains' elaborated terms, before any repair runs. |
 | [process.md](process.md) | The order of work, the strata and their gates, and stage 0. |
 | [decisions.md](decisions.md) | The decisions taken, with reasons, and the open questions. |
 

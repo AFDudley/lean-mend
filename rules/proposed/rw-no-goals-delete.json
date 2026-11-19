@@ -1,0 +1,11 @@
+{
+  "name": "rw-no-goals-delete",
+  "class": "noGoals",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "EquiVM run 5 residue, Examples/TinyImmutable/Constructor.lean 934: `simp` then `rw [show (⟨160⟩ : UInt256).toNat = 160 from by decide]` fails with `No goals to be solved`. The adopt commit efbfb862 added `@[simp] u256_toNat_lit160` to Reasoning/Solc.lean, so `simp` closes the goal and the `rw` after it does nothing. Measured on a copy of the target file: deleting the `rw` leaves the module with no error. The node is `rw`, not `any`: at this site the innermost node at the error is the `[…]` rule list, and `any` would delete only the list."
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.33.1" },
+  "node": "rw",
+  "candidates": [ { "op": "deleteTactic" } ]
+}

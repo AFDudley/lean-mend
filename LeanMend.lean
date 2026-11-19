@@ -10,7 +10,13 @@ import LeanMend.Core.Graph
 import LeanMend.Shell.Target
 import LeanMend.Core.Propose
 import LeanMend.Core.Ops
+import LeanMend.Core.Sched
 import LeanMend.Shell.Session
+import LeanMend.Shell.Memory
 import LeanMend.Shell.Driver
+import LeanMend.Core.DepDiff
+import LeanMend.Shell.DepDiff
+import LeanMend.Core.CompEq
+import LeanMend.Shell.CompEq
 
 /-! The root of the `LeanMend` library. See `docs/architecture.md` § Layout. -/

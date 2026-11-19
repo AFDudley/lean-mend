@@ -1,0 +1,12 @@
+{
+  "name": "simp-congr-classical",
+  "class": "axiomsAdded",
+  "entrenchment": "proposed",
+  "provenance": {
+    "evidence": "EquiVM run 10 (2026-11-07), G1, 38 cards. Mathlib's List.find?_congr (@[congr], proved with grind) adds Classical.choice when a simp rewrites under a List.find? binder. Direct measurement (2026-11-07): Reasoning.Theory.selectorDispatchMsg_eq_dispatchList (Reasoning/Dispatch.lean:52, the G1 site) has axioms [propext, Quot.sound] at v4.29.0 and [propext, Classical.choice, Quot.sound] at v4.33.1 unedited; swapping its first tactic from `simp only [selectorDispatchMsg]` to `dsimp only [selectorDispatchMsg]`, with the rest of the proof unchanged, restores [propext, Quot.sound]."
+  },
+  "applies": { "after": "v4.29.0", "through": "v4.33.1" },
+  "node": "simp",
+  "causeTag": "congrLemma",
+  "candidates": [ { "op": "keywordSwap", "from": "simp", "to": "dsimp" } ]
+}
