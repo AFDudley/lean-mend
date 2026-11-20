@@ -9,7 +9,7 @@ Read the documents in this order:
 | Document | What it states |
 |---|---|
 | [what-lean-mend-is.md](what-lean-mend-is.md) | The problem, the evidence, the scope and the acceptance test. |
-| [glossary.md](glossary.md) | The vocabulary. One word for one concept. |
+| [glossary.md](../glossary.md) | The vocabulary. One word for one concept. |
 | [concepts.md](concepts.md) | Every design concept the program must embody, with its source. Functional core, imperative shell is one of about thirty. |
 | [machine.md](machine.md) | The machine: operands, states, transitions, refusals, the one invariant and the termination measure. |
 | [architecture.md](architecture.md) | The Lean layout: Spec, Core, Shell and the Probe; the version boundary; the two stores; the trust partition. |

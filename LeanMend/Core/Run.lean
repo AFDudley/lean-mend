@@ -28,7 +28,7 @@ def ModStatus.isOpen : ModStatus → Bool
 
 abbrev Statuses := String → ModStatus
 
-/-- Failing modules whose imports all build (`docs/glossary.md`, frontier). -/
+/-- Failing modules whose imports all build (`glossary.md`, frontier). -/
 def frontier (mods : List Module) (st : Statuses) : List String :=
   (mods.filter fun m => st m.name == .failing && m.imports.all (st · == .built)).map
     (·.name)

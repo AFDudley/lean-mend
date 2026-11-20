@@ -16,7 +16,7 @@ the lean-mend source.
 
 | Stratum | Work in lean-mend | Gate |
 |---|---|---|
-| 0. Vocabulary | [glossary.md](glossary.md); every term in a type name is in the glossary | static: every `structure` and `inductive` name in `Spec/` and `Core/` appears in the glossary |
+| 0. Vocabulary | [glossary.md](../glossary.md); every term in a type name is in the glossary | static: every `structure` and `inductive` name in `Spec/` and `Core/` appears in the glossary |
 | 1. State space as a type | `Spec/Types.lean`: one type per state, operands with their evidence fields | `lake build` |
 | 2. Invariant first | `Spec/Invariant.lean`, before `Spec/Machine.lean` has a transition | static: `Invariant.lean` has no import of `Machine.lean` |
 | 3. Parse at the edge | `Shell/Parse.lean`: JSON to typed operands; `Core` takes no `Json` | static: no `Lean.Json` in `Core/` or `Spec/` |
