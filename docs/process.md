@@ -1,9 +1,11 @@
 # Process
 
 lean-mend follows the strata of `exophial4/docs/process.md`. Each stratum is a
-layer whose parts are the primitives of the next. A stratum is done when its
-gate is green, never when a reader agrees. A red gate is the deliverable: no
-ratchet, no baseline file, no `xfail`, no skip.
+layer whose parts are the primitives of the next. A stratum is done when each
+of its gates passes, never when a reader agrees. A gate that fails is the
+deliverable: no ratchet, no baseline file, no `xfail`, no skip. A gate is one
+check that runs; a decision that a person or an agent makes is a judgment, not
+a gate ([glossary.md](../glossary.md)).
 
 ## Stage 0
 
@@ -14,13 +16,13 @@ the lean-mend source.
 
 ## The strata
 
-| Stratum | Work in lean-mend | Gate |
+| Stratum | Work in lean-mend | Gates and judgments |
 |---|---|---|
-| 0. Vocabulary | [glossary.md](glossary.md); every term in a type name is in the glossary | static: every `structure` and `inductive` name in `Spec/` and `Core/` appears in the glossary |
+| 0. Vocabulary | [glossary.md](../glossary.md); every term in a type name is in the glossary | static: every `structure` and `inductive` name in `Spec/` and `Core/` appears in the glossary |
 | 1. State space as a type | `Spec/Types.lean`: one type per state, operands with their evidence fields | `lake build` |
 | 2. Invariant first | `Spec/Invariant.lean`, before `Spec/Machine.lean` has a transition | static: `Invariant.lean` has no import of `Machine.lean` |
 | 3. Parse at the edge | `Shell/Parse.lean`: JSON to typed operands; `Core` takes no `Json` | static: no `Lean.Json` in `Core/` or `Spec/` |
-| 4. The flat chart | level 1 of [machine.md](machine.md); `Mending` is the only composite state | review of the chart against the transition table; the table is data in `Spec/Machine.lean` |
+| 4. The flat chart | level 1 of [machine.md](machine.md); `Mending` is the only composite state | judgment: a review of the chart against the transition table; the table is data in `Spec/Machine.lean` |
 | 5. Totality | every `match` over `ErrorClass`, `State` and `Refusal` is exhaustive | mutation: add a constructor to `ErrorClass` in a scratch copy and assert that `lake build` fails in `Classify.lean` for that reason |
 | 6. Shallow run | the driver runs one fixture from `Idle` to `Done` | execution: `lake test` on the first fixture |
 | Tour | the fixtures, ordered so every transition fires | execution: the ledger of the fixture run names every transition |
@@ -34,8 +36,8 @@ must never violate. This follows exophial (`exophial/docs/merge_plan.md` §
 Stage MLAW, and its registry `src/exophial/core/contract.py`).
 
 **A law change has four parts, in one change:** the law's statement in
-laws.md, its gate, a fixture that is red before the fix, and the code fix that
-makes the gate green. A law has no counted exception.
+laws.md, the gate that checks it, a fixture that is red before the fix, and the
+code fix that makes that gate pass. A law has no counted exception.
 
 **A defect that a law covers is a datapoint, not its own work item.** Record
 it in the law's table in laws.md, with its date and state. The work item is to
@@ -44,7 +46,7 @@ defect that no law covers gets its own work item. If the defect shows a new
 class, add the law first.
 
 **A work item is small.** One law rung, or one function with its test. Its
-acceptance is a named runner or test that goes green in the gate container.
+acceptance is a named runner or test that passes in the container that runs `gate.command`.
 An acceptance check on EquiVM data runs on the host, after the merge.
 
 ## Order of work
@@ -67,9 +69,10 @@ Open:
 11. Attribution by bisect.
 12. The scheduled workflow.
 
-## Repository gates
+## The repository's gates
 
-`scripts/gate.sh` is the commit gate. It runs, in order:
+`scripts/gate.sh` is the command (`gate.command`) that runs the gates at the
+commit boundary. Each step is one gate. It runs, in order:
 
 1. the boundary check: no `Spec` or `Core` module imports a `Shell` module;
 2. `lake build`;
@@ -79,12 +82,13 @@ Open:
 6. every runner under `tests/` that runs lean-mend on a real fixture. The
    script lists them; each step names its runner.
 
-In evm-proof-toolchain, `scripts/lean-mend-gate.sh` runs this gate as a step
-of the monorepo gate. It stores the verdict under a key that covers every file
+In armada-laconic-mono (formerly evm-proof-toolchain), `scripts/lean-mend-gate.sh`
+runs `scripts/gate.sh` as one step of the monorepo's `scripts/gate.sh`. It
+stores the verdict under a key that covers every file
 of `lean-mend/` and the installed toolchains (law LM3), so a commit that does
 not change `lean-mend/` reads the stored verdict.
 
-The gate stops at the first failed step and exits 1. Each step's output goes
+`scripts/gate.sh` stops at the first failed step and exits 1. Each step's output goes
 to stderr. stdout carries one JSON object and nothing else: one key
 `"steps.<step name>.ok"` per step that ran, then `"passed": N` and
 `"failed": 0 or 1`. A failed step is the last step key, with value `false`. An exophial spec observes
@@ -106,12 +110,12 @@ A runner that measures a number records it with `measure NAME N`, as the key
 `passed` or `failed`.
 A runner builds what it runs. A runner that runs lean-mend sources
 `tests/lib/lean-mend.sh`, which builds the binary and sets `$bin`. exophial
-runs each check script alone in its gate container, so a runner cannot
-depend on an earlier gate step.
+runs each check script alone in the container that runs `gate.command`, so a runner cannot
+depend on an earlier step of `scripts/gate.sh`.
 `tests/NoSorry.lean` prints `{"runner": "NoSorry", "checked": N,
 "sorry_dependents": [names]}`. A runner that stops early prints nothing on
 stdout, so a check over its JSON fails. An exophial spec observes these objects
 (`stdout_json`); an exit code alone is a vacuous check, and exophial's SPECIFY
 gate refuses it.
 
-The vocabulary check (stratum 0) is not in the gate yet.
+The vocabulary check (stratum 0) is not a step of `scripts/gate.sh` yet.

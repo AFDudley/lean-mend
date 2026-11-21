@@ -28,8 +28,8 @@ spec_dir: "contracts/specs"
 # high-criticality (critical/catastrophic) filings route to `frontier`.
 intake_derivation:
   tiers:
-    small: "sonnet"
-    frontier: "opus"
+    small: "claude-sonnet-5"
+    frontier: "claude-opus-5"
   thinking_budgets:
     small: 4000
     frontier: 31999
