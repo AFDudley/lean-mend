@@ -2,7 +2,7 @@
 
 One word means one concept. Code, docs and the ledger use these words and no
 synonyms. A new term enters here before it enters code (stratum 0, see
-[docs/process.md](docs/process.md)).
+[process.md](process.md)).
 
 ## The target and its versions
 
@@ -105,12 +105,6 @@ judgment, in `.lean-mend/ledger.jsonl` in the target.
 
 **judgment** (n) — A decision that a person or an agent made and that the
 machine trusts, recorded with who made it, when, and under which doctrine.
-
-**gate** (n) — One check that runs, with an id, a kind (static, mutation or
-execution), the stratum it grades and the inputs it reads. A judgment is not a
-gate. The full run of a repository's checks has no name:
-`.exophial/config.yaml` `gate.command` is the command that runs them, not a
-gate. Not a verb (armada-laconic `glossary.md`, "Gate").
 
 **card** (n) — The form in which a person makes a judgment: the rule in prose,
 the formal statement, the trace, the generated status and the evidence. A card

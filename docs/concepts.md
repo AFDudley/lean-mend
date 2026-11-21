@@ -233,7 +233,7 @@ Lean definitions and theorems, and the implementation is the same Lean code.
   representation fits a program. It does not classify compiler errors. Not
   used.
 - **ACE / DRS / TPTP / eprover.** The Lean-first rulings replace this layer with
-  Lean. lean-mend's vocabulary lives in [glossary.md](../glossary.md) and in Lean
+  Lean. lean-mend's vocabulary lives in [glossary.md](glossary.md) and in Lean
   types, not in ACE.
 
 ## Tensions

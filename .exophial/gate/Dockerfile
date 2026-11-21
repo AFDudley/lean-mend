@@ -17,7 +17,7 @@ FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl git jq bash zstd binutils \
+        ca-certificates curl git jq bash zstd \
     && rm -rf /var/lib/apt/lists/*
 
 ENV ELAN_HOME=/root/.elan HOME=/root

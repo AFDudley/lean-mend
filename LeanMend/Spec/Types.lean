@@ -2,7 +2,7 @@
 # Operands
 
 The typed operands of the machine. See `docs/machine.md` § Operands and
-`glossary.md`. The shell parses raw input into these types once, at the
+`docs/glossary.md`. The shell parses raw input into these types once, at the
 edge (concept B2). This module has no IO.
 -/
 
@@ -27,7 +27,7 @@ def DeclKind.isType : DeclKind → Bool
   | .inductive | .structure | .class => true
   | _ => false
 
-/-- A definition change can change what the target computes (`glossary.md`). -/
+/-- A definition change can change what the target computes (`docs/glossary.md`). -/
 def DeclKind.computes : DeclKind → Bool
   | .def | .instance | .abbrev => true
   | _ => false
@@ -128,7 +128,7 @@ structure Diagnostic where
   text : String
   deriving Repr
 
-/-- The part of a declaration a site is in (`glossary.md`). -/
+/-- The part of a declaration a site is in (`docs/glossary.md`). -/
 inductive SiteRegion where
   | statement | body
   deriving DecidableEq, Repr
