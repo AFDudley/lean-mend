@@ -12,6 +12,12 @@ dispatcher:
 gate:
   command: ["scripts/gate.sh"]
   timeout: 1800
+  # T3.lean (docs/plans/nix-images.md): the Nix flake gate (flake.nix,
+  # nix/gate.nix), not .exophial/gate/Dockerfile. Parity measured
+  # 2026-11-22: the unmodified scripts/gate.sh, same judged tree --
+  # flake image 57/57 steps passed in 1058.88s wall; the existing
+  # Dockerfile-built image 57/57 steps passed in 1078.30s wall.
+  image: flake
 
 # Where `exophial spec generate` writes unified spec instances (repo-relative).
 spec_dir: "contracts/specs"
